@@ -2,6 +2,7 @@ import { Button, Dialog, DialogContent, InlineAlert, Input } from '@firebase-des
 import { useEffect, useRef, useState } from 'react';
 import { CodeEditor } from '../../code-editor/CodeEditor.tsx';
 import { messageFromError } from '../../shared/errors.ts';
+import { confirmDiscardUnsavedChanges } from '../../shared/unsavedDialogGuard.ts';
 import { parseDocumentJson, validateFirestoreDocumentData } from './fieldEditModel.ts';
 
 export interface CreateDocumentModalProps {
@@ -74,8 +75,23 @@ export function CreateDocumentModal(
     };
   }, [draftCollectionPath, onGenerateDocumentId, open]);
 
+  const hasUnsavedChanges = source !== '{}'
+    || idTouched.current
+    || (
+      collectionPathEditable
+      && normalizePath(draftCollectionPath) !== normalizePath(collectionPath ?? '')
+    );
+
+  function requestOpenChange(nextOpen: boolean) {
+    if (
+      !nextOpen && hasUnsavedChanges && !isSaving
+      && !confirmDiscardUnsavedChanges('Discard the new document draft?')
+    ) return;
+    onOpenChange(nextOpen);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={requestOpenChange}>
       <DialogContent
         className='w-[min(760px,calc(100vw-32px))]'
         description={collectionPathEditable ? 'Create the first document' : collectionPath}
@@ -130,7 +146,7 @@ export function CreateDocumentModal(
           {error ? <InlineAlert variant='danger'>{error}</InlineAlert> : null}
         </div>
         <div className='flex justify-end gap-2'>
-          <Button disabled={isSaving} variant='ghost' onClick={() => onOpenChange(false)}>
+          <Button disabled={isSaving} variant='ghost' onClick={() => requestOpenChange(false)}>
             Cancel
           </Button>
           <Button

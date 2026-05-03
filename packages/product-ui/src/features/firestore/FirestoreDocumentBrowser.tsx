@@ -5,7 +5,7 @@ import type {
   SettingsRepository,
 } from '@firebase-desk/repo-contracts';
 import { cn, ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@firebase-desk/ui';
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useMediaQuery } from '../../hooks/useMediaQuery.ts';
 import { messageFromError } from '../../shared/errors.ts';
 import { type FieldEditTarget } from './fieldEditModel.ts';
@@ -19,6 +19,11 @@ import { ResultPanel } from './ResultPanel.tsx';
 import type { FirestoreResultView } from './types.ts';
 
 type CollectionJobKind = 'copy' | 'delete' | 'duplicate' | 'export' | 'import';
+
+const DEFAULT_INSPECTOR_WIDTH = 360;
+const COLLAPSED_INSPECTOR_WIDTH = 42;
+const MIN_INSPECTOR_WIDTH = 280;
+const MAX_INSPECTOR_WIDTH = 520;
 
 export interface FirestoreDocumentBrowserProps {
   readonly className?: string;
@@ -96,6 +101,9 @@ export function FirestoreDocumentBrowser(
   }: FirestoreDocumentBrowserProps,
 ) {
   const [overviewCollapsed, setOverviewCollapsed] = useState(false);
+  const [inspectorWidth, setInspectorWidth] = useState(DEFAULT_INSPECTOR_WIDTH);
+  const [inspectorLayoutRevision, setInspectorLayoutRevision] = useState(0);
+  const inspectorInteractionVersion = useRef(0);
   const [subcollectionStates, setSubcollectionStates] = useState<
     Readonly<Record<string, SubcollectionLoadState>>
   >({});
@@ -113,6 +121,28 @@ export function FirestoreDocumentBrowser(
       ? findDocumentByPath(rowsWithSubcollections, selectedDocumentPath) ?? fallback
       : fallback;
   }, [rowsWithSubcollections, selectedDocument, selectedDocumentPath, subcollectionStates]);
+
+  useEffect(() => {
+    if (!settings) {
+      setInspectorWidth(DEFAULT_INSPECTOR_WIDTH);
+      setInspectorLayoutRevision((revision) => revision + 1);
+      return;
+    }
+    let cancelled = false;
+    const loadInteractionVersion = inspectorInteractionVersion.current;
+    settings.load().then((snapshot) => {
+      if (cancelled || inspectorInteractionVersion.current !== loadInteractionVersion) return;
+      setInspectorWidth(clampInspectorWidth(snapshot.inspectorWidth));
+      setInspectorLayoutRevision((revision) => revision + 1);
+    }).catch((caught) => {
+      if (!cancelled) {
+        onSettingsError?.(messageFromError(caught, 'Could not load inspector layout settings.'));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [onSettingsError, settings]);
 
   async function loadSubcollections(documentPath: string) {
     if (!onLoadSubcollections) return;
@@ -135,6 +165,16 @@ export function FirestoreDocumentBrowser(
         },
       }));
     }
+  }
+
+  function saveInspectorWidth(width: number) {
+    const nextWidth = clampInspectorWidth(width);
+    inspectorInteractionVersion.current += 1;
+    setInspectorWidth(nextWidth);
+    if (!settings) return;
+    void settings.save({ inspectorWidth: nextWidth }).catch((caught) => {
+      onSettingsError?.(messageFromError(caught, 'Could not save inspector layout settings.'));
+    });
   }
 
   const mainColumn = (
@@ -200,7 +240,9 @@ export function FirestoreDocumentBrowser(
       {useSplitLayout
         ? (
           <ResizablePanelGroup
-            key={overviewCollapsed ? 'overview-collapsed' : 'overview-expanded'}
+            key={`${
+              overviewCollapsed ? 'overview-collapsed' : 'overview-expanded'
+            }:${inspectorLayoutRevision}`}
             direction='horizontal'
             className='h-full min-h-0'
           >
@@ -210,9 +252,19 @@ export function FirestoreDocumentBrowser(
             <ResizableHandle className='mx-2 h-full w-px' />
             <ResizablePanel
               className='flex h-full min-h-0 flex-col'
-              defaultSize={overviewCollapsed ? '42px' : '34%'}
-              maxSize={overviewCollapsed ? '42px' : '520px'}
-              minSize={overviewCollapsed ? '42px' : '280px'}
+              defaultSize={overviewCollapsed
+                ? `${COLLAPSED_INSPECTOR_WIDTH}px`
+                : `${inspectorWidth}px`}
+              groupResizeBehavior='preserve-pixel-size'
+              maxSize={overviewCollapsed
+                ? `${COLLAPSED_INSPECTOR_WIDTH}px`
+                : `${MAX_INSPECTOR_WIDTH}px`}
+              minSize={overviewCollapsed
+                ? `${COLLAPSED_INSPECTOR_WIDTH}px`
+                : `${MIN_INSPECTOR_WIDTH}px`}
+              onResize={(size) => {
+                if (!overviewCollapsed) saveInspectorWidth(size.inPixels);
+              }}
             >
               {overviewPanel}
             </ResizablePanel>
@@ -226,4 +278,9 @@ export function FirestoreDocumentBrowser(
         )}
     </div>
   );
+}
+
+function clampInspectorWidth(width: number): number {
+  if (!Number.isFinite(width)) return DEFAULT_INSPECTOR_WIDTH;
+  return Math.min(MAX_INSPECTOR_WIDTH, Math.max(MIN_INSPECTOR_WIDTH, Math.round(width)));
 }

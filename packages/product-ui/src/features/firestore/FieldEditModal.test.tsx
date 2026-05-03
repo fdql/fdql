@@ -1,7 +1,7 @@
 import { FirestoreTimestamp } from '@firebase-desk/data-format';
 import { MockSettingsRepository } from '@firebase-desk/repo-mocks';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppearanceProvider } from '../../appearance/AppearanceProvider.tsx';
 import { FieldEditModal } from './FieldEditModal.tsx';
 import type { FieldEditTarget } from './fieldEditModel.ts';
@@ -20,6 +20,10 @@ vi.mock('../../code-editor/CodeEditor.tsx', () => ({
     />
   ),
 }));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('FieldEditModal', () => {
   it('changes a boolean field to a number', async () => {
@@ -65,6 +69,28 @@ describe('FieldEditModal', () => {
     expect((await screen.findByRole('alert')).textContent).toMatch(/Expected property name|JSON/);
     expect(onSaveField).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it('guards dirty field edits before closing', () => {
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirm);
+    const onOpenChange = vi.fn();
+    render(
+      <AppearanceProvider settings={new MockSettingsRepository()}>
+        <FieldEditModal
+          open
+          target={{ documentPath: 'orders/ord_1', fieldPath: ['active'], value: true }}
+          onOpenChange={onOpenChange}
+          onSaveField={() => {}}
+        />
+      </AppearanceProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'number' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(confirm).toHaveBeenCalledWith('Discard unsaved field changes?');
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it('edits timestamps with a local date time input', async () => {

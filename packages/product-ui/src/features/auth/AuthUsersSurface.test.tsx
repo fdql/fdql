@@ -1,7 +1,7 @@
 import { AUTH_USERS, MockSettingsRepository } from '@firebase-desk/repo-mocks';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppearanceProvider } from '../../appearance/AppearanceProvider.tsx';
 import { AuthUsersSurface } from './AuthUsersSurface.tsx';
 
@@ -37,6 +37,10 @@ describe('AuthUsersSurface', () => {
         removeEventListener: vi.fn(),
       })),
     );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('renders provided users, selects users, and exposes Load more', () => {
@@ -128,6 +132,32 @@ describe('AuthUsersSurface', () => {
 
     expect(await screen.findByText('Custom claims JSON must be an object.')).toBeTruthy();
     expect(onSaveCustomClaims).not.toHaveBeenCalled();
+  });
+
+  it('guards dirty custom claims before closing', async () => {
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirm);
+    renderWithAppearance(
+      <AuthUsersSurface
+        filterValue=''
+        hasMore={false}
+        selectedUserId='u_ada'
+        users={[AUTH_USERS[0]!]}
+        onFilterChange={() => {}}
+        onLoadMore={() => {}}
+        onSaveCustomClaims={() => {}}
+        onSelectUser={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(await screen.findByTestId('monaco'), {
+      target: { value: '{ "role": "owner" }' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(confirm).toHaveBeenCalledWith('Discard unsaved custom claims changes?');
+    expect(screen.getByRole('dialog', { name: 'Custom claims' })).toBeTruthy();
   });
 
   it('surfaces custom claims save errors', async () => {
