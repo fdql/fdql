@@ -2,8 +2,8 @@ import { _electron as electron, type ElectronApplication } from '@playwright/tes
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DESKTOP_DIR = resolve(__dirname, '../../apps/desktop');
+const fixtureDir = dirname(fileURLToPath(import.meta.url));
+const DESKTOP_DIR = resolve(fixtureDir, '../../apps/desktop');
 const MAIN_ENTRY = resolve(DESKTOP_DIR, '.build/out/main/index.js');
 
 export { DESKTOP_DIR };

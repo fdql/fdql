@@ -58,7 +58,7 @@ function emulatorProject(): ProjectSummary {
 }
 
 function settingsFor(db: Firestore): Record<string, unknown> | undefined {
-  return (db as Firestore & { readonly _settings?: Record<string, unknown>; })._settings;
+  return (db as Firestore & { readonly _settings?: Record<string, unknown>; })['_settings'];
 }
 
 function restoreEmulatorHost(): void {

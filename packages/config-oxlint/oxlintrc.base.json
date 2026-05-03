@@ -17,6 +17,14 @@
   },
   "rules": {
     "no-console": "error",
+    "no-underscore-dangle": [
+      "error",
+      {
+        "allow": [
+          "__type__"
+        ]
+      }
+    ],
     "no-unused-vars": "error",
     "import/no-default-export": "error",
     "import/no-cycle": "error",
