@@ -28,10 +28,7 @@ describe('createRepositories', () => {
   it('uses desktop settings in mock data mode when the desktop API is available', async () => {
     const save = vi.fn(async () => ({ ...snapshot, dataMode: 'live' as const }));
     const onDataModeChange = vi.fn();
-    vi.stubGlobal('firebaseDesk', {
-      projects: {
-        list: vi.fn(async () => []),
-      },
+    stubDesktopApi({
       settings: {
         load: vi.fn(async () => snapshot),
         save,
@@ -50,7 +47,7 @@ describe('createRepositories', () => {
   it('uses desktop activity in mock data mode when the desktop API is available', async () => {
     const listActivity = vi.fn(async () => []);
     const listJobs = vi.fn(async () => []);
-    vi.stubGlobal('firebaseDesk', {
+    stubDesktopApi({
       activity: {
         append: vi.fn(),
         clear: vi.fn(),
@@ -58,6 +55,7 @@ describe('createRepositories', () => {
         list: listActivity,
       },
       jobs: {
+        acknowledgeIssues: vi.fn(),
         cancel: vi.fn(),
         clearCompleted: vi.fn(),
         list: listJobs,
@@ -65,15 +63,6 @@ describe('createRepositories', () => {
         pickImportFile: vi.fn(),
         start: vi.fn(),
         subscribe: vi.fn(() => () => {}),
-      },
-      projects: {
-        list: vi.fn(async () => []),
-      },
-      settings: {
-        load: vi.fn(async () => snapshot),
-        save: vi.fn(async () => snapshot),
-        getHotkeyOverrides: vi.fn(async () => ({})),
-        setHotkeyOverrides: vi.fn(async () => {}),
       },
     });
 
@@ -93,24 +82,14 @@ describe('createRepositories', () => {
       errors: [],
       durationMs: 1,
     }));
-    vi.stubGlobal('firebaseDesk', {
+    stubDesktopApi({
       auth: {
+        ...desktopAuthApi(),
         listUsers,
       },
       firestore: {
+        ...desktopFirestoreApi(),
         listRootCollections: vi.fn(async () => []),
-      },
-      jobs: {
-        cancel: vi.fn(),
-        clearCompleted: vi.fn(),
-        list: vi.fn(async () => []),
-        pickExportFile: vi.fn(),
-        pickImportFile: vi.fn(),
-        start: vi.fn(),
-        subscribe: vi.fn(() => () => {}),
-      },
-      projects: {
-        list: vi.fn(async () => []),
       },
       scriptRunner: {
         run: runScript,
@@ -144,4 +123,124 @@ describe('createRepositories', () => {
       source: 'return 1;',
     });
   });
+
+  it('rejects live data mode when the desktop live API is unavailable', async () => {
+    const save = vi.fn(async () => ({ ...snapshot, dataMode: 'live' as const }));
+    const onDataModeChange = vi.fn();
+    vi.stubGlobal('firebaseDesk', {
+      settings: {
+        load: vi.fn(async () => snapshot),
+        save,
+        getHotkeyOverrides: vi.fn(async () => ({})),
+        setHotkeyOverrides: vi.fn(async () => {}),
+      },
+    });
+
+    const repositories = createRepositories({ dataMode: 'mock', onDataModeChange });
+
+    await expect(repositories.settings.save({ dataMode: 'live' })).rejects.toThrow(
+      'Live mode requires the Firebase Desk desktop app.',
+    );
+    expect(save).not.toHaveBeenCalled();
+    expect(onDataModeChange).not.toHaveBeenCalled();
+  });
 });
+
+function stubDesktopApi(overrides: Partial<DesktopApi>): void {
+  vi.stubGlobal('firebaseDesk', {
+    activity: desktopActivityApi(),
+    auth: desktopAuthApi(),
+    firestore: desktopFirestoreApi(),
+    jobs: desktopJobsApi(),
+    projects: desktopProjectsApi(),
+    scriptRunner: desktopScriptRunnerApi(),
+    settings: desktopSettingsApi(),
+    ...overrides,
+  });
+}
+
+function desktopActivityApi(): DesktopActivityApi {
+  return {
+    append: vi.fn(),
+    clear: vi.fn(),
+    export: vi.fn(),
+    list: vi.fn(async () => []),
+  };
+}
+
+function desktopAuthApi(): DesktopAuthApi {
+  return {
+    getUser: vi.fn(async () => null),
+    listUsers: vi.fn(async () => ({ items: [], nextCursor: null })),
+    searchUsers: vi.fn(async () => []),
+    setCustomClaims: vi.fn(async () => authUser()),
+  };
+}
+
+function desktopFirestoreApi(): DesktopFirestoreApi {
+  return {
+    createDocument: vi.fn(),
+    deleteDocument: vi.fn(),
+    generateDocumentId: vi.fn(),
+    getDocument: vi.fn(),
+    listDocuments: vi.fn(),
+    listRootCollections: vi.fn(async () => []),
+    listSubcollections: vi.fn(),
+    runQuery: vi.fn(),
+    saveDocument: vi.fn(),
+    updateDocumentFields: vi.fn(),
+  };
+}
+
+function desktopJobsApi(): DesktopJobsApi {
+  return {
+    acknowledgeIssues: vi.fn(),
+    cancel: vi.fn(),
+    clearCompleted: vi.fn(),
+    list: vi.fn(async () => []),
+    pickExportFile: vi.fn(),
+    pickImportFile: vi.fn(),
+    start: vi.fn(),
+    subscribe: vi.fn(() => () => {}),
+  };
+}
+
+function desktopProjectsApi(): DesktopProjectsApi {
+  return {
+    add: vi.fn(),
+    get: vi.fn(),
+    list: vi.fn(async () => []),
+    pickServiceAccountFile: vi.fn(),
+    remove: vi.fn(),
+    update: vi.fn(),
+    validateServiceAccount: vi.fn(),
+  };
+}
+
+function desktopScriptRunnerApi(): DesktopScriptRunnerApi {
+  return {
+    cancel: vi.fn(async () => {}),
+    run: vi.fn(async () => ({ returnValue: null, logs: [], errors: [], durationMs: 1 })),
+    subscribe: vi.fn(() => () => {}),
+  };
+}
+
+function desktopSettingsApi(): DesktopSettingsApi {
+  return {
+    load: vi.fn(async () => snapshot),
+    save: vi.fn(async () => snapshot),
+    getHotkeyOverrides: vi.fn(async () => ({})),
+    setHotkeyOverrides: vi.fn(async () => {}),
+  };
+}
+
+function authUser(): Awaited<ReturnType<DesktopAuthApi['setCustomClaims']>> {
+  return {
+    customClaims: {},
+    disabled: false,
+    displayName: null,
+    email: null,
+    provider: 'password',
+    uid: 'user-1',
+  };
+}
