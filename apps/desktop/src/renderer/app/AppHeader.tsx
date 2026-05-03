@@ -30,9 +30,12 @@ export function AppHeader(
     resolvedTheme,
   }: AppHeaderProps,
 ) {
+  const reserveTrafficLightSpace = isMacPlatform();
   return (
     <header className='app-region-drag native-titlebar flex min-w-0 items-center gap-2 border-b border-border-subtle bg-bg-panel px-2'>
-      <span className='native-titlebar-traffic-spacer shrink-0' aria-hidden='true' />
+      {reserveTrafficLightSpace
+        ? <span className='native-titlebar-traffic-spacer shrink-0' aria-hidden='true' />
+        : null}
       <div className='app-region-no-drag flex h-full shrink-0 items-center gap-1 border-r border-border-subtle pr-2'>
         <IconButton
           disabled={!canGoBack}
@@ -69,6 +72,11 @@ export function AppHeader(
       </div>
     </header>
   );
+}
+
+function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /\bMac/.test(navigator.platform) || /\bMac OS X\b/.test(navigator.userAgent);
 }
 
 function ThemeSegment(

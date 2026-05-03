@@ -30,14 +30,6 @@
   }
 
   :where(.native-titlebar-traffic-spacer) {
-    display: none;
-  }
-
-  :root[data-platform='darwin'] :where(.native-titlebar) {
-    padding-left: 0.5rem;
-  }
-
-  :root[data-platform='darwin'] :where(.native-titlebar-traffic-spacer) {
     display: block;
     width: 6.25rem;
   }
