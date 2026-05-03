@@ -609,7 +609,9 @@ function estimateDeleteOperationBytes(path: string): number {
 }
 
 function estimateSetOperationBytes(path: string, data: Record<string, unknown>): number {
-  return estimateDeleteOperationBytes(path) + estimateFirestoreDocumentBytes(data);
+  return estimateDeleteOperationBytes(path) + estimateFirestoreDocumentBytes(data, {
+    documentPath: path,
+  });
 }
 
 function isRequestPayloadSizeError(error: unknown): error is Error {
