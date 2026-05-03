@@ -33,6 +33,10 @@ export function JobsDrawer(
         'z-popover grid min-h-0 grid-rows-[auto_minmax(0,1fr)]',
         expanded ? 'h-[70vh] max-h-[720px]' : 'h-80',
       )}
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose();
+      }}
     >
       <header className='flex h-10 items-center gap-2 border-b border-border-subtle px-3'>
         <div className='min-w-0 flex-1 text-sm font-semibold text-text-primary'>Jobs</div>

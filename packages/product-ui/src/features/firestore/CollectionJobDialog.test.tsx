@@ -93,6 +93,38 @@ describe('CollectionJobDialog', () => {
     );
   });
 
+  it('surfaces native picker failures without changing the path', async () => {
+    renderDialog({
+      initialKind: 'export',
+      onPickExportFile: async () => {
+        throw new Error('Save dialog failed');
+      },
+    });
+
+    const filePath = screen.getByRole('textbox', { name: 'Export file path' }) as HTMLInputElement;
+    expect(filePath.readOnly).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+
+    expect(await screen.findByText('Save dialog failed')).toBeTruthy();
+    expect(filePath.value).toBe('');
+  });
+
+  it('treats picker cancel as no-op', async () => {
+    renderDialog({
+      initialKind: 'import',
+      onPickImportFile: async () => null,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+
+    await waitFor(() => {
+      const input = screen.getByRole('textbox', { name: 'Import file path' }) as HTMLInputElement;
+      expect(input.value).toBe('');
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('marks plain JSONL exports as export-only', () => {
     renderDialog({ initialKind: 'export' });
 

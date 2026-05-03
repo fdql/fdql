@@ -40,6 +40,7 @@ export interface DataTableProps<TData> {
   readonly rowContextMenu?: (row: TData) => ReactNode | null;
   readonly rowClassName?: string | ((row: TData) => string | undefined);
   readonly rowHeight?: number;
+  readonly scrollRestorationKey?: string | undefined;
   readonly selectedRowId?: string | null;
 }
 
@@ -60,6 +61,7 @@ export function DataTable<TData>(
     rowContextMenu,
     rowClassName,
     rowHeight,
+    scrollRestorationKey,
     selectedRowId,
   }: DataTableProps<TData>,
 ) {
@@ -128,6 +130,7 @@ export function DataTable<TData>(
           typeof rowClassName === 'function' ? rowClassName(row.original) : rowClassName,
         )}
       {...(rowHeight === undefined ? {} : { rowHeight })}
+      scrollRestorationKey={scrollRestorationKey}
       rows={rows}
       {...(cellContextMenu
         ? {

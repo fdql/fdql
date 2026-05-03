@@ -25,6 +25,7 @@ export interface ResultTableProps {
   readonly onSettingsError?: ((message: string) => void) | undefined;
   readonly onSetFieldNull?: ((target: FieldEditTarget) => void) | undefined;
   readonly queryPath: string;
+  readonly scrollRestorationKey?: string | undefined;
   readonly rows: ReadonlyArray<FirestoreDocumentResult>;
   readonly selectedDocumentPath: string | null;
   readonly settings?: SettingsRepository | undefined;
@@ -52,6 +53,7 @@ export function ResultTable(
     onSettingsError,
     onSetFieldNull,
     queryPath,
+    scrollRestorationKey,
     rows,
     selectedDocumentPath,
     settings,
@@ -171,6 +173,7 @@ export function ResultTable(
         enableColumnResize
         getRowId={(row) => row.document.path}
         onColumnLayoutChange={saveLayout}
+        scrollRestorationKey={scrollRestorationKey}
         cellContextMenu={(row, columnId) =>
           renderCellContextMenu({
             columnId,

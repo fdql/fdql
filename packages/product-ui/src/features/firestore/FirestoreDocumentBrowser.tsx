@@ -58,6 +58,7 @@ export interface FirestoreDocumentBrowserProps {
   readonly onSetFieldNull?: ((target: FieldEditTarget) => void) | undefined;
   readonly queryPath: string;
   readonly resultView: FirestoreResultView;
+  readonly resultsScopeKey?: string | undefined;
   readonly resultsStale?: boolean;
   readonly rows: ReadonlyArray<FirestoreDocumentResult>;
   readonly selectedDocument?: FirestoreDocumentResult | null;
@@ -93,6 +94,7 @@ export function FirestoreDocumentBrowser(
     onSetFieldNull,
     queryPath,
     resultView,
+    resultsScopeKey,
     resultsStale = false,
     rows,
     selectedDocument = null,
@@ -194,6 +196,7 @@ export function FirestoreDocumentBrowser(
         actionNoticeMessage={actionNoticeMessage}
         queryPath={queryPath}
         resultView={resultView}
+        resultsScopeKey={resultsScopeKey ?? queryPath}
         resultsStale={resultsStale}
         rows={rowsWithSubcollections}
         selectedDocumentPath={selectedDocumentPath}

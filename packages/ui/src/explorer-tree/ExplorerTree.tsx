@@ -33,6 +33,7 @@ export interface ExplorerTreeProps<TNode extends ExplorerTreeRowModel = Explorer
   readonly onToggle: (id: string) => void;
   readonly renderAction?: ((node: TNode) => ReactNode) | undefined;
   readonly rows: ReadonlyArray<TNode>;
+  readonly scrollRestorationKey?: string | undefined;
 }
 
 export function ExplorerTree<TNode extends ExplorerTreeRowModel = ExplorerTreeRowModel>(
@@ -46,9 +47,11 @@ export function ExplorerTree<TNode extends ExplorerTreeRowModel = ExplorerTreeRo
     onToggle,
     renderAction,
     rows,
+    scrollRestorationKey,
   }: ExplorerTreeProps<TNode>,
 ) {
   const [focusedIndex, setFocusedIndex] = useState(0);
+  const [scrollToIndex, setScrollToIndex] = useState<number | null>(null);
   const clampedFocusedIndex = rows.length === 0 ? 0 : Math.min(focusedIndex, rows.length - 1);
   const resolvedDensity = density ?? 'compact';
   const rowHeight = densityTokens[resolvedDensity].treeRowHeight;
@@ -61,16 +64,35 @@ export function ExplorerTree<TNode extends ExplorerTreeRowModel = ExplorerTreeRo
     });
   }, [rows.length]);
 
+  const moveFocus = useCallback(
+    (index: number) => {
+      const next = rows.length === 0 ? 0 : Math.min(Math.max(index, 0), rows.length - 1);
+      setFocusedIndex(next);
+      setScrollToIndex(next);
+    },
+    [rows.length],
+  );
+
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>, index: number, node: TNode) => {
       if (event.key === 'ArrowDown') {
         event.preventDefault();
-        setFocusedIndex(Math.min(index + 1, rows.length - 1));
+        moveFocus(index + 1);
         return;
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault();
-        setFocusedIndex(Math.max(index - 1, 0));
+        moveFocus(index - 1);
+        return;
+      }
+      if (event.key === 'Home') {
+        event.preventDefault();
+        moveFocus(0);
+        return;
+      }
+      if (event.key === 'End') {
+        event.preventDefault();
+        moveFocus(rows.length - 1);
         return;
       }
       if (event.key === 'ArrowRight' && node.hasChildren && !node.expanded) {
@@ -92,7 +114,7 @@ export function ExplorerTree<TNode extends ExplorerTreeRowModel = ExplorerTreeRo
         else onOpen?.(node.id);
       }
     },
-    [onOpen, onSelect, onToggle, rows.length],
+    [moveFocus, onOpen, onSelect, onToggle, rows.length],
   );
   return (
     <div className={cn('h-full min-w-[680px] font-mono text-xs', className)} role='tree'>
@@ -116,6 +138,8 @@ export function ExplorerTree<TNode extends ExplorerTreeRowModel = ExplorerTreeRo
         )}
         density={resolvedDensity}
         estimateSize={estimateRowSize}
+        scrollRestorationKey={scrollRestorationKey}
+        scrollToIndex={scrollToIndex}
       />
     </div>
   );
