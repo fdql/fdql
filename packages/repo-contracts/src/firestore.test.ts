@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   assertFirestoreCollectionPath,
   assertFirestoreDocumentPath,
+  estimateFirestoreDocumentBytes,
   firestorePathParts,
   isFirestoreCollectionPath,
   isFirestoreDocumentPath,
@@ -26,5 +27,24 @@ describe('Firestore path helpers', () => {
     expect(() => assertFirestoreDocumentPath('orders')).toThrow(
       'Invalid Firestore document path: orders',
     );
+  });
+});
+
+describe('Firestore document size estimates', () => {
+  it('estimates nested document bytes without runtime-specific APIs', () => {
+    expect(estimateFirestoreDocumentBytes({
+      active: true,
+      name: 'Ada',
+      tags: ['x', 'λ'],
+    })).toBe(191);
+  });
+
+  it('accounts for multibyte strings and nested object keys', () => {
+    expect(estimateFirestoreDocumentBytes({
+      meta: {
+        emoji: '🔥',
+        score: 12,
+      },
+    })).toBe(196);
   });
 });

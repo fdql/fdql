@@ -1,6 +1,8 @@
 import type { Page, PageRequest } from './pagination.ts';
 import type { FirestoreFieldStaleBehavior } from './settings.ts';
 
+const FIRESTORE_ESTIMATED_FIELD_OVERHEAD_BYTES = 32;
+
 export interface FirestoreCollectionNode {
   readonly path: string;
   readonly id: string;
@@ -195,4 +197,48 @@ export function isFirestoreDocumentPath(path: string): boolean {
 export function firestorePathParts(path: string): ReadonlyArray<string> {
   const parts = path.split('/');
   return parts.some((part) => part.length === 0) ? [] : parts;
+}
+
+export function estimateFirestoreDocumentBytes(data: Record<string, unknown>): number {
+  return estimateFirestoreValueBytes(data);
+}
+
+function estimateFirestoreValueBytes(value: unknown): number {
+  if (value === null || value === undefined) return 4;
+  if (typeof value === 'string') return utf8ByteLength(value) + 2;
+  if (typeof value === 'number') return 16;
+  if (typeof value === 'boolean') return 5;
+  if (Array.isArray(value)) {
+    return FIRESTORE_ESTIMATED_FIELD_OVERHEAD_BYTES
+      + value.reduce((total, item) => total + estimateFirestoreValueBytes(item), 0);
+  }
+  if (isPlainObject(value)) {
+    return FIRESTORE_ESTIMATED_FIELD_OVERHEAD_BYTES
+      + Object.entries(value).reduce(
+        (total, [key, item]) =>
+          total
+          + utf8ByteLength(key)
+          + FIRESTORE_ESTIMATED_FIELD_OVERHEAD_BYTES
+          + estimateFirestoreValueBytes(item),
+        0,
+      );
+  }
+  return FIRESTORE_ESTIMATED_FIELD_OVERHEAD_BYTES;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const codePoint = value.codePointAt(index) ?? 0;
+    if (codePoint > 0xffff) index += 1;
+    if (codePoint <= 0x7f) bytes += 1;
+    else if (codePoint <= 0x7ff) bytes += 2;
+    else if (codePoint <= 0xffff) bytes += 3;
+    else bytes += 4;
+  }
+  return bytes;
 }
