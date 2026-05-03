@@ -6,7 +6,7 @@ import monacoEditorPlugin from 'vite-plugin-monaco-editor';
 
 import { mainExternalizeDeps } from './src/main/packaging/main-externalize-deps';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const configDir = dirname(fileURLToPath(import.meta.url));
 const monacoEditorPluginFactory =
   (monacoEditorPlugin as unknown as { default?: typeof monacoEditorPlugin; }).default
     ?? monacoEditorPlugin;
@@ -18,8 +18,8 @@ export default defineConfig({
       outDir: '.build/out/main',
       lib: {
         entry: {
-          index: resolve(__dirname, 'src/main/index.ts'),
-          'script-runner-worker': resolve(__dirname, 'src/main/script-runner-worker.ts'),
+          index: resolve(configDir, 'src/main/index.ts'),
+          'script-runner-worker': resolve(configDir, 'src/main/script-runner-worker.ts'),
         },
         formats: ['es'],
       },
@@ -32,16 +32,16 @@ export default defineConfig({
     build: {
       externalizeDeps: false,
       outDir: '.build/out/preload',
-      lib: { entry: resolve(__dirname, 'src/preload/index.ts'), formats: ['cjs'] },
+      lib: { entry: resolve(configDir, 'src/preload/index.ts'), formats: ['cjs'] },
       rollupOptions: {
         external: ['electron'],
       },
     },
   },
   renderer: {
-    root: resolve(__dirname, 'src/renderer'),
+    root: resolve(configDir, 'src/renderer'),
     css: {
-      postcss: resolve(__dirname, 'postcss.config.cjs'),
+      postcss: resolve(configDir, 'postcss.config.cjs'),
     },
     plugins: [
       react(),
@@ -57,9 +57,9 @@ export default defineConfig({
       }),
     ],
     build: {
-      outDir: resolve(__dirname, '.build/out/renderer'),
+      outDir: resolve(configDir, '.build/out/renderer'),
       rollupOptions: {
-        input: resolve(__dirname, 'src/renderer/index.html'),
+        input: resolve(configDir, 'src/renderer/index.html'),
       },
     },
   },

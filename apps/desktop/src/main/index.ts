@@ -13,7 +13,7 @@ import {
   windowOptionsFromState,
 } from './window-state-store.ts';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const mainDir = dirname(fileURLToPath(import.meta.url));
 const userDataDir = process.env['FIREBASE_DESK_USER_DATA_DIR'];
 
 if (userDataDir) app.setPath('userData', userDataDir);
@@ -28,7 +28,7 @@ async function createWindow(): Promise<void> {
       screen.getAllDisplays().map((display) => display.workArea),
     ),
     webPreferences: {
-      preload: resolve(__dirname, '../preload/index.cjs'),
+      preload: resolve(mainDir, '../preload/index.cjs'),
       contextIsolation: true,
       sandbox: true,
     },
@@ -40,7 +40,7 @@ async function createWindow(): Promise<void> {
   if (process.env['ELECTRON_RENDERER_URL']) {
     await window.loadURL(process.env['ELECTRON_RENDERER_URL']);
   } else {
-    await window.loadFile(resolve(__dirname, '../renderer/index.html'));
+    await window.loadFile(resolve(mainDir, '../renderer/index.html'));
   }
 }
 
