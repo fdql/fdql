@@ -14,21 +14,29 @@ import {
 } from './registry.ts';
 
 const electronMocks = vi.hoisted(() => ({
+  getFocusedWindow: vi.fn(() => null),
   getAllWindows: vi.fn(),
   handle: vi.fn(),
+  notificationIsSupported: vi.fn(() => false),
 }));
 
 vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/tmp/firebase-desk-test'), getVersion: vi.fn(() => '0.0.0') },
-  BrowserWindow: { getAllWindows: electronMocks.getAllWindows },
+  BrowserWindow: {
+    getAllWindows: electronMocks.getAllWindows,
+    getFocusedWindow: electronMocks.getFocusedWindow,
+  },
   dialog: { showOpenDialog: vi.fn() },
   ipcMain: { handle: electronMocks.handle },
+  Menu: { buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn() },
+  nativeTheme: { themeSource: 'system' },
+  Notification: { isSupported: electronMocks.notificationIsSupported },
   safeStorage: {
     isEncryptionAvailable: () => false,
     encryptString: (value: string) => Buffer.from(value),
     decryptString: (value: Buffer) => value.toString('utf8'),
   },
-  shell: { openPath: vi.fn() },
+  shell: { openExternal: vi.fn(), openPath: vi.fn() },
 }));
 
 describe('IPC handler registry', () => {

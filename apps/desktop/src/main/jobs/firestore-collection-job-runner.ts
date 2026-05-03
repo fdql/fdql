@@ -1,6 +1,7 @@
 import {
   assertFirestoreCollectionPath,
   assertFirestoreDocumentPath,
+  estimateFirestoreDocumentBytes,
   firestorePathParts,
 } from '@firebase-desk/repo-contracts';
 import type {
@@ -18,7 +19,6 @@ import {
   FieldPath,
   type Firestore,
   type QueryDocumentSnapshot,
-  type WriteBatch,
 } from 'firebase-admin/firestore';
 import { once } from 'node:events';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -27,14 +27,21 @@ import { basename, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 
 const PAGE_SIZE = 250;
+const DEFAULT_WRITE_BATCH_MAX_BYTES = 8 * 1024 * 1024;
 const WRITE_BATCH_LIMIT = 500;
+const WRITE_OPERATION_OVERHEAD_BYTES = 512;
 
 type MutableProgress = {
   -readonly [K in keyof BackgroundJobProgress]: BackgroundJobProgress[K];
 };
 
+type BatchOperation =
+  | { readonly path: string; readonly type: 'delete'; }
+  | { readonly data: DocumentData; readonly path: string; readonly type: 'set'; };
+
 export interface FirestoreCollectionJobRunnerOptions {
   readonly tempDirectory: string;
+  readonly writeBatchMaxBytes?: number | undefined;
 }
 
 export interface JobCancellationSignal {
@@ -103,7 +110,7 @@ export class FirestoreCollectionJobRunner {
     assertFirestoreCollectionPath(request.targetCollectionPath);
     const sourceDb = await this.firestore(request.sourceConnectionId);
     const targetDb = await this.firestore(request.targetConnectionId);
-    const batcher = new BatchWriter(targetDb);
+    const batcher = new BatchWriter(targetDb, this.writeBatchMaxBytes());
     const progress = progressCounter();
     let chunk: QueryDocumentSnapshot[] = [];
 
@@ -153,7 +160,7 @@ export class FirestoreCollectionJobRunner {
   ): Promise<void> {
     assertFirestoreCollectionPath(request.collectionPath);
     const db = await this.firestore(request.connectionId);
-    const batcher = new BatchWriter(db);
+    const batcher = new BatchWriter(db, this.writeBatchMaxBytes());
     const progress = progressCounter();
     for await (
       const doc of streamCollectionDocumentsForDelete(
@@ -166,9 +173,8 @@ export class FirestoreCollectionJobRunner {
       assertNotCancelled(signal);
       progress.read += 1;
       progress.currentPath = doc.ref.path;
-      batcher.delete(doc.ref.path);
+      await batcher.delete(doc.ref.path, signal);
       progress.deleted += 1;
-      await commitIfFull(batcher, signal);
       await sink.update(progress);
     }
     assertNotCancelled(signal);
@@ -282,7 +288,7 @@ export class FirestoreCollectionJobRunner {
   ): Promise<void> {
     assertFirestoreCollectionPath(request.targetCollectionPath);
     const db = await this.firestore(request.connectionId);
-    const batcher = new BatchWriter(db);
+    const batcher = new BatchWriter(db, this.writeBatchMaxBytes());
     const progress = progressCounter();
     const input = createReadStream(request.filePath, { encoding: 'utf8' });
     const lines = createInterface({ crlfDelay: Infinity, input });
@@ -310,6 +316,10 @@ export class FirestoreCollectionJobRunner {
 
   private async firestore(connectionId: string): Promise<Firestore> {
     return (await this.provider.getFirestoreConnection(connectionId)).db;
+  }
+
+  private writeBatchMaxBytes(): number {
+    return this.options.writeBatchMaxBytes ?? DEFAULT_WRITE_BATCH_MAX_BYTES;
   }
 
   private async copyDocumentChunk(
@@ -343,9 +353,14 @@ export class FirestoreCollectionJobRunner {
         await sink.update(progress);
         continue;
       }
-      batcher.set(targetPath, decodeAdminData(targetDb, encodeAdminData(doc.data())));
+      const encodedData = encodeAdminData(doc.data());
+      await batcher.set(
+        targetPath,
+        decodeAdminData(targetDb, encodedData),
+        estimateSetOperationBytes(targetPath, encodedData),
+        signal,
+      );
       progress.written += 1;
-      await commitIfFull(batcher, signal);
       await sink.update(progress);
     }
     // oxlint-enable no-await-in-loop
@@ -353,40 +368,85 @@ export class FirestoreCollectionJobRunner {
 }
 
 class BatchWriter {
-  private batch: WriteBatch;
-  private count = 0;
+  private pendingOperations: BatchOperation[] = [];
+  private estimatedBytes = 0;
 
-  constructor(private readonly db: Firestore) {
-    this.batch = db.batch();
-  }
+  constructor(
+    private readonly db: Firestore,
+    private readonly maxBytes: number,
+  ) {}
 
-  delete(path: string): void {
-    this.batch.delete(this.db.doc(path));
-    this.count += 1;
+  async delete(path: string, signal: JobCancellationSignal): Promise<void> {
+    const operationBytes = estimateDeleteOperationBytes(path);
+    await this.commitBeforeOverflow(operationBytes, signal);
+    this.pendingOperations.push({ path, type: 'delete' });
+    this.estimatedBytes += operationBytes;
   }
 
   async commit(): Promise<void> {
-    if (this.count === 0) return;
-    const batch = this.batch;
-    this.batch = this.db.batch();
-    this.count = 0;
+    if (this.pendingOperations.length === 0) return;
+    const operations = this.pendingOperations;
+    this.pendingOperations = [];
+    this.estimatedBytes = 0;
+    await this.commitOperations(operations);
+  }
+
+  async set(
+    path: string,
+    data: DocumentData,
+    operationBytes: number,
+    signal: JobCancellationSignal,
+  ): Promise<void> {
+    await this.commitBeforeOverflow(operationBytes, signal);
+    this.pendingOperations.push({ data, path, type: 'set' });
+    this.estimatedBytes += operationBytes;
+  }
+
+  private async commitOperations(operations: ReadonlyArray<BatchOperation>): Promise<void> {
+    try {
+      await this.commitOperationBatch(operations);
+    } catch (error) {
+      if (!isRequestPayloadSizeError(error)) throw error;
+      if (operations.length === 1) {
+        throw new Error(
+          `Firestore write exceeds request payload limit for ${
+            operations[0]?.path ?? 'unknown document'
+          }. ${error.message}`,
+          { cause: error },
+        );
+      }
+      const splitIndex = Math.ceil(operations.length / 2);
+      await this.commitOperations(operations.slice(0, splitIndex));
+      await this.commitOperations(operations.slice(splitIndex));
+    }
+  }
+
+  private async commitOperationBatch(operations: ReadonlyArray<BatchOperation>): Promise<void> {
+    const batch = this.db.batch();
+    for (const operation of operations) {
+      if (operation.type === 'delete') {
+        batch.delete(this.db.doc(operation.path));
+        continue;
+      }
+      batch.set(this.db.doc(operation.path), operation.data);
+    }
     await batch.commit();
   }
 
-  isFull(): boolean {
-    return this.count >= WRITE_BATCH_LIMIT;
+  private async commitBeforeOverflow(
+    operationBytes: number,
+    signal: JobCancellationSignal,
+  ): Promise<void> {
+    if (
+      this.pendingOperations.length === 0
+      || (this.pendingOperations.length < WRITE_BATCH_LIMIT
+        && this.estimatedBytes + operationBytes <= this.maxBytes)
+    ) {
+      return;
+    }
+    assertNotCancelled(signal);
+    await this.commit();
   }
-
-  set(path: string, data: DocumentData): void {
-    this.batch.set(this.db.doc(path), data);
-    this.count += 1;
-  }
-}
-
-async function commitIfFull(batcher: BatchWriter, signal: JobCancellationSignal): Promise<void> {
-  if (!batcher.isFull()) return;
-  assertNotCancelled(signal);
-  await batcher.commit();
 }
 
 async function* streamCollectionDocuments(
@@ -471,9 +531,13 @@ async function writeImportChunk(
       await sink.update(progress);
       continue;
     }
-    batcher.set(item.targetPath, decodeAdminData(db, item.data));
+    await batcher.set(
+      item.targetPath,
+      decodeAdminData(db, item.data),
+      estimateSetOperationBytes(item.targetPath, item.data),
+      signal,
+    );
     progress.written += 1;
-    await commitIfFull(batcher, signal);
     await sink.update(progress);
   }
   // oxlint-enable no-await-in-loop
@@ -538,6 +602,21 @@ function progressCounter(): MutableProgress {
     skipped: 0,
     written: 0,
   };
+}
+
+function estimateDeleteOperationBytes(path: string): number {
+  return WRITE_OPERATION_OVERHEAD_BYTES + Buffer.byteLength(path, 'utf8');
+}
+
+function estimateSetOperationBytes(path: string, data: Record<string, unknown>): number {
+  return estimateDeleteOperationBytes(path) + estimateFirestoreDocumentBytes(data, {
+    documentPath: path,
+  });
+}
+
+function isRequestPayloadSizeError(error: unknown): error is Error {
+  return error instanceof Error
+    && /request payload size exceeds the limit/i.test(error.message);
 }
 
 function assertNotCancelled(signal: JobCancellationSignal): void {

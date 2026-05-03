@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { MainActivityLogRepository } from '../activity/main-activity-log-repository.ts';
 import { MainBackgroundJobRepository } from '../jobs/background-job-repository.ts';
 import { FirestoreCollectionJobRunner } from '../jobs/firestore-collection-job-runner.ts';
+import { createBackgroundJobNotifier } from '../native-app.ts';
 import { MainProjectsRepository } from '../projects/main-projects-repository.ts';
 import { MainSettingsRepository } from '../settings/main-settings-repository.ts';
 import { ActivityLogStore } from '../storage/activity-log-store.ts';
@@ -85,7 +86,11 @@ export function registerIpcHandlers(): void {
     }),
     activityLogRepository,
   );
-  jobsRepository.subscribe(broadcastBackgroundJobEvent);
+  const notifyBackgroundJob = createBackgroundJobNotifier();
+  jobsRepository.subscribe((event) => {
+    broadcastBackgroundJobEvent(event);
+    notifyBackgroundJob(event);
+  });
   void jobsRepository.initialize();
   const authProvider = new AdminAuthProvider(connectionResolver);
   const scriptRunnerRepository = new ProcessScriptRunnerRepository(connectionResolver, {

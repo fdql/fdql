@@ -21,6 +21,19 @@
     user-select: none;
   }
 
+  :where(.app-region-drag) {
+    -webkit-app-region: drag;
+  }
+
+  :where(.app-region-no-drag, button, a, [role='button'], [role='tab'], [role='menuitem'], input, select, textarea, [contenteditable='true']) {
+    -webkit-app-region: no-drag;
+  }
+
+  :where(.native-titlebar-traffic-spacer) {
+    display: block;
+    width: 6.25rem;
+  }
+
   :where(input, textarea, [contenteditable='true'], .select-text, .select-text *, .monaco-editor, .monaco-editor *) {
     user-select: text;
   }

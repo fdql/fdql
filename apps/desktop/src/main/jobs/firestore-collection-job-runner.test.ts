@@ -66,6 +66,53 @@ describe('FirestoreCollectionJobRunner', () => {
     expect(db.commits.flat()).toEqual(['orders_copy/order_1']);
   });
 
+  it('splits copy writes by estimated request payload size', async () => {
+    const db = new FakeFirestore(
+      { orders: ['orders/order_1', 'orders/order_2', 'orders/order_3'] },
+      {
+        'orders/order_1': { body: 'x'.repeat(120) },
+        'orders/order_2': { body: 'x'.repeat(120) },
+        'orders/order_3': { body: 'x'.repeat(120) },
+      },
+    );
+    const runner = new FirestoreCollectionJobRunner(provider(db), {
+      tempDirectory: '/tmp',
+      writeBatchMaxBytes: 1000,
+    });
+
+    await runner.run(copyJob('overwrite'), neverCancelled(), { update: vi.fn() });
+
+    expect(db.commits.map((commit) => commit.length)).toEqual([1, 1, 1]);
+  });
+
+  it('retries oversized copy commits as smaller batches', async () => {
+    const db = new FakeFirestore(
+      { orders: ['orders/order_1', 'orders/order_2', 'orders/order_3', 'orders/order_4'] },
+      {},
+      { rejectCommitsOver: 2 },
+    );
+    const runner = new FirestoreCollectionJobRunner(provider(db), { tempDirectory: '/tmp' });
+
+    await runner.run(copyJob('overwrite'), neverCancelled(), { update: vi.fn() });
+
+    expect(db.commits).toEqual([
+      ['orders_copy/order_1', 'orders_copy/order_2'],
+      ['orders_copy/order_3', 'orders_copy/order_4'],
+    ]);
+  });
+
+  it('reports the document path when one copy write exceeds request payload size', async () => {
+    const db = new FakeFirestore(
+      { orders: ['orders/order_1'] },
+      {},
+      { rejectCommitsOver: 0 },
+    );
+    const runner = new FirestoreCollectionJobRunner(provider(db), { tempDirectory: '/tmp' });
+
+    await expect(runner.run(copyJob('overwrite'), neverCancelled(), { update: vi.fn() }))
+      .rejects.toThrow('orders_copy/order_1');
+  });
+
   it('imports encoded JSONL with batched collision checks', async () => {
     const dir = await makeTempDir();
     const filePath = join(dir, 'import.jsonl');
@@ -135,6 +182,7 @@ class FakeFirestore {
   constructor(
     private readonly docsByCollection: Record<string, string[]>,
     private readonly dataByPath: Record<string, Record<string, unknown>> = {},
+    private readonly options: { readonly rejectCommitsOver?: number; } = {},
   ) {
     this.existingPaths = new Set(Object.values(docsByCollection).flat());
   }
@@ -143,6 +191,12 @@ class FakeFirestore {
     const paths: string[] = [];
     return {
       commit: async () => {
+        if (
+          this.options.rejectCommitsOver !== undefined
+          && paths.length > this.options.rejectCommitsOver
+        ) {
+          throw new Error('Request payload size exceeds the limit: 11534336 bytes.');
+        }
         this.commits.push([...paths]);
       },
       delete: (ref: { readonly path: string; }) => {

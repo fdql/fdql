@@ -114,3 +114,18 @@ const api = {
 export type DesktopApi = typeof api;
 
 contextBridge.exposeInMainWorld('firebaseDesk', api);
+installPlatformDataset();
+
+function installPlatformDataset(): void {
+  setPlatformDataset();
+  if (globalThis.document?.readyState === 'loading') {
+    globalThis.window?.addEventListener('DOMContentLoaded', setPlatformDataset, { once: true });
+  }
+}
+
+function setPlatformDataset(): void {
+  const platform = globalThis.process?.platform;
+  const root = globalThis.document?.documentElement;
+  if (typeof platform !== 'string' || !root) return;
+  root.dataset.platform = platform;
+}

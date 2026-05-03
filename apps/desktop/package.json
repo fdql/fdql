@@ -1,6 +1,6 @@
 {
   "name": "@firebase-desk/desktop",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "license": "MIT",
   "description": "Firebase Desk Electron application.",
