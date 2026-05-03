@@ -1,5 +1,5 @@
 import { JOB_EVENT_CHANNEL, SCRIPT_RUN_EVENT_CHANNEL } from '@firebase-desk/ipc-schemas';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DesktopApi } from './index.ts';
 
 const electronMocks = vi.hoisted(() => ({
@@ -25,6 +25,20 @@ describe('preload script runner api', () => {
     vi.resetModules();
     vi.clearAllMocks();
     await import('./index.ts');
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('exposes the desktop api when document is unavailable', async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.stubGlobal('document', undefined);
+
+    await import('./index.ts');
+
+    expect(exposedApi().app.getConfig).toEqual(expect.any(Function));
   });
 
   it('subscribes and unsubscribes to script runner events', () => {
