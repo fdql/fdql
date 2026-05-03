@@ -5,7 +5,7 @@ import type {
   SettingsRepository,
 } from '@firebase-desk/repo-contracts';
 import { cn, ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@firebase-desk/ui';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useMediaQuery } from '../../hooks/useMediaQuery.ts';
 import { messageFromError } from '../../shared/errors.ts';
 import { type FieldEditTarget } from './fieldEditModel.ts';
@@ -21,6 +21,7 @@ import type { FirestoreResultView } from './types.ts';
 type CollectionJobKind = 'copy' | 'delete' | 'duplicate' | 'export' | 'import';
 
 const DEFAULT_INSPECTOR_WIDTH = 360;
+const COLLAPSED_INSPECTOR_WIDTH = 42;
 const MIN_INSPECTOR_WIDTH = 280;
 const MAX_INSPECTOR_WIDTH = 520;
 
@@ -102,6 +103,7 @@ export function FirestoreDocumentBrowser(
   const [overviewCollapsed, setOverviewCollapsed] = useState(false);
   const [inspectorWidth, setInspectorWidth] = useState(DEFAULT_INSPECTOR_WIDTH);
   const [inspectorLayoutRevision, setInspectorLayoutRevision] = useState(0);
+  const inspectorInteractionVersion = useRef(0);
   const [subcollectionStates, setSubcollectionStates] = useState<
     Readonly<Record<string, SubcollectionLoadState>>
   >({});
@@ -127,8 +129,9 @@ export function FirestoreDocumentBrowser(
       return;
     }
     let cancelled = false;
+    const loadInteractionVersion = inspectorInteractionVersion.current;
     settings.load().then((snapshot) => {
-      if (cancelled) return;
+      if (cancelled || inspectorInteractionVersion.current !== loadInteractionVersion) return;
       setInspectorWidth(clampInspectorWidth(snapshot.inspectorWidth));
       setInspectorLayoutRevision((revision) => revision + 1);
     }).catch((caught) => {
@@ -166,6 +169,7 @@ export function FirestoreDocumentBrowser(
 
   function saveInspectorWidth(width: number) {
     const nextWidth = clampInspectorWidth(width);
+    inspectorInteractionVersion.current += 1;
     setInspectorWidth(nextWidth);
     if (!settings) return;
     void settings.save({ inspectorWidth: nextWidth }).catch((caught) => {
@@ -248,10 +252,16 @@ export function FirestoreDocumentBrowser(
             <ResizableHandle className='mx-2 h-full w-px' />
             <ResizablePanel
               className='flex h-full min-h-0 flex-col'
-              defaultSize={overviewCollapsed ? '42px' : `${inspectorWidth}px`}
+              defaultSize={overviewCollapsed
+                ? `${COLLAPSED_INSPECTOR_WIDTH}px`
+                : `${inspectorWidth}px`}
               groupResizeBehavior='preserve-pixel-size'
-              maxSize={overviewCollapsed ? '42px' : '520px'}
-              minSize={overviewCollapsed ? '42px' : '280px'}
+              maxSize={overviewCollapsed
+                ? `${COLLAPSED_INSPECTOR_WIDTH}px`
+                : `${MAX_INSPECTOR_WIDTH}px`}
+              minSize={overviewCollapsed
+                ? `${COLLAPSED_INSPECTOR_WIDTH}px`
+                : `${MIN_INSPECTOR_WIDTH}px`}
               onResize={(size) => {
                 if (!overviewCollapsed) saveInspectorWidth(size.inPixels);
               }}

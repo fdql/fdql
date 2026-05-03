@@ -1,4 +1,4 @@
-import type { FirestoreDocumentResult } from '@firebase-desk/repo-contracts';
+import type { FirestoreDocumentResult, SettingsRepository } from '@firebase-desk/repo-contracts';
 import { MockSettingsRepository } from '@firebase-desk/repo-mocks';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -132,4 +132,45 @@ describe('FirestoreDocumentBrowser', () => {
 
     await waitFor(() => expect(save).toHaveBeenCalledWith({ inspectorWidth: 512 }));
   });
+
+  it('keeps a user resize when settings load resolves late', async () => {
+    const snapshotSource = new MockSettingsRepository();
+    await snapshotSource.save({ inspectorWidth: 444 });
+    const load = deferred<Awaited<ReturnType<SettingsRepository['load']>>>();
+    const settings: SettingsRepository = {
+      load: vi.fn(() => load.promise),
+      save: vi.fn(async () => await snapshotSource.load()),
+      getHotkeyOverrides: vi.fn(async () => ({})),
+      setHotkeyOverrides: vi.fn(async () => {}),
+    };
+
+    render(
+      <FirestoreDocumentBrowser
+        hasMore={false}
+        queryPath='orders'
+        resultView='table'
+        rows={[]}
+        settings={settings}
+        onLoadMore={() => {}}
+        onResultViewChange={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'resize 360px' }));
+    await waitFor(() => expect(screen.getByTestId('panel-512px')).toBeTruthy());
+
+    load.resolve(await snapshotSource.load());
+    await Promise.resolve();
+
+    expect(screen.queryByTestId('panel-444px')).toBeNull();
+    expect(screen.getByTestId('panel-512px')).toBeTruthy();
+  });
 });
+
+function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void; } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver;
+  });
+  return { promise, resolve };
+}

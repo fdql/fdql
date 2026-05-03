@@ -1,6 +1,6 @@
 import { MockSettingsRepository } from '@firebase-desk/repo-mocks';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppearanceProvider } from '../../appearance/AppearanceProvider.tsx';
 import { CreateDocumentModal } from './CreateDocumentModal.tsx';
 
@@ -18,6 +18,10 @@ vi.mock('../../code-editor/CodeEditor.tsx', () => ({
     />
   ),
 }));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('CreateDocumentModal', () => {
   it('generates an ID, allows override, and creates object JSON', async () => {
@@ -93,6 +97,32 @@ describe('CreateDocumentModal', () => {
         status: 'created',
       })
     );
+  });
+
+  it('guards dirty new document drafts before closing', async () => {
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirm);
+    const onOpenChange = vi.fn();
+    render(
+      <AppearanceProvider settings={new MockSettingsRepository()}>
+        <CreateDocumentModal
+          collectionPath='orders'
+          open
+          onCreateDocument={vi.fn<CreateDocument>()}
+          onGenerateDocumentId={() => 'generated_id'}
+          onOpenChange={onOpenChange}
+        />
+      </AppearanceProvider>,
+    );
+
+    expect(await screen.findByDisplayValue('generated_id')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Document JSON'), {
+      target: { value: '{"status":"draft"}' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(confirm).toHaveBeenCalledWith('Discard the new document draft?');
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 });
 
