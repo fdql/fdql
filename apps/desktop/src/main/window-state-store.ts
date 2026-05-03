@@ -31,14 +31,27 @@ const WindowStateFileSchema = z.object({
 });
 
 export async function loadMainWindowState(userDataPath: string): Promise<MainWindowState | null> {
+  let raw: string;
   try {
-    const raw = await readFile(windowStatePath(userDataPath), 'utf8');
-    const parsed = WindowStateFileSchema.safeParse(JSON.parse(raw) as unknown);
-    if (!parsed.success) return null;
-    return normalizeWindowState(parsed.data.state);
-  } catch {
+    raw = await readFile(windowStatePath(userDataPath), 'utf8');
+  } catch (error) {
+    if (isNodeErrorCode(error, 'ENOENT')) return null;
+    throw error;
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(raw) as unknown;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+
+  const parsed = WindowStateFileSchema.safeParse(value);
+  if (!parsed.success) {
     return null;
   }
+  return normalizeWindowState(parsed.data.state);
 }
 
 export async function saveMainWindowState(
@@ -69,13 +82,13 @@ export function trackMainWindowState(window: BrowserWindow, userDataPath: string
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveTimer = null;
-      void saveMainWindowState(userDataPath, snapshotWindowState(window));
+      saveMainWindowStateSafely(userDataPath, snapshotWindowState(window));
     }, 250);
   };
   const saveNow = () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = null;
-    void saveMainWindowState(userDataPath, snapshotWindowState(window));
+    saveMainWindowStateSafely(userDataPath, snapshotWindowState(window));
   };
   window.on('move', scheduleSave);
   window.on('resize', scheduleSave);
@@ -90,6 +103,10 @@ function snapshotWindowState(window: BrowserWindow): MainWindowState {
     bounds: maximized ? window.getNormalBounds() : window.getBounds(),
     maximized,
   };
+}
+
+function saveMainWindowStateSafely(userDataPath: string, state: MainWindowState): void {
+  void saveMainWindowState(userDataPath, state).catch(() => undefined);
 }
 
 function normalizeWindowState(state: MainWindowState): MainWindowState {
@@ -114,4 +131,10 @@ function overlapsAnyDisplay(bounds: Rectangle, displayAreas: ReadonlyArray<Displ
 
 function windowStatePath(userDataPath: string): string {
   return join(userDataPath, 'window-state.json');
+}
+
+function isNodeErrorCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error
+    && 'code' in error
+    && (error as NodeJS.ErrnoException).code === code;
 }

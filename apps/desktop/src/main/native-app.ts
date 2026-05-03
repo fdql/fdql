@@ -18,6 +18,7 @@ import {
 } from './main-window-constants.ts';
 import {
   backgroundJobNotificationForEvent,
+  isInternalAppNavigation,
   type NativeContextMenuAction,
   nativeContextMenuActions,
   shouldOpenExternally,
@@ -59,16 +60,19 @@ export function mainWindowDefaults(): BrowserWindowConstructorOptions {
 export function installNativeWindowBehavior(window: BrowserWindow): void {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (shouldOpenExternally(url, window.webContents.getURL())) {
-      void shell.openExternal(url);
-      return { action: 'deny' };
+      openExternalSafely(url);
     }
-    return { action: 'allow' };
+    return { action: 'deny' };
   });
 
   window.webContents.on('will-navigate', (event, url) => {
-    if (!shouldOpenExternally(url, window.webContents.getURL())) return;
+    const currentUrl = window.webContents.getURL();
+    if (!shouldOpenExternally(url, currentUrl)) {
+      if (!isInternalAppNavigation(url, currentUrl)) event.preventDefault();
+      return;
+    }
     event.preventDefault();
-    void shell.openExternal(url);
+    openExternalSafely(url);
   });
 
   window.webContents.on('context-menu', (_event, params) => {
@@ -196,7 +200,7 @@ function contextMenuItem(
   if (action === 'open-link') {
     return {
       click: () => {
-        if (params.linkURL) void shell.openExternal(params.linkURL);
+        if (params.linkURL) openExternalSafely(params.linkURL);
       },
       label: 'Open Link in Browser',
     };
@@ -235,6 +239,10 @@ function focusApp(): void {
   if (window.isMinimized()) window.restore();
   window.show();
   window.focus();
+}
+
+function openExternalSafely(url: string): void {
+  void shell.openExternal(url).catch(() => undefined);
 }
 
 function isDevelopmentRuntime(): boolean {

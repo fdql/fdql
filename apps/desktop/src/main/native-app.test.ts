@@ -1,6 +1,7 @@
 import type { BackgroundJob } from '@firebase-desk/repo-contracts/jobs';
-import { describe, expect, it, vi } from 'vitest';
-import { createBackgroundJobNotifier } from './native-app.ts';
+import { type BrowserWindow, shell } from 'electron';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createBackgroundJobNotifier, installNativeWindowBehavior } from './native-app.ts';
 
 type ShowNotification = NonNullable<
   Parameters<typeof createBackgroundJobNotifier>[0]
@@ -17,6 +18,38 @@ vi.mock('electron', () => ({
   Notification: { isSupported: vi.fn(() => true) },
   shell: { openExternal: vi.fn() },
 }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe('native window behavior', () => {
+  it('denies popups while opening external popup URLs in the browser', () => {
+    const externalUrl = 'https://firebase.google.com/docs';
+    const harness = nativeWindowHarness('file:///app/index.html');
+    vi.mocked(shell.openExternal).mockResolvedValue(undefined);
+
+    installNativeWindowBehavior(harness.window);
+
+    expect(harness.openWindow(externalUrl)).toEqual({ action: 'deny' });
+    expect(harness.openWindow('file:///app/index.html#/settings')).toEqual({ action: 'deny' });
+    expect(shell.openExternal).toHaveBeenCalledWith(externalUrl);
+  });
+
+  it('blocks non-app navigations and opens external navigations in the browser', () => {
+    const externalUrl = 'https://firebase.google.com/docs';
+    const harness = nativeWindowHarness('file:///app/index.html');
+    vi.mocked(shell.openExternal).mockResolvedValue(undefined);
+
+    installNativeWindowBehavior(harness.window);
+
+    expect(harness.navigate('file:///app/index.html#/settings').preventDefault).not
+      .toHaveBeenCalled();
+    expect(harness.navigate('about:blank').preventDefault).toHaveBeenCalled();
+    expect(harness.navigate(externalUrl).preventDefault).toHaveBeenCalled();
+    expect(shell.openExternal).toHaveBeenCalledWith(externalUrl);
+  });
+});
 
 describe('background job notifier', () => {
   it('dedupes final job notifications', () => {
@@ -66,6 +99,44 @@ describe('background job notifier', () => {
     expect(showNotification).toHaveBeenCalledTimes(502);
   });
 });
+
+type WindowOpenHandler = Parameters<BrowserWindow['webContents']['setWindowOpenHandler']>[0];
+type WillNavigateHandler = (
+  event: { readonly preventDefault: () => void; },
+  url: string,
+) => void;
+
+function nativeWindowHarness(currentUrl: string): {
+  readonly navigate: (url: string) => { readonly preventDefault: ReturnType<typeof vi.fn>; };
+  readonly openWindow: (url: string) => ReturnType<WindowOpenHandler>;
+  readonly window: BrowserWindow;
+} {
+  let openHandler: WindowOpenHandler | null = null;
+  let willNavigateHandler: WillNavigateHandler | null = null;
+  const webContents = {
+    getURL: vi.fn(() => currentUrl),
+    inspectElement: vi.fn(),
+    on: vi.fn((event: string, handler: WillNavigateHandler) => {
+      if (event === 'will-navigate') willNavigateHandler = handler;
+    }),
+    setWindowOpenHandler: vi.fn((handler: WindowOpenHandler) => {
+      openHandler = handler;
+    }),
+  };
+  return {
+    navigate: (url) => {
+      if (!willNavigateHandler) throw new Error('will-navigate handler missing');
+      const event = { preventDefault: vi.fn() };
+      willNavigateHandler(event, url);
+      return event;
+    },
+    openWindow: (url) => {
+      if (!openHandler) throw new Error('window open handler missing');
+      return openHandler({ url } as Parameters<WindowOpenHandler>[0]);
+    },
+    window: { webContents } as unknown as BrowserWindow,
+  };
+}
 
 function notifier(
   showNotification: ShowNotification,

@@ -2,6 +2,7 @@ import type { BackgroundJob } from '@firebase-desk/repo-contracts/jobs';
 import { describe, expect, it } from 'vitest';
 import {
   backgroundJobNotificationForEvent,
+  isInternalAppNavigation,
   nativeContextMenuActions,
   shouldOpenExternally,
 } from './native-app-policy.ts';
@@ -16,6 +17,17 @@ describe('native app policy', () => {
       .toBe(false);
     expect(shouldOpenExternally('mailto:team@example.com', 'https://app.example/shell')).toBe(true);
     expect(shouldOpenExternally('file:///tmp/data.json', 'file:///app/index.html')).toBe(false);
+  });
+
+  it('allows only app shell navigation internally', () => {
+    expect(isInternalAppNavigation('file:///app/index.html#/settings', 'file:///app/index.html'))
+      .toBe(true);
+    expect(isInternalAppNavigation('file:///tmp/data.json', 'file:///app/index.html')).toBe(
+      false,
+    );
+    expect(isInternalAppNavigation('https://app.example/next', 'https://app.example/shell'))
+      .toBe(true);
+    expect(isInternalAppNavigation('about:blank', 'https://app.example/shell')).toBe(false);
   });
 
   it('uses native edit actions for editable context menus', () => {

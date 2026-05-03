@@ -36,9 +36,21 @@ export function shouldOpenExternally(targetUrl: string, currentUrl: string): boo
   if (!target || !externalProtocols.has(target.protocol)) return false;
   if (target.protocol === 'mailto:') return true;
 
+  return !isInternalAppNavigation(targetUrl, currentUrl);
+}
+
+export function isInternalAppNavigation(targetUrl: string, currentUrl: string): boolean {
+  const target = parseUrl(targetUrl);
   const current = parseUrl(currentUrl);
-  if (!current || !externalProtocols.has(current.protocol)) return true;
-  return target.origin !== current.origin;
+  if (!target || !current) return false;
+  if (target.protocol === 'file:' && current.protocol === 'file:') {
+    return target.pathname === current.pathname;
+  }
+  if (!externalProtocols.has(target.protocol) || !externalProtocols.has(current.protocol)) {
+    return false;
+  }
+  if (target.protocol === 'mailto:' || current.protocol === 'mailto:') return false;
+  return target.origin === current.origin;
 }
 
 export function nativeContextMenuActions(
