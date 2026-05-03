@@ -125,6 +125,36 @@ describe('CollectionJobDialog', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('clears stale export picker errors when a later picker is canceled', async () => {
+    const onPickExportFile = vi
+      .fn<NonNullable<ComponentProps<typeof CollectionJobDialog>['onPickExportFile']>>()
+      .mockRejectedValueOnce(new Error('Save dialog failed'))
+      .mockResolvedValueOnce(null);
+    renderDialog({ initialKind: 'export', onPickExportFile });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+    expect(await screen.findByText('Save dialog failed')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
+  it('clears stale import picker errors when a later picker is canceled', async () => {
+    const onPickImportFile = vi
+      .fn<NonNullable<ComponentProps<typeof CollectionJobDialog>['onPickImportFile']>>()
+      .mockRejectedValueOnce(new Error('Open dialog failed'))
+      .mockResolvedValueOnce(null);
+    renderDialog({ initialKind: 'import', onPickImportFile });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+    expect(await screen.findByText('Open dialog failed')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
   it('marks plain JSONL exports as export-only', () => {
     renderDialog({ initialKind: 'export' });
 

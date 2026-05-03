@@ -34,7 +34,7 @@ describe('native app behavior', () => {
     expect(nativeTheme.themeSource).toBe('system');
     expect(Menu.setApplicationMenu).toHaveBeenCalledTimes(1);
     if (process.platform === 'win32') {
-      expect(app.setAppUserModelId).toHaveBeenCalledWith('com.firebase-desk.app');
+      expect(app.setAppUserModelId).toHaveBeenCalledWith('dev.firebase-desk.app');
     } else {
       expect(app.setAppUserModelId).not.toHaveBeenCalled();
     }

@@ -21,8 +21,8 @@ export function JsonPreview(
   const [text, setText] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
-  const onTextareaScroll = useScrollRestoration(scrollRestorationKey, textareaRef);
-  const onPreScroll = useScrollRestoration(scrollRestorationKey, preRef);
+  const onTextareaScroll = useScrollRestoration(scrollRestorationKey, textareaRef, text);
+  const onPreScroll = useScrollRestoration(scrollRestorationKey, preRef, text);
 
   useEffect(() => {
     if (!active) {

@@ -66,10 +66,10 @@ export function CollectionJobDialog(
 
   async function chooseExportFile() {
     try {
+      setErrorMessage(null);
       const picked = await onPickExportFile?.(format);
       if (picked) {
         setFilePath(picked);
-        setErrorMessage(null);
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Could not choose export file.');
@@ -78,10 +78,10 @@ export function CollectionJobDialog(
 
   async function chooseImportFile() {
     try {
+      setErrorMessage(null);
       const picked = await onPickImportFile?.();
       if (picked) {
         setFilePath(picked);
-        setErrorMessage(null);
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Could not choose import file.');

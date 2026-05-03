@@ -10,6 +10,7 @@ const scrollPositions = new Map<string, ScrollPosition>();
 export function useScrollRestoration<TElement extends HTMLElement>(
   key: string | null | undefined,
   ref: RefObject<TElement | null>,
+  restoreSignal?: unknown,
 ): (event: UIEvent<TElement>) => void {
   useLayoutEffect(() => {
     if (!key) return;
@@ -19,7 +20,7 @@ export function useScrollRestoration<TElement extends HTMLElement>(
     if (!position) return;
     element.scrollLeft = position.left;
     element.scrollTop = position.top;
-  }, [key, ref]);
+  }, [key, ref, restoreSignal]);
 
   return useCallback(
     (event: UIEvent<TElement>) => {

@@ -35,7 +35,7 @@ interface BackgroundJobNotifierDeps {
 }
 
 const MAX_NOTIFIED_BACKGROUND_JOB_IDS = 500;
-const WINDOWS_APP_USER_MODEL_ID = 'com.firebase-desk.app';
+const WINDOWS_APP_USER_MODEL_ID = 'dev.firebase-desk.app';
 
 export function installNativeAppBehavior(): void {
   nativeTheme.themeSource = 'system';
