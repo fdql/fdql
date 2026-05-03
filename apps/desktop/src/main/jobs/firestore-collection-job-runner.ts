@@ -18,7 +18,6 @@ import {
   FieldPath,
   type Firestore,
   type QueryDocumentSnapshot,
-  type WriteBatch,
 } from 'firebase-admin/firestore';
 import { once } from 'node:events';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -34,6 +33,10 @@ const WRITE_OPERATION_OVERHEAD_BYTES = 512;
 type MutableProgress = {
   -readonly [K in keyof BackgroundJobProgress]: BackgroundJobProgress[K];
 };
+
+type BatchOperation =
+  | { readonly path: string; readonly type: 'delete'; }
+  | { readonly data: DocumentData; readonly path: string; readonly type: 'set'; };
 
 export interface FirestoreCollectionJobRunnerOptions {
   readonly tempDirectory: string;
@@ -364,32 +367,27 @@ export class FirestoreCollectionJobRunner {
 }
 
 class BatchWriter {
-  private batch: WriteBatch;
-  private count = 0;
+  private pendingOperations: BatchOperation[] = [];
   private estimatedBytes = 0;
 
   constructor(
     private readonly db: Firestore,
     private readonly maxBytes: number,
-  ) {
-    this.batch = db.batch();
-  }
+  ) {}
 
   async delete(path: string, signal: JobCancellationSignal): Promise<void> {
     const operationBytes = estimateDeleteOperationBytes(path);
     await this.commitBeforeOverflow(operationBytes, signal);
-    this.batch.delete(this.db.doc(path));
-    this.count += 1;
+    this.pendingOperations.push({ path, type: 'delete' });
     this.estimatedBytes += operationBytes;
   }
 
   async commit(): Promise<void> {
-    if (this.count === 0) return;
-    const batch = this.batch;
-    this.batch = this.db.batch();
-    this.count = 0;
+    if (this.pendingOperations.length === 0) return;
+    const operations = this.pendingOperations;
+    this.pendingOperations = [];
     this.estimatedBytes = 0;
-    await batch.commit();
+    await this.commitOperations(operations);
   }
 
   async set(
@@ -399,9 +397,31 @@ class BatchWriter {
     signal: JobCancellationSignal,
   ): Promise<void> {
     await this.commitBeforeOverflow(operationBytes, signal);
-    this.batch.set(this.db.doc(path), data);
-    this.count += 1;
+    this.pendingOperations.push({ data, path, type: 'set' });
     this.estimatedBytes += operationBytes;
+  }
+
+  private async commitOperations(operations: ReadonlyArray<BatchOperation>): Promise<void> {
+    try {
+      await this.commitOperationBatch(operations);
+    } catch (error) {
+      if (!isRequestPayloadSizeError(error) || operations.length === 1) throw error;
+      const splitIndex = Math.ceil(operations.length / 2);
+      await this.commitOperations(operations.slice(0, splitIndex));
+      await this.commitOperations(operations.slice(splitIndex));
+    }
+  }
+
+  private async commitOperationBatch(operations: ReadonlyArray<BatchOperation>): Promise<void> {
+    const batch = this.db.batch();
+    for (const operation of operations) {
+      if (operation.type === 'delete') {
+        batch.delete(this.db.doc(operation.path));
+        continue;
+      }
+      batch.set(this.db.doc(operation.path), operation.data);
+    }
+    await batch.commit();
   }
 
   private async commitBeforeOverflow(
@@ -409,8 +429,9 @@ class BatchWriter {
     signal: JobCancellationSignal,
   ): Promise<void> {
     if (
-      this.count === 0
-      || (this.count < WRITE_BATCH_LIMIT && this.estimatedBytes + operationBytes <= this.maxBytes)
+      this.pendingOperations.length === 0
+      || (this.pendingOperations.length < WRITE_BATCH_LIMIT
+        && this.estimatedBytes + operationBytes <= this.maxBytes)
     ) {
       return;
     }
@@ -581,6 +602,11 @@ function estimateDeleteOperationBytes(path: string): number {
 function estimateSetOperationBytes(path: string, data: unknown): number {
   return estimateDeleteOperationBytes(path)
     + Buffer.byteLength(JSON.stringify(data) ?? 'null', 'utf8');
+}
+
+function isRequestPayloadSizeError(error: unknown): boolean {
+  return error instanceof Error
+    && /request payload size exceeds the limit/i.test(error.message);
 }
 
 function assertNotCancelled(signal: JobCancellationSignal): void {
