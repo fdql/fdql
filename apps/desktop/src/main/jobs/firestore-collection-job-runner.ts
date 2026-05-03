@@ -405,7 +405,15 @@ class BatchWriter {
     try {
       await this.commitOperationBatch(operations);
     } catch (error) {
-      if (!isRequestPayloadSizeError(error) || operations.length === 1) throw error;
+      if (!isRequestPayloadSizeError(error)) throw error;
+      if (operations.length === 1) {
+        throw new Error(
+          `Firestore write exceeds request payload limit for ${
+            operations[0]?.path ?? 'unknown document'
+          }. ${error.message}`,
+          { cause: error },
+        );
+      }
       const splitIndex = Math.ceil(operations.length / 2);
       await this.commitOperations(operations.slice(0, splitIndex));
       await this.commitOperations(operations.slice(splitIndex));
@@ -604,7 +612,7 @@ function estimateSetOperationBytes(path: string, data: unknown): number {
     + Buffer.byteLength(JSON.stringify(data) ?? 'null', 'utf8');
 }
 
-function isRequestPayloadSizeError(error: unknown): boolean {
+function isRequestPayloadSizeError(error: unknown): error is Error {
   return error instanceof Error
     && /request payload size exceeds the limit/i.test(error.message);
 }

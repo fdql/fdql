@@ -101,6 +101,18 @@ describe('FirestoreCollectionJobRunner', () => {
     ]);
   });
 
+  it('reports the document path when one copy write exceeds request payload size', async () => {
+    const db = new FakeFirestore(
+      { orders: ['orders/order_1'] },
+      {},
+      { rejectCommitsOver: 0 },
+    );
+    const runner = new FirestoreCollectionJobRunner(provider(db), { tempDirectory: '/tmp' });
+
+    await expect(runner.run(copyJob('overwrite'), neverCancelled(), { update: vi.fn() }))
+      .rejects.toThrow('orders_copy/order_1');
+  });
+
   it('imports encoded JSONL with batched collision checks', async () => {
     const dir = await makeTempDir();
     const filePath = join(dir, 'import.jsonl');
@@ -179,7 +191,10 @@ class FakeFirestore {
     const paths: string[] = [];
     return {
       commit: async () => {
-        if (this.options.rejectCommitsOver && paths.length > this.options.rejectCommitsOver) {
+        if (
+          this.options.rejectCommitsOver !== undefined
+          && paths.length > this.options.rejectCommitsOver
+        ) {
           throw new Error('Request payload size exceeds the limit: 11534336 bytes.');
         }
         this.commits.push([...paths]);
