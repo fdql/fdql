@@ -22,6 +22,7 @@ import { useEffect, useState } from 'react';
 import { CodeEditor } from '../../code-editor/CodeEditor.tsx';
 import { useMediaQuery } from '../../hooks/useMediaQuery.ts';
 import { messageFromError } from '../../shared/errors.ts';
+import { confirmDiscardUnsavedChanges } from '../../shared/unsavedDialogGuard.ts';
 
 export interface AuthUsersSurfaceProps {
   readonly density?: DensityName | undefined;
@@ -326,7 +327,7 @@ function DetailItem({ label, value }: { readonly label: string; readonly value: 
       <span className='text-[11.5px] font-semibold uppercase tracking-normal text-text-muted'>
         {label}
       </span>
-      <span className='min-w-0 overflow-hidden text-ellipsis break-words font-medium text-text-primary'>
+      <span className='min-w-0 select-text overflow-hidden text-ellipsis break-words font-medium text-text-primary'>
         {value}
       </span>
     </div>
@@ -357,19 +358,32 @@ function ClaimsEditorModal(
   },
 ) {
   const [source, setSource] = useState('{}');
+  const [baselineSource, setBaselineSource] = useState('{}');
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (open && user) {
-      setSource(JSON.stringify(user.customClaims, null, 2));
+      const nextSource = JSON.stringify(user.customClaims, null, 2);
+      setBaselineSource(nextSource);
+      setSource(nextSource);
       setError(null);
       setIsSaving(false);
     }
   }, [open, user]);
 
+  const hasUnsavedChanges = source !== baselineSource;
+
+  function requestOpenChange(nextOpen: boolean) {
+    if (
+      !nextOpen && hasUnsavedChanges && !isSaving
+      && !confirmDiscardUnsavedChanges('Discard unsaved custom claims changes?')
+    ) return;
+    onOpenChange(nextOpen);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={requestOpenChange}>
       <DialogContent
         className='w-[min(680px,calc(100vw-32px))]'
         description={user?.uid ?? null}
@@ -385,7 +399,7 @@ function ClaimsEditorModal(
         </div>
         {error ? <InlineAlert variant='danger'>{error}</InlineAlert> : null}
         <div className='flex justify-end gap-2'>
-          <Button disabled={isSaving} variant='ghost' onClick={() => onOpenChange(false)}>
+          <Button disabled={isSaving} variant='ghost' onClick={() => requestOpenChange(false)}>
             Cancel
           </Button>
           <Button

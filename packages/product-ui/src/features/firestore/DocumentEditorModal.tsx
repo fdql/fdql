@@ -3,6 +3,7 @@ import { Button, Dialog, DialogContent, InlineAlert } from '@firebase-desk/ui';
 import { useEffect, useState } from 'react';
 import { CodeEditor } from '../../code-editor/CodeEditor.tsx';
 import { messageFromError } from '../../shared/errors.ts';
+import { confirmDiscardUnsavedChanges } from '../../shared/unsavedDialogGuard.ts';
 import { parseDocumentJson, validateFirestoreDocumentData } from './fieldEditModel.ts';
 
 export interface DocumentEditorModalProps {
@@ -21,19 +22,32 @@ export function DocumentEditorModal(
   { document, onSaveDocument, onOpenChange, open }: DocumentEditorModalProps,
 ) {
   const [source, setSource] = useState('{}');
+  const [baselineSource, setBaselineSource] = useState('{}');
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (document) {
-      setSource(JSON.stringify(document.data, null, 2));
+      const nextSource = JSON.stringify(document.data, null, 2);
+      setBaselineSource(nextSource);
+      setSource(nextSource);
       setError(null);
       setIsSaving(false);
     }
   }, [document]);
 
+  const hasUnsavedChanges = source !== baselineSource;
+
+  function requestOpenChange(nextOpen: boolean) {
+    if (
+      !nextOpen && hasUnsavedChanges && !isSaving
+      && !confirmDiscardUnsavedChanges('Discard unsaved document changes?')
+    ) return;
+    onOpenChange(nextOpen);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={requestOpenChange}>
       <DialogContent
         className='w-[min(760px,calc(100vw-32px))]'
         description={document?.path ?? null}
@@ -51,7 +65,7 @@ export function DocumentEditorModal(
         </div>
         {error ? <InlineAlert variant='danger'>{error}</InlineAlert> : null}
         <div className='flex justify-end gap-2'>
-          <Button disabled={isSaving} variant='ghost' onClick={() => onOpenChange(false)}>
+          <Button disabled={isSaving} variant='ghost' onClick={() => requestOpenChange(false)}>
             Cancel
           </Button>
           <Button

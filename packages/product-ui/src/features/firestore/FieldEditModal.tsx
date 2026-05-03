@@ -2,6 +2,7 @@ import { Button, Dialog, DialogContent, InlineAlert, Input } from '@firebase-des
 import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../../code-editor/CodeEditor.tsx';
 import { messageFromError } from '../../shared/errors.ts';
+import { confirmDiscardUnsavedChanges } from '../../shared/unsavedDialogGuard.ts';
 import {
   classifyFieldValue,
   defaultValueForType,
@@ -37,14 +38,19 @@ export function FieldEditModal(
   );
   const [type, setType] = useState<FirestoreEditableType>(initialType);
   const [source, setSource] = useState('null');
+  const [baselineSource, setBaselineSource] = useState('null');
+  const [baselineType, setBaselineType] = useState<FirestoreEditableType>(initialType);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!target) return;
     const nextType = classifyFieldValue(target.value).type;
+    const nextSource = JSON.stringify(normalizeEditableValue(target.value), null, 2);
+    setBaselineType(nextType);
+    setBaselineSource(nextSource);
     setType(nextType);
-    setSource(JSON.stringify(normalizeEditableValue(target.value), null, 2));
+    setSource(nextSource);
     setError(null);
     setIsSaving(false);
   }, [target]);
@@ -61,9 +67,18 @@ export function FieldEditModal(
 
   const parsedValue = safeParse(source);
   const showJsonEditor = type === 'array' || type === 'map';
+  const hasUnsavedChanges = type !== baselineType || source !== baselineSource;
+
+  function requestOpenChange(nextOpen: boolean) {
+    if (
+      !nextOpen && hasUnsavedChanges && !isSaving
+      && !confirmDiscardUnsavedChanges('Discard unsaved field changes?')
+    ) return;
+    onOpenChange(nextOpen);
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={requestOpenChange}>
       <DialogContent
         className='w-[min(680px,calc(100vw-32px))]'
         description={target ? target.documentPath : null}
@@ -115,7 +130,7 @@ export function FieldEditModal(
           {error ? <InlineAlert variant='danger'>{error}</InlineAlert> : null}
         </div>
         <div className='flex justify-end gap-2'>
-          <Button disabled={isSaving} variant='ghost' onClick={() => onOpenChange(false)}>
+          <Button disabled={isSaving} variant='ghost' onClick={() => requestOpenChange(false)}>
             Cancel
           </Button>
           <Button
