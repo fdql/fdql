@@ -28,6 +28,7 @@ import { createInterface } from 'node:readline/promises';
 const PAGE_SIZE = 250;
 const DEFAULT_WRITE_BATCH_MAX_BYTES = 8 * 1024 * 1024;
 const WRITE_BATCH_LIMIT = 500;
+const WRITE_FIELD_OVERHEAD_BYTES = 32;
 const WRITE_OPERATION_OVERHEAD_BYTES = 512;
 
 type MutableProgress = {
@@ -608,8 +609,30 @@ function estimateDeleteOperationBytes(path: string): number {
 }
 
 function estimateSetOperationBytes(path: string, data: unknown): number {
-  return estimateDeleteOperationBytes(path)
-    + Buffer.byteLength(JSON.stringify(data) ?? 'null', 'utf8');
+  return estimateDeleteOperationBytes(path) + estimateValueBytes(data);
+}
+
+function estimateValueBytes(value: unknown): number {
+  if (value === null || value === undefined) return 4;
+  if (typeof value === 'string') return Buffer.byteLength(value, 'utf8') + 2;
+  if (typeof value === 'number') return 16;
+  if (typeof value === 'boolean') return 5;
+  if (Array.isArray(value)) {
+    return WRITE_FIELD_OVERHEAD_BYTES
+      + value.reduce((total, item) => total + estimateValueBytes(item), 0);
+  }
+  if (isPlainObject(value)) {
+    return WRITE_FIELD_OVERHEAD_BYTES
+      + Object.entries(value).reduce(
+        (total, [key, item]) =>
+          total
+          + Buffer.byteLength(key, 'utf8')
+          + WRITE_FIELD_OVERHEAD_BYTES
+          + estimateValueBytes(item),
+        0,
+      );
+  }
+  return WRITE_FIELD_OVERHEAD_BYTES;
 }
 
 function isRequestPayloadSizeError(error: unknown): error is Error {

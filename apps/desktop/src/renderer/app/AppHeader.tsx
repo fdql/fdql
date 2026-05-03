@@ -75,6 +75,10 @@ export function AppHeader(
 }
 
 function isMacPlatform(): boolean {
+  const preloadPlatform = typeof document === 'undefined'
+    ? undefined
+    : document.documentElement.dataset.platform;
+  if (preloadPlatform) return preloadPlatform === 'darwin';
   if (typeof navigator === 'undefined') return false;
   return /\bMac/.test(navigator.platform) || /\bMac OS X\b/.test(navigator.userAgent);
 }

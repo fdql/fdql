@@ -3,12 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppHeader } from './AppHeader.tsx';
 
 afterEach(() => {
+  delete document.documentElement.dataset.platform;
   vi.unstubAllGlobals();
 });
 
 describe('AppHeader', () => {
-  it('reserves macOS traffic light space from the renderer platform', () => {
-    stubNavigator('MacIntel', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)');
+  it('reserves macOS traffic light space from the preload platform', () => {
+    document.documentElement.dataset.platform = 'darwin';
+    stubNavigator('Win32', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
 
     const { container } = render(<AppHeader {...props()} />);
 
@@ -16,7 +18,8 @@ describe('AppHeader', () => {
   });
 
   it('does not reserve traffic light space on other platforms', () => {
-    stubNavigator('Win32', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+    document.documentElement.dataset.platform = 'win32';
+    stubNavigator('MacIntel', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)');
 
     const { container } = render(<AppHeader {...props()} />);
 
