@@ -66,6 +66,25 @@ describe('FirestoreCollectionJobRunner', () => {
     expect(db.commits.flat()).toEqual(['orders_copy/order_1']);
   });
 
+  it('splits copy writes by estimated request payload size', async () => {
+    const db = new FakeFirestore(
+      { orders: ['orders/order_1', 'orders/order_2', 'orders/order_3'] },
+      {
+        'orders/order_1': { body: 'x'.repeat(120) },
+        'orders/order_2': { body: 'x'.repeat(120) },
+        'orders/order_3': { body: 'x'.repeat(120) },
+      },
+    );
+    const runner = new FirestoreCollectionJobRunner(provider(db), {
+      tempDirectory: '/tmp',
+      writeBatchMaxBytes: 1000,
+    });
+
+    await runner.run(copyJob('overwrite'), neverCancelled(), { update: vi.fn() });
+
+    expect(db.commits.map((commit) => commit.length)).toEqual([1, 1, 1]);
+  });
+
   it('imports encoded JSONL with batched collision checks', async () => {
     const dir = await makeTempDir();
     const filePath = join(dir, 'import.jsonl');
