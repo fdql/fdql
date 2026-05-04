@@ -39,6 +39,8 @@ type BatchOperation =
   | { readonly path: string; readonly type: 'delete'; }
   | { readonly data: DocumentData; readonly path: string; readonly type: 'set'; };
 
+type CollectionCountSink = (count: number) => Promise<void>;
+
 export interface FirestoreCollectionJobRunnerOptions {
   readonly tempDirectory: string;
   readonly writeBatchMaxBytes?: number | undefined;
@@ -112,6 +114,7 @@ export class FirestoreCollectionJobRunner {
     const targetDb = await this.firestore(request.targetConnectionId);
     const batcher = new BatchWriter(targetDb, this.writeBatchMaxBytes());
     const progress = progressCounter();
+    const countSink = collectionCountSink(progress, sink);
     let chunk: QueryDocumentSnapshot[] = [];
 
     for await (
@@ -120,6 +123,7 @@ export class FirestoreCollectionJobRunner {
         request.sourceCollectionPath,
         request.includeSubcollections,
         signal,
+        countSink,
       )
     ) {
       assertNotCancelled(signal);
@@ -162,12 +166,14 @@ export class FirestoreCollectionJobRunner {
     const db = await this.firestore(request.connectionId);
     const batcher = new BatchWriter(db, this.writeBatchMaxBytes());
     const progress = progressCounter();
+    const countSink = collectionCountSink(progress, sink);
     for await (
       const doc of streamCollectionDocumentsForDelete(
         db,
         request.collectionPath,
         request.includeSubcollections,
         signal,
+        countSink,
       )
     ) {
       assertNotCancelled(signal);
@@ -198,6 +204,7 @@ export class FirestoreCollectionJobRunner {
     }
     const db = await this.firestore(request.connectionId);
     const progress = progressCounter();
+    const countSink = collectionCountSink(progress, sink);
     const stream = createWriteStream(request.filePath, { encoding: 'utf8' });
     try {
       for await (
@@ -206,6 +213,7 @@ export class FirestoreCollectionJobRunner {
           request.collectionPath,
           request.includeSubcollections,
           signal,
+          countSink,
         )
       ) {
         assertNotCancelled(signal);
@@ -239,6 +247,7 @@ export class FirestoreCollectionJobRunner {
   ): Promise<void> {
     const db = await this.firestore(request.connectionId);
     const progress = progressCounter();
+    const countSink = collectionCountSink(progress, sink);
     const columns = new Set<string>(['path']);
     await mkdir(this.options.tempDirectory, { recursive: true });
     const tempPath = join(
@@ -253,6 +262,7 @@ export class FirestoreCollectionJobRunner {
           request.collectionPath,
           request.includeSubcollections,
           signal,
+          countSink,
         )
       ) {
         assertNotCancelled(signal);
@@ -290,6 +300,8 @@ export class FirestoreCollectionJobRunner {
     const db = await this.firestore(request.connectionId);
     const batcher = new BatchWriter(db, this.writeBatchMaxBytes());
     const progress = progressCounter();
+    progress.total = await countImportItems(request.filePath, signal);
+    await sink.update(progress);
     const input = createReadStream(request.filePath, { encoding: 'utf8' });
     const lines = createInterface({ crlfDelay: Infinity, input });
     let chunk: Array<{ readonly data: Record<string, unknown>; readonly targetPath: string; }> = [];
@@ -311,6 +323,7 @@ export class FirestoreCollectionJobRunner {
       await sink.update({ ...progress, currentPath: undefined });
     } finally {
       lines.close();
+      await destroyStream(input);
     }
   }
 
@@ -406,10 +419,10 @@ class BatchWriter {
     try {
       await this.commitOperationBatch(operations);
     } catch (error) {
-      if (!isRequestPayloadSizeError(error)) throw error;
+      if (!isOversizedWriteBatchError(error)) throw error;
       if (operations.length === 1) {
         throw new Error(
-          `Firestore write exceeds request payload limit for ${
+          `Firestore write exceeds size limit for ${
             operations[0]?.path ?? 'unknown document'
           }. ${error.message}`,
           { cause: error },
@@ -454,13 +467,15 @@ async function* streamCollectionDocuments(
   collectionPath: string,
   includeSubcollections: boolean,
   signal: JobCancellationSignal,
+  onCollectionCount?: CollectionCountSink | undefined,
 ): AsyncGenerator<QueryDocumentSnapshot> {
+  await countCollectionIfRequested(db, collectionPath, signal, onCollectionCount);
   for await (const doc of streamDirectCollectionDocuments(db, collectionPath, signal)) {
     yield doc;
     if (!includeSubcollections) continue;
     const subcollections = await doc.ref.listCollections();
     for (const subcollection of subcollections) {
-      yield* streamCollectionDocuments(db, subcollection.path, true, signal);
+      yield* streamCollectionDocuments(db, subcollection.path, true, signal, onCollectionCount);
     }
   }
 }
@@ -470,16 +485,71 @@ async function* streamCollectionDocumentsForDelete(
   collectionPath: string,
   includeSubcollections: boolean,
   signal: JobCancellationSignal,
+  onCollectionCount?: CollectionCountSink | undefined,
 ): AsyncGenerator<QueryDocumentSnapshot> {
-  for await (const doc of streamDirectCollectionDocuments(db, collectionPath, signal)) {
+  await countCollectionIfRequested(db, collectionPath, signal, onCollectionCount);
+  for await (const doc of streamDirectCollectionDocumentRefs(db, collectionPath, signal)) {
     if (includeSubcollections) {
       const subcollections = await doc.ref.listCollections();
       for (const subcollection of subcollections) {
-        yield* streamCollectionDocumentsForDelete(db, subcollection.path, true, signal);
+        yield* streamCollectionDocumentsForDelete(
+          db,
+          subcollection.path,
+          true,
+          signal,
+          onCollectionCount,
+        );
       }
     }
     yield doc;
   }
+}
+
+async function* streamDirectCollectionDocumentRefs(
+  db: Firestore,
+  collectionPath: string,
+  signal: JobCancellationSignal,
+): AsyncGenerator<QueryDocumentSnapshot> {
+  let last: QueryDocumentSnapshot | null = null;
+  while (true) {
+    assertNotCancelled(signal);
+    let query = db.collection(collectionPath)
+      .orderBy(FieldPath.documentId())
+      .select()
+      .limit(PAGE_SIZE);
+    if (last) query = query.startAfter(last);
+    // eslint-disable-next-line no-await-in-loop -- Each page depends on the previous cursor.
+    const snapshot = await query.get();
+    if (snapshot.empty) return;
+    for (const doc of snapshot.docs) {
+      assertNotCancelled(signal);
+      yield doc;
+    }
+    last = snapshot.docs[snapshot.docs.length - 1] ?? null;
+    if (!last || snapshot.docs.length < PAGE_SIZE) return;
+  }
+}
+
+async function countCollectionIfRequested(
+  db: Firestore,
+  collectionPath: string,
+  signal: JobCancellationSignal,
+  onCollectionCount: CollectionCountSink | undefined,
+): Promise<void> {
+  if (!onCollectionCount) return;
+  const count = await countDirectCollectionDocuments(db, collectionPath, signal);
+  await onCollectionCount(count);
+}
+
+async function countDirectCollectionDocuments(
+  db: Firestore,
+  collectionPath: string,
+  signal: JobCancellationSignal,
+): Promise<number> {
+  assertNotCancelled(signal);
+  const snapshot = await db.collection(collectionPath).count().get();
+  assertNotCancelled(signal);
+  return snapshot.data().count;
 }
 
 async function* streamDirectCollectionDocuments(
@@ -604,6 +674,35 @@ function progressCounter(): MutableProgress {
   };
 }
 
+function collectionCountSink(
+  progress: MutableProgress,
+  sink: JobProgressSink,
+): CollectionCountSink {
+  return async (count) => {
+    progress.total = (progress.total ?? 0) + count;
+    await sink.update(progress);
+  };
+}
+
+async function countImportItems(
+  filePath: string,
+  signal: JobCancellationSignal,
+): Promise<number> {
+  const input = createReadStream(filePath, { encoding: 'utf8' });
+  const lines = createInterface({ crlfDelay: Infinity, input });
+  let total = 0;
+  try {
+    for await (const line of lines) {
+      assertNotCancelled(signal);
+      if (line.trim()) total += 1;
+    }
+  } finally {
+    lines.close();
+    await destroyStream(input);
+  }
+  return total;
+}
+
 function estimateDeleteOperationBytes(path: string): number {
   return WRITE_OPERATION_OVERHEAD_BYTES + Buffer.byteLength(path, 'utf8');
 }
@@ -614,9 +713,13 @@ function estimateSetOperationBytes(path: string, data: Record<string, unknown>):
   });
 }
 
-function isRequestPayloadSizeError(error: unknown): error is Error {
+function isOversizedWriteBatchError(error: unknown): error is Error {
   return error instanceof Error
-    && /request payload size exceeds the limit/i.test(error.message);
+    && (
+      /request payload size exceeds the limit/i.test(error.message)
+      || /transaction too big/i.test(error.message)
+      || /decrease transaction size/i.test(error.message)
+    );
 }
 
 function assertNotCancelled(signal: JobCancellationSignal): void {
@@ -712,15 +815,15 @@ async function endStream(stream: NodeJS.WritableStream): Promise<void> {
   await once(stream, 'finish');
 }
 
-async function destroyStream(stream: NodeJS.WritableStream): Promise<void> {
-  const writable = stream as NodeJS.WritableStream & {
+async function destroyStream(stream: NodeJS.ReadableStream | NodeJS.WritableStream): Promise<void> {
+  const destroyable = stream as (NodeJS.ReadableStream | NodeJS.WritableStream) & {
     readonly closed?: boolean;
     readonly destroyed?: boolean;
     destroy: () => void;
   };
-  if (writable.closed) return;
+  if (destroyable.closed) return;
   const closed = once(stream, 'close').catch(() => undefined);
-  if (!writable.destroyed) writable.destroy();
+  if (!destroyable.destroyed) destroyable.destroy();
   await closed;
 }
 

@@ -121,12 +121,13 @@ function JobRow(
             style={{ width: `${progressPercent}%` }}
           />
         </div>
-        <div className='grid grid-cols-5 gap-2 font-mono text-text-secondary'>
+        <div className='grid grid-cols-6 gap-2 font-mono text-text-secondary'>
           <span>read {job.progress.read}</span>
           <span>written {job.progress.written}</span>
           <span>deleted {job.progress.deleted}</span>
           <span>skipped {job.progress.skipped}</span>
           <span>failed {job.progress.failed}</span>
+          <span>total {job.progress.total ?? '...'}</span>
         </div>
         {job.progress.currentPath
           ? <Detail label='Current' value={job.progress.currentPath} />
@@ -152,15 +153,22 @@ function Detail({ label, value }: { readonly label: string; readonly value: stri
 
 function progressSummary(job: BackgroundJob): string {
   if (job.status === 'queued') return 'Waiting';
-  return `read ${job.progress.read}, wrote ${job.progress.written}, deleted ${job.progress.deleted}`;
+  const total = job.progress.total === undefined ? '' : ` of ${job.progress.total}`;
+  return `read ${job.progress.read}${total}, wrote ${job.progress.written}, deleted ${job.progress.deleted}`;
 }
 
 function jobProgressPercent(job: BackgroundJob): number {
-  const processed = job.progress.written + job.progress.deleted + job.progress.skipped
-    + job.progress.failed;
-  const total = Math.max(job.progress.read, processed);
+  if (job.status === 'succeeded') return 100;
+  const processed = jobProcessedCount(job);
+  const total = job.progress.total ?? Math.max(job.progress.read, processed);
   if (total === 0) return 8;
   return Math.min(100, Math.max(8, (processed / total) * 100));
+}
+
+function jobProcessedCount(job: BackgroundJob): number {
+  if (job.type === 'firestore.exportCollection') return job.progress.read + job.progress.failed;
+  if (job.type === 'firestore.deleteCollection') return job.progress.deleted + job.progress.failed;
+  return job.progress.written + job.progress.skipped + job.progress.failed;
 }
 
 function badgeVariant(status: BackgroundJob['status']) {
