@@ -47,9 +47,9 @@ describe('createRepositories', () => {
     expect(onDataModeChange).toHaveBeenCalledWith('live');
   });
 
-  it('uses desktop activity in mock data mode when the desktop API is available', async () => {
+  it('uses desktop activity and mock jobs in mock data mode when the desktop API is available', async () => {
     const listActivity = vi.fn(async () => []);
-    const listJobs = vi.fn(async () => []);
+    const startJob = vi.fn();
     stubDesktopApi({
       activity: {
         append: vi.fn(),
@@ -61,20 +61,29 @@ describe('createRepositories', () => {
         acknowledgeIssues: vi.fn(),
         cancel: vi.fn(),
         clearCompleted: vi.fn(),
-        list: listJobs,
+        list: vi.fn(async () => []),
         pickExportFile: vi.fn(),
         pickImportFile: vi.fn(),
-        start: vi.fn(),
+        start: startJob,
         subscribe: vi.fn(() => () => {}),
       },
     });
 
     const repositories = createRepositories({ dataMode: 'mock' });
     await repositories.activity.list({ limit: 1 });
-    await repositories.jobs.list({ limit: 1 });
+    const job = await repositories.jobs.start({
+      collisionPolicy: 'skip',
+      includeSubcollections: false,
+      sourceCollectionPath: 'orders',
+      sourceConnectionId: 'emu',
+      targetCollectionPath: 'orders_copy',
+      targetConnectionId: 'emu',
+      type: 'firestore.copyCollection',
+    });
 
     expect(listActivity).toHaveBeenCalledWith({ limit: 1 });
-    expect(listJobs).toHaveBeenCalledWith({ limit: 1 });
+    expect(startJob).not.toHaveBeenCalled();
+    expect(job).toMatchObject({ status: 'succeeded', title: 'Copy collection' });
   });
 
   it('does not fall back to mock feature repositories in live data mode', async () => {

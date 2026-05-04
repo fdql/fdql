@@ -5,9 +5,23 @@ Use these entry points when updating docs.
 ## App Shell And Onboarding
 
 - `apps/desktop/src/renderer/app/AppHeader.tsx`
+- `apps/desktop/src/renderer/app/AppStatusBar.tsx`
+- `apps/desktop/src/renderer/app/AppWorkspacePanel.tsx`
 - `apps/desktop/src/renderer/app/FirstRunGuideDialog.tsx`
+- `apps/desktop/src/renderer/app/ProjectSwitcher.tsx`
+- `apps/desktop/src/renderer/app/RepositoryProvider.tsx`
+- `apps/desktop/src/renderer/app/UpdateNotice.tsx`
+- `apps/desktop/src/renderer/app/commandPaletteModel.ts`
 - `apps/desktop/src/renderer/app/hooks/useAppShellController.ts`
+- `apps/desktop/src/renderer/app/hooks/useAppShellHotkeys.ts`
 - `apps/desktop/src/renderer/app/appShellOrchestrator.ts`
+- `apps/desktop/src/renderer/app-core/activity/`
+- `apps/desktop/src/renderer/app-core/jobs/`
+- `apps/desktop/src/renderer/app-core/updates/`
+- `packages/hotkeys/src/registry.ts`
+- `packages/product-ui/src/activity/ActivityDrawer.tsx`
+- `packages/product-ui/src/jobs/JobsDrawer.tsx`
+- `packages/product-ui/src/settings-dialog/SettingsDialog.tsx`
 - `apps/desktop/src/main/app/data-mode.ts`
 - `packages/repo-contracts/src/settings.ts`
 - `packages/repo-mocks/src/settings.ts`

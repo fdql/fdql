@@ -113,7 +113,7 @@ export function createRepositories(
   const activity = hasDesktopActivityApi()
     ? new IpcActivityLogRepository()
     : new MockActivityLogRepository();
-  const jobs = hasDesktopJobsApi()
+  const jobs = dataMode === 'live' && hasDesktopJobsApi()
     ? new IpcBackgroundJobRepository()
     : new MockBackgroundJobRepository();
   const repositories: RepositorySet = dataMode === 'live'
@@ -126,7 +126,7 @@ export function createRepositories(
       scriptRunner: new IpcScriptRunnerRepository(),
       settings,
     }
-    : { ...createMockRepositories(), activity, jobs, settings };
+    : { ...createMockRepositories(), activity, settings };
 
   return {
     ...repositories,

@@ -33,11 +33,24 @@ try {
   await page.getByRole('button', { name: 'Keep mock mode' }).click();
   await expect(page.getByRole('dialog', { name: 'Try Firebase Desk in mock mode' })).toBeHidden();
 
+  await captureAddAccount(page);
+
   await openMockWorkspace(page);
   await page.screenshot({ path: resolve(outputDir, 'workspace.png'), fullPage: true });
+  await captureCommandPalette(page);
+  await captureFirestoreTree(page);
+  await captureDocumentEdit(page);
+  await captureCollectionJob(page);
+  await captureJobs(page);
+  await captureActivity(page);
 
   await openAuthSurface(page);
   await page.screenshot({ path: resolve(outputDir, 'auth.png'), fullPage: true });
+
+  await openJsQuerySurface(page);
+  await page.screenshot({ path: resolve(outputDir, 'js-query.png'), fullPage: true });
+
+  await captureSettings(page);
 } finally {
   await app.close();
   await rm(userDataDir, { force: true, recursive: true });
@@ -69,4 +82,122 @@ async function openAuthSurface(page) {
   await page.getByRole('gridcell', { name: 'Ada Lovelace' }).click();
   await expect(page.getByText('User detail')).toBeVisible();
   await expect(page.getByRole('gridcell', { name: 'ada@example.com' })).toBeVisible();
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+async function captureAddAccount(page) {
+  await page.getByRole('button', { name: 'Add account' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add Firebase Account' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('tab', { name: 'Local emulator' }).click();
+  await dialog.screenshot({ path: resolve(outputDir, 'add-account.png') });
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(dialog).toBeHidden();
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+async function captureCommandPalette(page) {
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
+  const dialog = page.getByRole('dialog', { name: 'Command palette' });
+  await expect(dialog).toBeVisible();
+  await dialog.screenshot({ path: resolve(outputDir, 'command-palette.png') });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+async function captureFirestoreTree(page) {
+  const results = page.locator('section[aria-label="Results"]');
+  await results.getByRole('tab', { name: 'Tree' }).click();
+  await expect(results.getByText('Fields').first()).toBeVisible();
+  await page.screenshot({ path: resolve(outputDir, 'firestore-tree.png'), fullPage: true });
+  await results.getByRole('tab', { name: 'Table' }).click();
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+async function captureDocumentEdit(page) {
+  await page.getByRole('gridcell', { name: 'ord_1024' }).click();
+  await page.getByRole('button', { name: 'Edit document' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit document JSON' });
+  await expect(dialog).toBeVisible();
+  await dialog.screenshot({ path: resolve(outputDir, 'document-edit.png') });
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(dialog).toBeHidden();
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+async function captureCollectionJob(page) {
+  const results = page.locator('section[aria-label="Results"]');
+  await results.getByRole('button', { name: 'Jobs' }).click();
+  await page.getByRole('menuitem', { name: 'Copy collection' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Collection job' });
+  await expect(dialog).toBeVisible();
+  await dialog.screenshot({ path: resolve(outputDir, 'collection-job.png') });
+  await dialog.getByLabel('Target collection path').fill('orders_docs_screenshot_copy');
+  await dialog.getByRole('button', { name: 'Start job' }).click();
+  await expect(dialog).toBeHidden();
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+async function captureJobs(page) {
+  const drawer = page.locator('section[aria-label="Jobs"]');
+  if (!(await drawer.count())) {
+    await page.locator('footer').getByRole('button', { name: /Jobs/ }).click({ force: true });
+  }
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText('Copy collection').first()).toBeVisible({ timeout: 20_000 });
+  await page.screenshot({ path: resolve(outputDir, 'jobs.png'), fullPage: true });
+  await drawer.getByRole('button', { name: 'Close' }).click();
+  await expect(drawer).toBeHidden();
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+async function captureActivity(page) {
+  const drawer = page.locator('section[aria-label="Activity"]');
+  if (!(await drawer.count())) {
+    await page.locator('footer').getByRole('button', { name: /Activity/ }).click({ force: true });
+  }
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText('Run query').first()).toBeVisible({ timeout: 20_000 });
+  await page.screenshot({ path: resolve(outputDir, 'activity.png'), fullPage: true });
+  await drawer.getByRole('button', { name: 'Close' }).click();
+  await expect(drawer).toBeHidden();
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+async function openJsQuerySurface(page) {
+  await page.getByRole('treeitem', { name: /JavaScript Query/ }).click();
+  await expect(page.getByText('JavaScript Query').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Run' }).click();
+  await expect(page.getByText('yield DocumentSnapshot')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('yield QuerySnapshot')).toBeVisible();
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+async function captureSettings(page) {
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Appearance')).toBeVisible();
+  await dialog.screenshot({ path: resolve(outputDir, 'settings.png') });
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(dialog).toBeHidden();
 }

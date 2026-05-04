@@ -13,13 +13,17 @@ Firebase Desk is for developers who need a direct workbench for Firebase project
 ## Features
 
 - Mock mode with local sample data and first-run guide.
-- Multiple Firebase accounts and local emulator profiles.
-- Firestore collection browser with filters, sorting, limits, pagination, and table/tree/JSON result views.
-- Firestore document create and edit workflows.
-- Authentication user list, filtering, detail view, and custom claims editing.
-- JavaScript Query surface for trusted Firebase Admin SDK scripts.
-- Jobs, activity log, loading, empty, and error states.
-- Local settings and secure credential storage where the OS supports it.
+- Multiple Firebase accounts for dev, emulator, and production workflows.
+- Workspace tree, tabs, project switcher, command palette, and keyboard shortcuts.
+- Firestore query builder with filters, sorting, limits, pagination, and table/tree/JSON result views.
+- Firestore document creation, full JSON editing, field editing, stale-write handling, and conflict merge.
+- Subcollection discovery, document deletes, and collection copy/duplicate/export/import/delete jobs.
+- Authentication user list, UID/email filtering, detail view, pagination, and custom claims editing.
+- JavaScript Query workbench for trusted Firebase Admin SDK scripts with results, logs, errors, and cancellation.
+- Jobs drawer, activity log, status bar, loading, empty, and error states.
+- Local settings for theme, density, mock/live mode, activity retention, stale-write behavior, saved table layouts, field catalogs, and credential storage.
+
+See the full feature inventory in the docs: <https://viniciusrmcarneiro.github.io/firebase-desk/features.html>
 
 ## Docs
 
