@@ -1,0 +1,72 @@
+name: release-bump
+
+on:
+    push:
+        branches: [ main ]
+
+permissions:
+    contents: read
+
+jobs:
+    release-bump:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+            - name: Require release bot token
+              env:
+                  GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+              run: |
+                  if [ -z "$GH_TOKEN" ]; then
+                    echo "::error::Configure RELEASE_BOT_TOKEN so release bump PRs trigger release workflows."
+                    exit 1
+                  fi
+            - name: Plan release bump
+              id: plan
+              run: node scripts/release-bump.mjs plan
+              env:
+                  GITHUB_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+            - name: Update release bump branch
+              if: steps.plan.outputs.should_bump == 'true'
+              env:
+                  BRANCH: ${{ steps.plan.outputs.branch }}
+                  GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+                  RELEASE_BUMP_VERSION: ${{ steps.plan.outputs.next_version }}
+                  TITLE: ${{ steps.plan.outputs.title }}
+              run: |
+                  git config user.name "firebase-desk-release-bot"
+                  git config user.email "firebase-desk-release-bot@users.noreply.github.com"
+                  git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+                  git fetch origin main
+                  if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+                    git fetch origin "$BRANCH"
+                    git checkout -B "$BRANCH" "origin/$BRANCH"
+                    git merge --no-edit origin/main
+                  else
+                    git checkout -B "$BRANCH" origin/main
+                  fi
+                  node scripts/release-bump.mjs write
+                  if ! git diff --quiet -- package.json apps/desktop/package.json; then
+                    git add package.json apps/desktop/package.json
+                    git commit -m "$TITLE"
+                  fi
+                  node scripts/release-policy.mjs local-release-bump origin/main HEAD
+                  git push -u origin "$BRANCH"
+            - name: Open release bump PR
+              if: steps.plan.outputs.should_bump == 'true'
+              env:
+                  BODY_FILE: ${{ steps.plan.outputs.body_file }}
+                  BRANCH: ${{ steps.plan.outputs.branch }}
+                  GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+                  TITLE: ${{ steps.plan.outputs.title }}
+              run: |
+                  if gh pr view "$BRANCH" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                    gh pr edit "$BRANCH" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file "$BODY_FILE" --add-label automation:release-bump
+                  else
+                    gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" --title "$TITLE" --body-file "$BODY_FILE" --label automation:release-bump
+                  fi
+                  gh pr merge "$BRANCH" --repo "$GITHUB_REPOSITORY" --auto --squash --delete-branch

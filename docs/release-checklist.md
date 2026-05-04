@@ -1,13 +1,25 @@
 # Release Checklist
 
-Use this for unsigned releases. Merges with a desktop version bump publish stable releases automatically. `latest` mirrors the newest versioned `main` release. Signing/notarization/code-signing are intentionally out of scope.
+Use this for unsigned releases. Normal PRs declare release intent with one `release:*` label and never edit versions. After merge, `release-bump.yml` opens the version-only release PR. When that PR merges, `release.yml` publishes the stable release. `latest` mirrors the newest versioned `main` release. Signing/notarization/code-signing are intentionally out of scope.
+
+## Release Automation Setup
+
+- [ ] Labels exist: `release:patch`, `release:minor`, `release:major`, `release:none`, `automation:release-bump`.
+- [ ] Repo secret `RELEASE_BOT_TOKEN` exists.
+- [ ] `RELEASE_BOT_TOKEN` is a fine-grained PAT or GitHub App token, not `GITHUB_TOKEN`.
+- [ ] Token has access only to this repo.
+- [ ] Token permissions: contents read/write, pull requests read/write, issues read/write.
+- [ ] Repo auto-merge is enabled.
+- [ ] `main` requires PRs and required check `release-policy`.
+- [ ] `main` blocks force pushes.
 
 ## Before Merge
 
 - [ ] `ci.yml` green.
 - [ ] `e2e.yml` green.
-- [ ] `release-gate.yml` green.
-- [ ] PR changes `apps/desktop/package.json` version or title contains `[skip release]`.
+- [ ] `release-policy.yml` green.
+- [ ] PR has exactly one release label: `release:patch`, `release:minor`, `release:major`, or `release:none`.
+- [ ] PR does not change root or desktop package versions.
 - [ ] `release.yml` PR package job green.
 - [ ] PR package artifacts uploaded with expected channel, OS, architecture, and target names.
 - [ ] PR package artifacts include matching `SHA256SUMS*.txt` files.
@@ -18,7 +30,10 @@ Use this for unsigned releases. Merges with a desktop version bump publish stabl
 ## Main Release
 
 - [ ] Merge to `main`.
-- [ ] Confirm merged PR changed `apps/desktop/package.json`; otherwise no rolling release is expected.
+- [ ] Confirm `release-bump.yml` opens or updates `Release vX.Y.Z` when merged PRs need a release.
+- [ ] Confirm release bump PR has label `automation:release-bump`.
+- [ ] Confirm release bump PR only changes root and desktop package versions.
+- [ ] Confirm release bump PR auto-merges.
 - [ ] `release.yml` package job green on macOS, Windows, and Linux.
 - [ ] Version tag `vX.Y.Z` created from `apps/desktop/package.json`.
 - [ ] Stable GitHub release `vX.Y.Z` created or updated.

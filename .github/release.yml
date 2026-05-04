@@ -6,6 +6,8 @@ changelog:
             - question
             - wontfix
             - type:tracker
+            - automation:release-bump
+            - release:none
     categories:
         - title: Features
           labels:

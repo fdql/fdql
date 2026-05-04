@@ -2,6 +2,11 @@ name: ci
 
 on:
     workflow_call:
+        inputs:
+            skip_expensive:
+                default: false
+                required: false
+                type: boolean
     push:
         branches: [ main ]
     pull_request:
@@ -14,16 +19,24 @@ jobs:
     build:
         runs-on: ubuntu-latest
         steps:
+            - name: Skip release bump CI
+              if: ${{ inputs.skip_expensive || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
+              run: echo "Release bump PR only changes package versions; release-policy validates it."
             - uses: actions/checkout@v6
+              if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
             - uses: pnpm/action-setup@v5
+              if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
               with:
                   version: 10.33.2
             - uses: actions/setup-node@v6
+              if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
               with:
                   node-version: 24
                   cache: pnpm
-            - run: pnpm install --frozen-lockfile
+            - if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
+              run: pnpm install --frozen-lockfile
             - name: Validate release notes
+              if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
               run: |
                   cat > /tmp/generated-release-notes.md <<'NOTES'
                   ## What's Changed
@@ -33,11 +46,11 @@ jobs:
                   GENERATED_RELEASE_NOTES_FILE=/tmp/generated-release-notes.md \
                     RELEASE_COMMIT="$GITHUB_SHA" \
                     RELEASE_NOTES_FILE=/tmp/stable-release-notes.md \
-                    pnpm release:notes
+                    node scripts/write-release-notes.mjs
                   RELEASE_NOTES_MODE=latest \
                     RELEASE_COMMIT="$GITHUB_SHA" \
                     RELEASE_NOTES_FILE=/tmp/latest-release-notes.md \
-                    pnpm release:notes
+                    node scripts/write-release-notes.mjs
                   grep -F "Unsigned Firebase Desk build." /tmp/stable-release-notes.md
                   grep -F "Source commit: \`$GITHUB_SHA\`" /tmp/stable-release-notes.md
                   grep -F "## What's Changed" /tmp/stable-release-notes.md
@@ -46,21 +59,26 @@ jobs:
                   grep -F "Source commit: \`$GITHUB_SHA\`" /tmp/latest-release-notes.md
                   if RELEASE_NOTES_MODE=unknown \
                     RELEASE_NOTES_FILE=/tmp/invalid-mode-notes.md \
-                    pnpm release:notes; then
+                    node scripts/write-release-notes.mjs; then
                     echo "::error::Invalid RELEASE_NOTES_MODE was accepted."
                     exit 1
                   fi
                   if GENERATED_RELEASE_NOTES_FILE=/tmp/missing-generated-release-notes.md \
                     RELEASE_NOTES_FILE=/tmp/missing-generated-notes.md \
-                    pnpm release:notes; then
+                    node scripts/write-release-notes.mjs; then
                     echo "::error::Missing generated release notes file was accepted."
                     exit 1
                   fi
-            - run: pnpm format:check
-            - run: pnpm lint
-            - run: pnpm typecheck
-            - run: pnpm test:coverage
+            - if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
+              run: pnpm format:check
+            - if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
+              run: pnpm lint
+            - if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
+              run: pnpm typecheck
+            - if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
+              run: pnpm test:coverage
             - name: Add coverage summary
-              if: always()
+              if: ${{ always() && !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
               run: pnpm coverage:summary
-            - run: pnpm build
+            - if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
+              run: pnpm build

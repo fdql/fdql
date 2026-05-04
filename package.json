@@ -19,7 +19,8 @@
     "test:boundaries": "tsx scripts/check-package-boundaries.ts",
     "test:desktop-packaging": "tsx scripts/check-desktop-packaging-contract.ts",
     "test:release-version": "tsx scripts/check-release-version.ts",
-    "test:repo-invariants": "pnpm test:boundaries && pnpm test:desktop-packaging && pnpm test:release-version",
+    "test:release-automation": "node --test scripts/release-bump.test.mjs scripts/release-config.test.mjs scripts/release-policy.test.mjs",
+    "test:repo-invariants": "pnpm test:boundaries && pnpm test:desktop-packaging && pnpm test:release-version && pnpm test:release-automation",
     "test:coverage": "turbo run test:coverage test:repo-invariants",
     "test:packaged": "pnpm --dir e2e test:packaged",
     "coverage:summary": "node scripts/coverage-summary.mjs",
@@ -35,7 +36,7 @@
     "test:smoke": "pnpm --dir e2e test:withEmulators",
     "package": "pnpm --filter @firebase-desk/desktop package",
     "release:manifest": "tsx scripts/write-release-manifest.ts",
-    "release:notes": "tsx scripts/write-release-notes.ts",
+    "release:notes": "node scripts/write-release-notes.mjs",
     "package-managers:manifests": "tsx scripts/write-package-manager-manifests.ts"
   },
   "devDependencies": {

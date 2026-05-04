@@ -1,0 +1,23 @@
+name: release-policy
+
+on:
+    pull_request:
+        branches: [ main ]
+        types: [ opened, synchronize, reopened, edited, labeled, unlabeled ]
+
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    release-policy:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+            - name: Validate release policy
+              run: node scripts/release-policy.mjs
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}

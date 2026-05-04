@@ -17,8 +17,9 @@ This doc explains how testing runs in CI, release, and package validation. Test 
 
 - `ci.yml`: install (pnpm), run `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test:coverage`, publish the coverage summary, then `pnpm build`.
 - `e2e.yml`: install, build affected workspaces, start Firebase emulators, seed data, run `pnpm test:e2e`, upload traces/screenshots on failure.
-- `release-gate.yml`: on PRs to `main`, require `apps/desktop/package.json` to change unless the PR title includes `[skip release]`.
-- `release.yml`: on PR, merge to `main`, tag, or ad-hoc dispatch, run CI checks and `pnpm package` for the desktop app. PRs always package Linux, and package macOS/Windows when the PR has the `package-all` label or touches package-sensitive paths (`apps/desktop/**`, `e2e/**`, release workflows, package scripts, or lockfile). Linux, macOS, and Windows all run the packaged smoke check against the built app. PR and ad-hoc runs upload temporary workflow artifacts with retention. Merges to `main` with a desktop version change create `vX.Y.Z`, publish the stable release, and update `latest`. Manually pushed version tags publish or repair stable releases with release assets, SHA-256 checksums, `release-manifest.json`, and package manager manifest artifacts.
+- `release-policy.yml`: on PRs to `main`, require exactly one `release:*` label. Normal PRs must not edit package versions. `automation:release-bump` PRs may only edit root and desktop package versions.
+- `release-bump.yml`: on push to `main`, inspect merged PR release labels since the latest stable tag, open or update `release/bump`, label it `automation:release-bump`, and enable squash auto-merge. It uses `RELEASE_BOT_TOKEN` because `GITHUB_TOKEN`-created events do not trigger follow-up workflows.
+- `release.yml`: on PR, merge to `main`, tag, or ad-hoc dispatch, run CI checks and `pnpm package` for the desktop app. PRs always package Linux, and package macOS/Windows when the PR has the `package-all` label or touches package-sensitive paths (`apps/desktop/**`, `e2e/**`, release workflows, package scripts, or lockfile). `automation:release-bump` PRs emit matching fast no-op package checks. Linux, macOS, and Windows all run the packaged smoke check against the built app. PR and ad-hoc runs upload temporary workflow artifacts with retention. Merges to `main` with a desktop version change create `vX.Y.Z`, publish the stable release, and update `latest`. Manually pushed version tags publish or repair stable releases with release assets, SHA-256 checksums, `release-manifest.json`, and package manager manifest artifacts.
 
 ### Required Scripts (root `package.json`, delegated via turbo/pnpm filters)
 
@@ -59,6 +60,10 @@ This doc explains how testing runs in CI, release, and package validation. Test 
 - Release workflow must exist before the first packaged build is considered done.
 - PR package outputs are workflow artifacts only, not GitHub Release assets.
 - PR and manual package artifacts use short retention; main and tag artifacts use longer retention.
+- Normal PRs must use exactly one release label: `release:patch`, `release:minor`, `release:major`, or `release:none`.
+- Normal PRs must not change root or desktop package versions.
+- `release:none` means no release.
+- Release bump PRs use `automation:release-bump` and may only change root and desktop package versions.
 - Merges to `main` with a desktop version change publish `vX.Y.Z` automatically and update the rolling published prerelease `latest`; keep the `latest` tag stable and update assets instead of deleting/recreating the release.
 - Merges to `main` without a desktop version change do not publish a rolling release.
 - Version tags create or repair separate published stable releases.
