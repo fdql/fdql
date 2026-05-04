@@ -18,7 +18,11 @@ function invoke<C extends IpcChannel>(channel: C, request: IpcRequest<C>): Promi
 
 const api = {
   app: {
+    checkForUpdates: (request: IpcRequest<'app.checkForUpdates'>) =>
+      invoke('app.checkForUpdates', request),
     getConfig: () => invoke('app.config', {}),
+    openExternalUrl: (request: IpcRequest<'app.openExternalUrl'>) =>
+      invoke('app.openExternalUrl', request),
     openDataDirectory: () => invoke('app.openDataDirectory', {}),
   },
   health: {

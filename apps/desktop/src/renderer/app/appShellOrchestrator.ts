@@ -81,13 +81,18 @@ export interface AppShellController {
     readonly onSettingsSaved: (patch: SettingsPatch) => void;
   };
   readonly header: {
+    readonly appVersion: string;
     readonly canGoBack: boolean;
     readonly canGoForward: boolean;
+    readonly canCheckForUpdates: boolean;
+    readonly checkingForUpdates: boolean;
     readonly dataMode: 'live' | 'mock';
     readonly mode: 'dark' | 'light' | 'system';
     readonly resolvedTheme: 'dark' | 'light';
+    readonly updateStatusLabel: string | null;
     readonly onAddProject: () => void;
     readonly onBack: () => void;
+    readonly onCheckForUpdates: () => void;
     readonly onForward: () => void;
     readonly onModeChange: (mode: 'dark' | 'light' | 'system') => void;
     readonly onOpenSettings: () => void;
@@ -167,6 +172,12 @@ export interface AppShellController {
     readonly selectedTreeItemId: string | null;
     readonly tabModels: ReadonlyArray<WorkspaceTabModel>;
     readonly tabsActiveId: string;
+    readonly updateNotice: {
+      readonly checkedAt?: string | undefined;
+      readonly latestVersion?: string | undefined;
+      readonly message: string;
+      readonly status: 'available' | 'failed';
+    } | null;
     readonly onActivityAreaChange: (area: 'all' | ActivityLogEntry['area']) => void;
     readonly onActivityClear: () => void;
     readonly onActivityClose: () => void;
@@ -191,6 +202,9 @@ export interface AppShellController {
     readonly onReorderTabs: (activeId: string, overId: string) => void;
     readonly onSelectTab: (tabId: string) => void;
     readonly onSortByProject: () => void;
+    readonly onUpdateDismiss: () => void;
+    readonly onUpdateOpenRelease: () => void;
+    readonly onUpdateRetry: () => void;
     readonly onViewError: (message: string) => void;
   };
 }
@@ -262,6 +276,7 @@ export interface AppShellOrchestratorInput {
   readonly tabs: AppShellTabsFacade;
   readonly tabsState: TabsState;
   readonly tree: AppShellTreeFacade;
+  readonly updates: AppShellUpdatesFacade;
   readonly ui: AppShellUiActions;
 }
 
@@ -381,6 +396,16 @@ export interface AppShellActivityFacade {
   readonly setSearch: (search: string) => void;
   readonly setStatus: (status: 'all' | ActivityLogEntry['status']) => void;
   readonly toggle: () => void;
+}
+
+export interface AppShellUpdatesFacade {
+  readonly canCheck: boolean;
+  readonly check: (force?: boolean) => void;
+  readonly dismiss: () => void;
+  readonly isChecking: boolean;
+  readonly notice: AppShellController['workspace']['updateNotice'];
+  readonly openRelease: () => void;
+  readonly statusLabel: string | null;
 }
 
 export interface AppShellSettingsFacade {
@@ -981,14 +1006,19 @@ export function createAppShellController(
       onSettingsSaved: input.settings.recordSettingsSaved,
     },
     header: {
+      appVersion: input.appVersion,
       canGoBack: input.tabsState.interactionHistoryIndex > 0,
       canGoForward: input.tabsState.interactionHistoryIndex
         < input.tabsState.interactionHistory.length - 1,
+      canCheckForUpdates: input.updates.canCheck,
+      checkingForUpdates: input.updates.isChecking,
       dataMode: input.dataMode,
       mode: input.appearance.mode,
       resolvedTheme: input.appearance.resolvedTheme,
+      updateStatusLabel: input.updates.statusLabel,
       onAddProject: () => input.ui.setAddProjectOpen(true),
       onBack: handleBackInteraction,
+      onCheckForUpdates: () => input.updates.check(true),
       onForward: handleForwardInteraction,
       onModeChange: input.settings.changeTheme,
       onOpenSettings: input.settings.openSettings,
@@ -1061,6 +1091,7 @@ export function createAppShellController(
       selectedTreeItemId: input.selection.treeItemId,
       tabModels,
       tabsActiveId: input.tabsState.activeTabId,
+      updateNotice: input.updates.notice,
       onActivityAreaChange: input.activity.setArea,
       onActivityClear: () => {
         input.ui.requestDestructiveAction({
@@ -1092,6 +1123,9 @@ export function createAppShellController(
       onReorderTabs: input.tabs.reorderTabs,
       onSelectTab: handleSelectTab,
       onSortByProject: input.tabs.sortByProject,
+      onUpdateDismiss: input.updates.dismiss,
+      onUpdateOpenRelease: input.updates.openRelease,
+      onUpdateRetry: () => input.updates.check(true),
       onViewError: (message) => input.ui.setLastAction(`View failed: ${message}`),
     },
   };

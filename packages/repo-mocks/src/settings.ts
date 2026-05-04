@@ -9,6 +9,7 @@ import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_DENSITY,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_UPDATE_SETTINGS,
   normalizeFirestoreWriteSettings,
 } from '@firebase-desk/repo-contracts';
 
@@ -23,6 +24,7 @@ const DEFAULT_SNAPSHOT: SettingsSnapshot = {
   resultTableLayouts: {},
   firestoreFieldCatalogs: {},
   firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  updates: DEFAULT_UPDATE_SETTINGS,
   workspaceState: null,
 };
 
@@ -55,6 +57,7 @@ export class MockSettingsRepository implements SettingsRepository {
       firestoreWrites: normalizeFirestoreWriteSettings(
         patch.firestoreWrites ?? this.snapshot.firestoreWrites,
       ),
+      updates: patch.updates ? { ...patch.updates } : { ...this.snapshot.updates },
       workspaceState: patch.workspaceState === undefined
         ? cloneWorkspaceState(this.snapshot.workspaceState)
         : cloneWorkspaceState(patch.workspaceState),
@@ -80,6 +83,7 @@ function cloneSnapshot(snapshot: SettingsSnapshot): SettingsSnapshot {
     resultTableLayouts: cloneResultTableLayouts(snapshot.resultTableLayouts),
     firestoreFieldCatalogs: cloneFirestoreFieldCatalogs(snapshot.firestoreFieldCatalogs),
     firestoreWrites: normalizeFirestoreWriteSettings(snapshot.firestoreWrites),
+    updates: { ...snapshot.updates },
     workspaceState: cloneWorkspaceState(snapshot.workspaceState),
   };
 }

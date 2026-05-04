@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   useRepositories: vi.fn(),
   useSelector: vi.fn(),
   useSettingsController: vi.fn(),
+  useUpdateController: vi.fn(),
   useWorkspaceTree: vi.fn(),
 }));
 
@@ -53,6 +54,10 @@ vi.mock('../../app-core/jobs/useJobsController.ts', () => ({
 
 vi.mock('../../app-core/settings/useSettingsController.ts', () => ({
   useSettingsController: mocks.useSettingsController,
+}));
+
+vi.mock('../../app-core/updates/useUpdateController.ts', () => ({
+  useUpdateController: mocks.useUpdateController,
 }));
 
 vi.mock('../appShellOrchestrator.ts', () => ({
@@ -288,6 +293,7 @@ interface Scenario {
   readonly selection: SelectionState;
   readonly settings: ReturnType<typeof createSettings>;
   readonly tabsState: TabsState;
+  readonly updates: ReturnType<typeof createUpdates>;
   readonly workspaceTree: ReturnType<typeof createWorkspaceTree>;
 }
 
@@ -315,6 +321,7 @@ function setupMocks(scenario: Scenario) {
     throw new Error('Unexpected store selector.');
   });
   mocks.useSettingsController.mockReturnValue(scenario.settings);
+  mocks.useUpdateController.mockReturnValue(scenario.updates);
   mocks.useWorkspaceTree.mockReturnValue(scenario.workspaceTree);
 }
 
@@ -372,6 +379,7 @@ function createScenario(
     selection,
     settings: createSettings(),
     tabsState: state,
+    updates: createUpdates(),
     workspaceTree: createWorkspaceTree(),
   };
 }
@@ -590,6 +598,19 @@ function createSettings() {
     openSettings: vi.fn(),
     recordSettingsSaved: vi.fn(),
     setOpen: vi.fn(),
+  };
+}
+
+function createUpdates() {
+  return {
+    canCheck: true,
+    check: vi.fn(),
+    dismiss: vi.fn(),
+    isChecking: false,
+    notice: null,
+    openRelease: vi.fn(),
+    state: { status: 'idle' as const },
+    statusLabel: null,
   };
 }
 

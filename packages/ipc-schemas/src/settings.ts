@@ -2,6 +2,7 @@ import { defaultDensity, densityNames } from '@firebase-desk/design-tokens';
 import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_UPDATE_SETTINGS,
   FIRESTORE_ARRAY_FIELD_TYPES,
   FIRESTORE_FIELD_STALE_BEHAVIORS,
   FIRESTORE_PRIMITIVE_FIELD_TYPES,
@@ -43,6 +44,11 @@ export const FirestoreWriteSettingsSchema = z.object({
   fieldStaleBehavior: z.enum(FIRESTORE_FIELD_STALE_BEHAVIORS),
 });
 
+export const UpdateSettingsSchema = z.object({
+  dismissedVersion: z.string().nullable(),
+  lastCheckedAt: z.string().nullable(),
+});
+
 export const SettingsSnapshotSchema = z.object({
   activityLog: ActivityLogSettingsSchema.default(DEFAULT_ACTIVITY_LOG_SETTINGS),
   sidebarWidth: z.number().int().nonnegative(),
@@ -54,6 +60,7 @@ export const SettingsSnapshotSchema = z.object({
   resultTableLayouts: ResultTableLayoutsSchema.default({}),
   firestoreFieldCatalogs: FirestoreFieldCatalogsSchema.default({}),
   firestoreWrites: FirestoreWriteSettingsSchema.default(DEFAULT_FIRESTORE_WRITE_SETTINGS),
+  updates: UpdateSettingsSchema.default(DEFAULT_UPDATE_SETTINGS),
   workspaceState: z.unknown().nullable().default(null),
 });
 
@@ -68,6 +75,7 @@ export const SettingsPatchSchema = z.object({
   resultTableLayouts: ResultTableLayoutsSchema.optional(),
   firestoreFieldCatalogs: FirestoreFieldCatalogsSchema.optional(),
   firestoreWrites: FirestoreWriteSettingsSchema.optional(),
+  updates: UpdateSettingsSchema.optional(),
   workspaceState: z.unknown().nullable().optional(),
 });
 

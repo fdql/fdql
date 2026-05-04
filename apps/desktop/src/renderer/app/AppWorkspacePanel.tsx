@@ -13,6 +13,7 @@ import { AppStatusBar } from './AppStatusBar.tsx';
 import { ProjectSwitcher } from './ProjectSwitcher.tsx';
 import { RenderErrorBoundary } from './RenderErrorBoundary.tsx';
 import type { WorkspaceTab } from './stores/tabsStore.ts';
+import { UpdateNotice } from './UpdateNotice.tsx';
 
 interface AppWorkspacePanelProps {
   readonly activeProject: ProjectSummary | null;
@@ -49,6 +50,10 @@ interface AppWorkspacePanelProps {
   readonly selectedTreeItemId: string | null;
   readonly tabModels: ReadonlyArray<WorkspaceTabModel>;
   readonly tabsActiveId: string;
+  readonly updateNotice: {
+    readonly message: string;
+    readonly status: 'available' | 'failed';
+  } | null;
   readonly onActivityAreaChange: (area: 'all' | ActivityLogEntry['area']) => void;
   readonly onActivityClear: () => void;
   readonly onActivityClose: () => void;
@@ -73,6 +78,9 @@ interface AppWorkspacePanelProps {
   readonly onReorderTabs: (activeId: string, overId: string) => void;
   readonly onSelectTab: (tabId: string) => void;
   readonly onSortByProject: () => void;
+  readonly onUpdateDismiss: () => void;
+  readonly onUpdateOpenRelease: () => void;
+  readonly onUpdateRetry: () => void;
   readonly onViewError: (message: string) => void;
 }
 
@@ -89,6 +97,7 @@ export function AppWorkspacePanel(
     selectedTreeItemId,
     tabModels,
     tabsActiveId,
+    updateNotice,
     onActivityAreaChange,
     onActivityClear,
     onActivityClose,
@@ -113,11 +122,14 @@ export function AppWorkspacePanel(
     onReorderTabs,
     onSelectTab,
     onSortByProject,
+    onUpdateDismiss,
+    onUpdateOpenRelease,
+    onUpdateRetry,
     onViewError,
   }: AppWorkspacePanelProps,
 ) {
   return (
-    <div className='grid h-full min-h-0 overflow-hidden grid-rows-[minmax(0,1fr)_auto_auto_auto]'>
+    <div className='grid h-full min-h-0 overflow-hidden grid-rows-[minmax(0,1fr)_auto_auto_auto_auto]'>
       <WorkspaceShell
         className='h-full min-h-0'
         tabStrip={
@@ -179,6 +191,17 @@ export function AppWorkspacePanel(
           {activeView}
         </RenderErrorBoundary>
       </WorkspaceShell>
+      {updateNotice
+        ? (
+          <UpdateNotice
+            message={updateNotice.message}
+            status={updateNotice.status}
+            onDismiss={onUpdateDismiss}
+            onOpenRelease={onUpdateOpenRelease}
+            onRetry={onUpdateRetry}
+          />
+        )
+        : null}
       <ActivityDrawer
         area={activity.area}
         entries={activity.entries}

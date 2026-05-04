@@ -109,6 +109,7 @@ export function registerIpcHandlers(): void {
     firestoreRepository,
     jobsRepository,
     openDataDirectory: () => shell.openPath(userDataPath),
+    openExternalUrl: (url) => shell.openExternal(url),
     pickServiceAccountFile: async () => {
       const result = await dialog.showOpenDialog({
         title: 'Select service account JSON',

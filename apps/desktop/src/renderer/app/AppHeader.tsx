@@ -1,15 +1,20 @@
 import type { AppearanceMode } from '@firebase-desk/design-tokens';
 import { Badge, Button, IconButton } from '@firebase-desk/ui';
-import { ArrowLeft, ArrowRight, Moon, Plus, Settings, Sun } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Moon, Plus, RefreshCw, Settings, Sun } from 'lucide-react';
 import appIconUrl from '../assets/app-icon.png';
 
 interface AppHeaderProps {
+  readonly appVersion: string;
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;
+  readonly canCheckForUpdates: boolean;
+  readonly checkingForUpdates: boolean;
   readonly dataMode: 'live' | 'mock';
   readonly mode: AppearanceMode;
+  readonly updateStatusLabel: string | null;
   readonly onAddProject: () => void;
   readonly onBack: () => void;
+  readonly onCheckForUpdates: () => void;
   readonly onForward: () => void;
   readonly onModeChange: (mode: AppearanceMode) => void;
   readonly onOpenSettings: () => void;
@@ -18,12 +23,17 @@ interface AppHeaderProps {
 
 export function AppHeader(
   {
+    appVersion,
     canGoBack,
     canGoForward,
+    canCheckForUpdates,
+    checkingForUpdates,
     dataMode,
     mode,
+    updateStatusLabel,
     onAddProject,
     onBack,
+    onCheckForUpdates,
     onForward,
     onModeChange,
     onOpenSettings,
@@ -31,6 +41,7 @@ export function AppHeader(
   }: AppHeaderProps,
 ) {
   const reserveTrafficLightSpace = isMacPlatform();
+  const displayVersion = appVersion.startsWith('v') ? appVersion : `v${appVersion}`;
   return (
     <header className='app-region-drag native-titlebar flex min-w-0 items-center gap-2 border-b border-border-subtle bg-bg-panel px-2'>
       {reserveTrafficLightSpace
@@ -59,9 +70,37 @@ export function AppHeader(
           <img src={appIconUrl} alt='' className='size-full object-cover' />
         </span>
         <strong className='truncate text-sm font-semibold text-text-primary'>Firebase Desk</strong>
+        <span className='max-w-20 truncate text-xs text-text-muted' title={`Version ${appVersion}`}>
+          {displayVersion}
+        </span>
         <Badge variant={dataMode === 'live' ? 'warning' : 'neutral'}>{dataMode}</Badge>
       </div>
       <div className='app-region-no-drag ml-auto flex shrink-0 items-center gap-2'>
+        <Button
+          aria-label={checkingForUpdates ? 'Checking for updates' : 'Check for updates'}
+          disabled={!canCheckForUpdates || checkingForUpdates}
+          size='xs'
+          title={checkingForUpdates ? 'Checking for updates' : 'Check for updates'}
+          variant='ghost'
+          onClick={onCheckForUpdates}
+        >
+          <RefreshCw
+            className={checkingForUpdates ? 'animate-spin' : undefined}
+            size={14}
+            aria-hidden='true'
+          />
+          <span className='truncate'>{checkingForUpdates ? 'Checking' : 'Check updates'}</span>
+        </Button>
+        {updateStatusLabel
+          ? (
+            <span
+              className='hidden max-w-24 truncate text-xs text-text-muted sm:inline'
+              role='status'
+            >
+              {updateStatusLabel}
+            </span>
+          )
+          : null}
         <Button variant='secondary' onClick={onOpenSettings}>
           <Settings size={14} aria-hidden='true' /> Settings
         </Button>

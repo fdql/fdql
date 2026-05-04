@@ -7,6 +7,7 @@ import type {
 import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_UPDATE_SETTINGS,
 } from '@firebase-desk/repo-contracts';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -171,6 +172,7 @@ class DensitySettingsRepository implements SettingsRepository {
     resultTableLayouts: {},
     sidebarWidth: 320,
     theme: 'system',
+    updates: DEFAULT_UPDATE_SETTINGS,
     workspaceState: null,
   };
 

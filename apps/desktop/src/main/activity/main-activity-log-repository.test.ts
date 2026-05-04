@@ -151,6 +151,7 @@ class MemorySettingsRepository implements SettingsRepository {
       ...(patch.resultTableLayouts ? { resultTableLayouts: patch.resultTableLayouts } : {}),
       ...(patch.sidebarWidth === undefined ? {} : { sidebarWidth: patch.sidebarWidth }),
       ...(patch.theme ? { theme: patch.theme } : {}),
+      ...(patch.updates ? { updates: patch.updates } : {}),
       ...(patch.workspaceState === undefined ? {} : { workspaceState: patch.workspaceState }),
     };
     return this.snapshot;

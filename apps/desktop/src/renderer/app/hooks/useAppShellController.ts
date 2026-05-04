@@ -7,6 +7,7 @@ import { useActivityController } from '../../app-core/activity/useActivityContro
 import { useFirestoreWriteController } from '../../app-core/firestore/write/useFirestoreWriteController.ts';
 import { useJobsController } from '../../app-core/jobs/useJobsController.ts';
 import { useSettingsController } from '../../app-core/settings/useSettingsController.ts';
+import { useUpdateController } from '../../app-core/updates/useUpdateController.ts';
 import { closeWorkspaceTabsCommand } from '../../app-core/workspace/workspaceCommands.ts';
 import { type AppShellController, createAppShellController } from '../appShellOrchestrator.ts';
 import { type RepositorySet, useRepositories } from '../RepositoryProvider.tsx';
@@ -96,6 +97,12 @@ export function useAppShellController(
     repository: repositories.settings,
     setAppearanceMode: appearance.setMode,
     setDensity,
+  });
+  const updates = useUpdateController({
+    onStatus: setLastAction,
+    recordActivity,
+    settings: repositories.settings,
+    updateApi: desktopAppApi,
   });
   const firestoreTab = useFirestoreTabState({
     activeProject,
@@ -277,6 +284,7 @@ export function useAppShellController(
       refreshLoadedRoots: workspaceTree.refreshLoadedRoots,
       setFilter: workspaceTree.setTreeFilter,
     },
+    updates,
     ui: {
       clearAuthSelection: () => selectionActions.selectAuthUser(null),
       recordInteraction: tabActions.recordInteraction,
