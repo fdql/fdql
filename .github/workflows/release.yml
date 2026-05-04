@@ -81,7 +81,7 @@ jobs:
                               return packagePaths.has(file.filename)
                                   || packagePathPrefixes.some((prefix) => file.filename.startsWith(prefix));
                           });
-                          includeAllPlatforms = !hasReleaseBumpLabel && (hasPackageAllLabel || touchesPackagePaths);
+                          includeAllPlatforms = hasReleaseBumpLabel || hasPackageAllLabel || touchesPackagePaths;
                           shouldPackage = !hasReleaseBumpLabel;
                           core.info(`PR release bump label: ${hasReleaseBumpLabel}`);
                           core.info(`PR package-all label: ${hasPackageAllLabel}`);
@@ -146,11 +146,13 @@ jobs:
                       core.setOutput('version_tag', versionTag);
 
     ci:
+        needs: prepare
         uses: ./.github/workflows/ci.yml
+        with:
+            skip_expensive: ${{ needs.prepare.outputs.should_package != 'true' }}
 
     package:
         needs: [ prepare, ci ]
-        if: needs.prepare.outputs.should_package == 'true'
         runs-on: ${{ matrix.os }}
         strategy:
             fail-fast: false
@@ -160,28 +162,38 @@ jobs:
             RELEASE_TAG: ${{ needs.prepare.outputs.version_tag }}
             RELEASE_CHANNEL: ${{ needs.prepare.outputs.release_channel }}
         steps:
+            - name: Skip release bump package
+              if: needs.prepare.outputs.should_package != 'true'
+              run: echo "Release bump PR only changes package versions; release-policy validates it."
             - uses: actions/checkout@v6
+              if: needs.prepare.outputs.should_package == 'true'
             - uses: pnpm/action-setup@v5
+              if: needs.prepare.outputs.should_package == 'true'
               with:
                   version: 10.33.2
             - uses: actions/setup-node@v6
+              if: needs.prepare.outputs.should_package == 'true'
               with:
                   node-version: 24
                   cache: pnpm
             - uses: actions/setup-java@v5
-              if: matrix.smoke == 'packaged'
+              if: needs.prepare.outputs.should_package == 'true' && matrix.smoke == 'packaged'
               with:
                   distribution: temurin
                   java-version: 21
             - name: Install Electron runtime deps
-              if: matrix.platform == 'linux'
+              if: needs.prepare.outputs.should_package == 'true' && matrix.platform == 'linux'
               run: |
                   sudo apt-get update
                   sudo apt-get install -y xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64 libgtk-3-0 libsecret-1-0 libnotify4 libxss1 libxtst6 xdg-utils
-            - run: pnpm install --frozen-lockfile
-            - run: pnpm test:release-version
-            - run: pnpm package
+            - if: needs.prepare.outputs.should_package == 'true'
+              run: pnpm install --frozen-lockfile
+            - if: needs.prepare.outputs.should_package == 'true'
+              run: pnpm test:release-version
+            - if: needs.prepare.outputs.should_package == 'true'
+              run: pnpm package
             - name: Resolve package names
+              if: needs.prepare.outputs.should_package == 'true'
               id: package_names
               shell: bash
               env:
@@ -189,29 +201,31 @@ jobs:
               run: |
                   echo "artifact=firebase-desk-${RELEASE_CHANNEL}-${PACKAGE_PLATFORM}-${RUNNER_ARCH}" >> "$GITHUB_OUTPUT"
                   echo "checksums=SHA256SUMS-${RELEASE_CHANNEL}-${PACKAGE_PLATFORM}-${RUNNER_ARCH}.txt" >> "$GITHUB_OUTPUT"
-            - run: pnpm package:checksums
+            - if: needs.prepare.outputs.should_package == 'true'
+              run: pnpm package:checksums
               env:
                   CHECKSUM_FILE_NAME: ${{ steps.package_names.outputs.checksums }}
             - name: Configure Linux sandbox helper
-              if: matrix.platform == 'linux'
+              if: needs.prepare.outputs.should_package == 'true' && matrix.platform == 'linux'
               run: |
                   sudo chown root:root apps/desktop/release/linux-unpacked/chrome-sandbox
                   sudo chmod 4755 apps/desktop/release/linux-unpacked/chrome-sandbox
                   ls -l apps/desktop/release/linux-unpacked/chrome-sandbox
             - name: Smoke packaged app with emulators (Linux)
-              if: matrix.platform == 'linux'
+              if: needs.prepare.outputs.should_package == 'true' && matrix.platform == 'linux'
               run: |
                   xvfb-run --auto-servernum -- pnpm dlx firebase-tools@15.15.0 --project demo-local emulators:exec --only auth,firestore --config firebase/emulator/firebase.json "pnpm --filter @firebase-desk/emulator-tools seed && pnpm --filter @firebase-desk/e2e test:packaged"
             - name: Smoke packaged app with emulators (macOS)
-              if: matrix.platform == 'macos'
+              if: needs.prepare.outputs.should_package == 'true' && matrix.platform == 'macos'
               run: |
                   pnpm dlx firebase-tools@15.15.0 --project demo-local emulators:exec --only auth,firestore --config firebase/emulator/firebase.json "pnpm --filter @firebase-desk/emulator-tools seed && pnpm --filter @firebase-desk/e2e test:packaged"
             - name: Smoke packaged app with emulators (Windows)
-              if: matrix.platform == 'windows'
+              if: needs.prepare.outputs.should_package == 'true' && matrix.platform == 'windows'
               shell: bash
               run: |
                   pnpm dlx firebase-tools@15.15.0 --project demo-local emulators:exec --only auth,firestore --config firebase/emulator/firebase.json "pnpm --filter @firebase-desk/emulator-tools seed && pnpm --filter @firebase-desk/e2e test:packaged"
             - uses: actions/upload-artifact@v7
+              if: needs.prepare.outputs.should_package == 'true'
               with:
                   name: ${{ steps.package_names.outputs.artifact }}
                   path: |

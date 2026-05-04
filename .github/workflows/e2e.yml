@@ -15,25 +15,37 @@ jobs:
         env:
             GCLOUD_PROJECT: demo-local
         steps:
+            - name: Skip release bump e2e
+              if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
+              run: echo "Release bump PR only changes package versions; release-policy validates it."
             - uses: actions/checkout@v6
+              if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
             - uses: pnpm/action-setup@v5
+              if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
             - uses: actions/setup-node@v6
+              if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
               with:
                   node-version: 24
                   cache: pnpm
             - uses: actions/setup-java@v5
+              if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
               with:
                   distribution: temurin
                   java-version: 21
-            - run: pnpm install --frozen-lockfile
+            - if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
+              run: pnpm install --frozen-lockfile
             - name: Install Electron runtime deps
+              if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
               run: |
                   sudo apt-get update
                   sudo apt-get install -y xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64
-            - run: pnpm build
-            - run: pnpm --filter @firebase-desk/e2e exec playwright install --with-deps
+            - if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
+              run: pnpm build
+            - if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
+              run: pnpm --filter @firebase-desk/e2e exec playwright install --with-deps
                   chromium
-            - run: xvfb-run --auto-servernum -- pnpm dlx firebase-tools@15.15.0 --project
+            - if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
+              run: xvfb-run --auto-servernum -- pnpm dlx firebase-tools@15.15.0 --project
                   demo-local emulators:exec --only auth,firestore --config
                   firebase/emulator/firebase.json "pnpm --filter
                   @firebase-desk/emulator-tools seed && pnpm --filter
