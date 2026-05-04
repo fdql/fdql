@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { AUTOMATION_LABEL } from './release-policy.mjs';
 
@@ -159,9 +161,13 @@ async function mergedPullRequestsSinceTag({ repository, tag, token }) {
 
 function pullRequestNumbersSinceTag(tag) {
   const subjects = git(['log', '--format=%s', `${tag}..HEAD`]).split('\n').filter(Boolean);
+  return pullRequestNumbersFromSubjects(subjects);
+}
+
+export function pullRequestNumbersFromSubjects(subjects) {
   const numbers = new Set();
   for (const subject of subjects) {
-    for (const match of subject.matchAll(/\(#(\d+)\)/g)) {
+    for (const match of subject.matchAll(/(?:\(#|^Merge pull request #)(\d+)/g)) {
       numbers.add(Number.parseInt(match[1], 10));
     }
   }
@@ -216,7 +222,7 @@ async function writePlanFile(plan) {
 function writeOutput(name, value) {
   const outputPath = process.env.GITHUB_OUTPUT;
   if (!outputPath) return;
-  execFileSync('sh', ['-c', 'printf "%s=%s\\n" "$1" "$2" >> "$3"', 'sh', name, value, outputPath]);
+  appendFileSync(outputPath, `${name}=${value}\n`);
 }
 
 function compareStableTags(left, right) {
@@ -243,5 +249,5 @@ function git(args) {
 }
 
 function isMain(url) {
-  return process.argv[1] && url === new URL(process.argv[1], 'file:').href;
+  return process.argv[1] && url === pathToFileURL(resolve(process.argv[1])).href;
 }

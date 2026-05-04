@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { bumpVersion, planReleaseBump } from './release-bump.mjs';
+import { bumpVersion, planReleaseBump, pullRequestNumbersFromSubjects } from './release-bump.mjs';
 
 describe('bumpVersion', () => {
   it('bumps patch versions', () => {
@@ -14,6 +14,20 @@ describe('bumpVersion', () => {
 
   it('bumps major versions', () => {
     assert.equal(bumpVersion('0.0.8', 'major'), '1.0.0');
+  });
+});
+
+describe('pullRequestNumbersFromSubjects', () => {
+  it('extracts squash and merge commit pull request numbers', () => {
+    const numbers = pullRequestNumbersFromSubjects([
+      'Add release notes (#52)',
+      'Merge pull request #53 from viniciusrmcarneiro/native-ui',
+      'Fix issue #999 without merge metadata',
+      'Release v0.0.9 (#54)',
+      'Merge pull request #53 from viniciusrmcarneiro/native-ui',
+    ]);
+
+    assert.deepEqual(numbers, [52, 53, 54]);
   });
 });
 
