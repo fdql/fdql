@@ -697,6 +697,7 @@ async function countImportItems(
     }
   } finally {
     lines.close();
+    await destroyStream(input);
   }
   return total;
 }
@@ -813,15 +814,15 @@ async function endStream(stream: NodeJS.WritableStream): Promise<void> {
   await once(stream, 'finish');
 }
 
-async function destroyStream(stream: NodeJS.WritableStream): Promise<void> {
-  const writable = stream as NodeJS.WritableStream & {
+async function destroyStream(stream: NodeJS.ReadableStream | NodeJS.WritableStream): Promise<void> {
+  const destroyable = stream as (NodeJS.ReadableStream | NodeJS.WritableStream) & {
     readonly closed?: boolean;
     readonly destroyed?: boolean;
     destroy: () => void;
   };
-  if (writable.closed) return;
+  if (destroyable.closed) return;
   const closed = once(stream, 'close').catch(() => undefined);
-  if (!writable.destroyed) writable.destroy();
+  if (!destroyable.destroyed) destroyable.destroy();
   await closed;
 }
 
