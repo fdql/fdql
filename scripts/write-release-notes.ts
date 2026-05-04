@@ -11,7 +11,7 @@ async function main(): Promise<void> {
     repositoryRoot,
     process.env['RELEASE_NOTES_FILE'] ?? 'release-notes.md',
   );
-  const mode = process.env['RELEASE_NOTES_MODE'] ?? 'stable';
+  const mode = releaseNotesMode();
   const notes = mode === 'latest' ? latestNotes() : await stableNotes();
 
   await mkdir(dirname(outputPath), { recursive: true });
@@ -46,19 +46,19 @@ Source commit: \`${releaseCommit()}\``;
 
 async function readGeneratedNotes(): Promise<string> {
   const inputPath = process.env['GENERATED_RELEASE_NOTES_FILE'];
-  if (!inputPath) return '';
-  try {
-    return (await readFile(resolve(repositoryRoot, inputPath), 'utf8')).trim();
-  } catch (error) {
-    if (isNodeError(error) && error.code === 'ENOENT') return '';
-    throw error;
+  if (inputPath === undefined) return '';
+  if (inputPath.trim().length === 0) {
+    throw new Error('GENERATED_RELEASE_NOTES_FILE must not be empty.');
   }
+  return (await readFile(resolve(repositoryRoot, inputPath), 'utf8')).trim();
+}
+
+function releaseNotesMode(): 'stable' | 'latest' {
+  const mode = process.env['RELEASE_NOTES_MODE'] ?? 'stable';
+  if (mode === 'stable' || mode === 'latest') return mode;
+  throw new Error(`Unsupported RELEASE_NOTES_MODE "${mode}". Expected "stable" or "latest".`);
 }
 
 function releaseCommit(): string {
   return process.env['RELEASE_COMMIT'] ?? process.env['GITHUB_SHA'] ?? 'local';
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && 'code' in error;
 }
