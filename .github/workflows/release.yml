@@ -44,8 +44,8 @@ jobs:
                       const packagePaths = new Set([
                           '.dockerignore',
                           '.github/workflows/ci.yml',
+                          '.github/workflows/release-policy.yml',
                           '.github/workflows/release.yml',
-                          '.github/workflows/release-gate.yml',
                           'package.json',
                           'pnpm-lock.yaml',
                           'scripts/check-release-version.ts',
@@ -69,6 +69,7 @@ jobs:
                           const pullRequest = context.payload.pull_request;
                           releaseChannel = `pr-${pullRequest.number}`;
                           const labels = pullRequest.labels.map((label) => label.name);
+                          const hasReleaseBumpLabel = labels.includes('automation:release-bump');
                           const hasPackageAllLabel = labels.includes('package-all');
                           const files = await github.paginate(github.rest.pulls.listFiles, {
                               owner: context.repo.owner,
@@ -80,7 +81,9 @@ jobs:
                               return packagePaths.has(file.filename)
                                   || packagePathPrefixes.some((prefix) => file.filename.startsWith(prefix));
                           });
-                          includeAllPlatforms = hasPackageAllLabel || touchesPackagePaths;
+                          includeAllPlatforms = !hasReleaseBumpLabel && (hasPackageAllLabel || touchesPackagePaths);
+                          shouldPackage = !hasReleaseBumpLabel;
+                          core.info(`PR release bump label: ${hasReleaseBumpLabel}`);
                           core.info(`PR package-all label: ${hasPackageAllLabel}`);
                           core.info(`PR touches package paths: ${touchesPackagePaths}`);
                       } else if (eventName === 'push' && ref === 'refs/heads/main') {

@@ -13,6 +13,7 @@ permissions:
 jobs:
     build:
         runs-on: ubuntu-latest
+        if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
         steps:
             - uses: actions/checkout@v6
             - uses: pnpm/action-setup@v5
@@ -33,11 +34,11 @@ jobs:
                   GENERATED_RELEASE_NOTES_FILE=/tmp/generated-release-notes.md \
                     RELEASE_COMMIT="$GITHUB_SHA" \
                     RELEASE_NOTES_FILE=/tmp/stable-release-notes.md \
-                    pnpm release:notes
+                    node scripts/write-release-notes.mjs
                   RELEASE_NOTES_MODE=latest \
                     RELEASE_COMMIT="$GITHUB_SHA" \
                     RELEASE_NOTES_FILE=/tmp/latest-release-notes.md \
-                    pnpm release:notes
+                    node scripts/write-release-notes.mjs
                   grep -F "Unsigned Firebase Desk build." /tmp/stable-release-notes.md
                   grep -F "Source commit: \`$GITHUB_SHA\`" /tmp/stable-release-notes.md
                   grep -F "## What's Changed" /tmp/stable-release-notes.md
@@ -46,13 +47,13 @@ jobs:
                   grep -F "Source commit: \`$GITHUB_SHA\`" /tmp/latest-release-notes.md
                   if RELEASE_NOTES_MODE=unknown \
                     RELEASE_NOTES_FILE=/tmp/invalid-mode-notes.md \
-                    pnpm release:notes; then
+                    node scripts/write-release-notes.mjs; then
                     echo "::error::Invalid RELEASE_NOTES_MODE was accepted."
                     exit 1
                   fi
                   if GENERATED_RELEASE_NOTES_FILE=/tmp/missing-generated-release-notes.md \
                     RELEASE_NOTES_FILE=/tmp/missing-generated-notes.md \
-                    pnpm release:notes; then
+                    node scripts/write-release-notes.mjs; then
                     echo "::error::Missing generated release notes file was accepted."
                     exit 1
                   fi
