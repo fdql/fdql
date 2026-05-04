@@ -32,6 +32,7 @@ export function ResultTreeView(
     onShowMoreValueChildren,
     onToggleNode,
     queryPath,
+    scrollRestorationKey,
     rows,
     subcollectionStates,
     valueChildLimits,
@@ -51,6 +52,7 @@ export function ResultTreeView(
     readonly onShowMoreValueChildren?: ((id: string) => void) | undefined;
     readonly onToggleNode: (id: string) => void;
     readonly queryPath: string;
+    readonly scrollRestorationKey?: string | undefined;
     readonly rows: ReadonlyArray<FirestoreDocumentResult>;
     readonly subcollectionStates: Readonly<Record<string, SubcollectionLoadState>>;
     readonly valueChildLimits?: ReadonlyMap<string, number> | undefined;
@@ -99,6 +101,7 @@ export function ResultTreeView(
       className='select-text'
       density={density}
       rows={treeRows}
+      scrollRestorationKey={scrollRestorationKey}
       onOpen={openNode}
       onSelect={selectNode}
       onToggle={onToggleNode}

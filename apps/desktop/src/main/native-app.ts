@@ -35,9 +35,11 @@ interface BackgroundJobNotifierDeps {
 }
 
 const MAX_NOTIFIED_BACKGROUND_JOB_IDS = 500;
+const WINDOWS_APP_USER_MODEL_ID = 'dev.firebase-desk.app';
 
 export function installNativeAppBehavior(): void {
   nativeTheme.themeSource = 'system';
+  installPlatformAppIdentity();
   Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate()));
 }
 
@@ -247,4 +249,9 @@ function openExternalSafely(url: string): void {
 
 function isDevelopmentRuntime(): boolean {
   return !app.isPackaged || Boolean(process.env['ELECTRON_RENDERER_URL']);
+}
+
+function installPlatformAppIdentity(): void {
+  if (process.platform !== 'win32') return;
+  app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID);
 }

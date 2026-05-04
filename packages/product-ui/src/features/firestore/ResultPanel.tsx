@@ -61,6 +61,7 @@ export interface ResultPanelProps {
   readonly onSetFieldNull?: ((target: FieldEditTarget) => void) | undefined;
   readonly queryPath: string;
   readonly resultView: FirestoreResultView;
+  readonly resultsScopeKey?: string | undefined;
   readonly rows: ReadonlyArray<FirestoreDocumentResult>;
   readonly selectedDocumentPath: string | null;
   readonly settings?: SettingsRepository | undefined;
@@ -93,6 +94,7 @@ export function ResultPanel(
     onSetFieldNull,
     queryPath,
     resultView,
+    resultsScopeKey,
     rows,
     selectedDocumentPath,
     settings,
@@ -260,6 +262,7 @@ export function ResultPanel(
                 hasMore={showPagination}
                 isFetchingMore={isFetchingMore}
                 queryPath={queryPath}
+                scrollRestorationKey={resultsScopeKey ? `${resultsScopeKey}:table` : undefined}
                 rows={rows}
                 selectedDocumentPath={selectedDocumentPath}
                 settings={settings}
@@ -285,6 +288,7 @@ export function ResultPanel(
                   <ResultTreeView
                     density={density}
                     queryPath={queryPath}
+                    scrollRestorationKey={resultsScopeKey ? `${resultsScopeKey}:tree` : undefined}
                     expandedIds={expandedTreeIds}
                     hasMore={showPagination}
                     isFetchingMore={isFetchingMore}
@@ -317,6 +321,7 @@ export function ResultPanel(
                 active={resultView === 'json'}
                 ariaLabel='JSON results'
                 mode='textarea'
+                scrollRestorationKey={resultsScopeKey ? `${resultsScopeKey}:json` : undefined}
                 value={jsonValue}
               />
             </TabsContent>

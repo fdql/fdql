@@ -93,6 +93,68 @@ describe('CollectionJobDialog', () => {
     );
   });
 
+  it('surfaces native picker failures without changing the path', async () => {
+    renderDialog({
+      initialKind: 'export',
+      onPickExportFile: async () => {
+        throw new Error('Save dialog failed');
+      },
+    });
+
+    const filePath = screen.getByRole('textbox', { name: 'Export file path' }) as HTMLInputElement;
+    expect(filePath.readOnly).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+
+    expect(await screen.findByText('Save dialog failed')).toBeTruthy();
+    expect(filePath.value).toBe('');
+  });
+
+  it('treats picker cancel as no-op', async () => {
+    renderDialog({
+      initialKind: 'import',
+      onPickImportFile: async () => null,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+
+    await waitFor(() => {
+      const input = screen.getByRole('textbox', { name: 'Import file path' }) as HTMLInputElement;
+      expect(input.value).toBe('');
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('clears stale export picker errors when a later picker is canceled', async () => {
+    const onPickExportFile = vi
+      .fn<NonNullable<ComponentProps<typeof CollectionJobDialog>['onPickExportFile']>>()
+      .mockRejectedValueOnce(new Error('Save dialog failed'))
+      .mockResolvedValueOnce(null);
+    renderDialog({ initialKind: 'export', onPickExportFile });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+    expect(await screen.findByText('Save dialog failed')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
+  it('clears stale import picker errors when a later picker is canceled', async () => {
+    const onPickImportFile = vi
+      .fn<NonNullable<ComponentProps<typeof CollectionJobDialog>['onPickImportFile']>>()
+      .mockRejectedValueOnce(new Error('Open dialog failed'))
+      .mockResolvedValueOnce(null);
+    renderDialog({ initialKind: 'import', onPickImportFile });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+    expect(await screen.findByText('Open dialog failed')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
   it('marks plain JSONL exports as export-only', () => {
     renderDialog({ initialKind: 'export' });
 

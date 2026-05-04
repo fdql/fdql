@@ -49,6 +49,26 @@ describe('JobsDrawer', () => {
     expect(drawer.className).toContain('h-[70vh]');
   });
 
+  it('closes on Escape from inside the drawer', () => {
+    const onClose = vi.fn();
+    render(
+      <JobsDrawer
+        jobs={[job]}
+        open
+        onCancel={vi.fn()}
+        onClearCompleted={vi.fn()}
+        onClose={onClose}
+        onExpandedChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear completed' }), {
+      key: 'Escape',
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('does not double-count skipped or failed rows in progress', () => {
     render(
       <JobsDrawer

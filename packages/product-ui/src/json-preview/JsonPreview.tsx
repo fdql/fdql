@@ -1,5 +1,5 @@
-import { cn } from '@firebase-desk/ui';
-import { useEffect, useState } from 'react';
+import { cn, useScrollRestoration } from '@firebase-desk/ui';
+import { useEffect, useRef, useState } from 'react';
 
 export function JsonPreview(
   {
@@ -7,16 +7,22 @@ export function JsonPreview(
     ariaLabel,
     className,
     mode = 'pre',
+    scrollRestorationKey,
     value,
   }: {
     readonly active?: boolean;
     readonly ariaLabel?: string;
     readonly className?: string;
     readonly mode?: 'pre' | 'textarea';
+    readonly scrollRestorationKey?: string | undefined;
     readonly value: unknown;
   },
 ) {
   const [text, setText] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
+  const onTextareaScroll = useScrollRestoration(scrollRestorationKey, textareaRef, text);
+  const onPreScroll = useScrollRestoration(scrollRestorationKey, preRef, text);
 
   useEffect(() => {
     if (!active) {
@@ -47,6 +53,7 @@ export function JsonPreview(
   if (mode === 'textarea') {
     return (
       <textarea
+        ref={textareaRef}
         aria-label={ariaLabel ?? 'JSON preview'}
         className={cn(
           'block h-full min-h-0 w-full resize-none border-0 bg-bg-panel p-3 font-mono text-xs text-text-secondary outline-none',
@@ -54,16 +61,19 @@ export function JsonPreview(
         )}
         readOnly
         value={text}
+        onScroll={onTextareaScroll}
       />
     );
   }
 
   return (
     <pre
+      ref={preRef}
       className={cn(
         'h-full min-h-0 select-text overflow-auto rounded-md border border-border-subtle bg-bg-subtle p-3 font-mono text-xs leading-relaxed text-text-secondary',
         className,
       )}
+      onScroll={onPreScroll}
     >
       {text}
     </pre>

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -77,5 +77,35 @@ describe('VirtualList', () => {
       />,
     );
     expect(screen.queryAllByTestId('row')).toHaveLength(0);
+  });
+
+  it('restores saved scroll for the same key', () => {
+    const { container, unmount } = render(
+      <VirtualList
+        className='scroll-list'
+        items={['x', 'y']}
+        estimateSize={() => 20}
+        scrollRestorationKey='users:list'
+        renderItem={(item) => <span>{item}</span>}
+      />,
+    );
+    const list = container.querySelector<HTMLElement>('.scroll-list')!;
+    fireEvent.scroll(list, { target: { scrollLeft: 9, scrollTop: 42 } });
+
+    unmount();
+
+    const next = render(
+      <VirtualList
+        className='scroll-list'
+        items={['x', 'y']}
+        estimateSize={() => 20}
+        scrollRestorationKey='users:list'
+        renderItem={(item) => <span>{item}</span>}
+      />,
+    );
+
+    const restored = next.container.querySelector<HTMLElement>('.scroll-list')!;
+    expect(restored.scrollLeft).toBe(9);
+    expect(restored.scrollTop).toBe(42);
   });
 });

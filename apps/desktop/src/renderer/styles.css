@@ -38,7 +38,7 @@
     user-select: text;
   }
 
-  :where(button, a, [role='button'], [role='treeitem'], [role='tab'], [role='menuitem'], input, select, textarea):focus-visible {
+  :where(button, a, [role='button'], [role='row'], [role='treeitem'], [role='tab'], [role='menuitem'], input, select, textarea):focus-visible {
     outline: none;
     box-shadow: var(--focus-ring-shadow);
     border-radius: var(--radius-md);

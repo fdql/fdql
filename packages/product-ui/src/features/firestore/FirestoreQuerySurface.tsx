@@ -538,6 +538,7 @@ export function FirestoreQuerySurface(
         actionNoticeMessage={actionNoticeMessage}
         queryPath={draft.path}
         resultView={effectiveResultView}
+        resultsScopeKey={resultsScopeKey}
         resultsStale={effectiveResultsStale}
         rows={rows}
         selectedDocument={selectedDocument}

@@ -65,13 +65,27 @@ export function CollectionJobDialog(
   }, [activeProject?.id, collectionPath, initialKind, open]);
 
   async function chooseExportFile() {
-    const picked = await onPickExportFile?.(format);
-    if (picked) setFilePath(picked);
+    try {
+      setErrorMessage(null);
+      const picked = await onPickExportFile?.(format);
+      if (picked) {
+        setFilePath(picked);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not choose export file.');
+    }
   }
 
   async function chooseImportFile() {
-    const picked = await onPickImportFile?.();
-    if (picked) setFilePath(picked);
+    try {
+      setErrorMessage(null);
+      const picked = await onPickImportFile?.();
+      if (picked) {
+        setFilePath(picked);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not choose import file.');
+    }
   }
 
   async function submit() {
@@ -316,8 +330,8 @@ export function CollectionJobDialog(
                   </span>
                   <Input
                     aria-label={kind === 'export' ? 'Export file path' : 'Import file path'}
+                    readOnly
                     value={filePath}
-                    onChange={(event) => setFilePath(event.currentTarget.value)}
                   />
                 </label>
                 <Button

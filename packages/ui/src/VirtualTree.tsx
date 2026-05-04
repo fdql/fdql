@@ -5,9 +5,11 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
+import { useScrollRestoration } from './scroll-restoration.ts';
 import { visibleVirtualRows } from './virtualRows.ts';
 
 export interface VirtualTreeNode {
@@ -27,6 +29,7 @@ export interface VirtualTreeProps {
   readonly onSelect?: (id: string) => void;
   readonly renderNode?: (node: VirtualTreeNode) => ReactNode;
   readonly ariaLabel?: string;
+  readonly scrollRestorationKey?: string | undefined;
 }
 
 export function VirtualTree(
@@ -39,11 +42,13 @@ export function VirtualTree(
     onToggle,
     renderNode,
     rowHeight,
+    scrollRestorationKey,
   }: VirtualTreeProps,
 ) {
   const [focusedIndex, setFocusedIndex] = useState(0);
   const parentRef = useRef<HTMLDivElement>(null);
   const shouldFocusRef = useRef(false);
+  const pendingKeyboardFocusIndexRef = useRef<number | null>(null);
   const resolvedRowHeight = rowHeight ?? densityTokens[density].treeRowHeight;
   const virtualizer = useVirtualizer({
     count: flattenedNodes.length,
@@ -55,6 +60,7 @@ export function VirtualTree(
     },
     overscan: 8,
   });
+  const onScroll = useScrollRestoration(scrollRestorationKey, parentRef);
   const virtualRows = visibleVirtualRows(
     virtualizer.getVirtualItems(),
     flattenedNodes.length,
@@ -69,11 +75,23 @@ export function VirtualTree(
     (index: number) => {
       const next = clampIndex(index, flattenedNodes.length);
       shouldFocusRef.current = true;
+      pendingKeyboardFocusIndexRef.current = next;
       setFocusedIndex(next);
       virtualizer.scrollToIndex(next, { align: 'auto' });
     },
     [flattenedNodes.length, virtualizer],
   );
+
+  useLayoutEffect(() => {
+    const index = pendingKeyboardFocusIndexRef.current;
+    if (index === null) return;
+    const row = parentRef.current?.querySelector<HTMLElement>(
+      `[data-virtual-tree-row-index="${String(index)}"]`,
+    );
+    if (!row) return;
+    row.focus();
+    pendingKeyboardFocusIndexRef.current = null;
+  }, [focusedIndex, virtualRows]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLDivElement>, index: number, node: VirtualTreeNode) => {
@@ -100,7 +118,13 @@ export function VirtualTree(
   );
 
   return (
-    <div ref={parentRef} className='h-full overflow-auto' role='tree' aria-label={ariaLabel}>
+    <div
+      ref={parentRef}
+      className='h-full overflow-auto'
+      role='tree'
+      aria-label={ariaLabel}
+      onScroll={onScroll}
+    >
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
         {virtualRows.map((row) => {
           const node = flattenedNodes[row.index];
@@ -112,6 +136,7 @@ export function VirtualTree(
               aria-expanded={node.hasChildren ? node.expanded : undefined}
               aria-level={node.depth + 1}
               tabIndex={row.index === focusedIndex ? 0 : -1}
+              data-virtual-tree-row-index={row.index}
               ref={(el) => {
                 if (el && row.index === focusedIndex && el.ownerDocument.activeElement !== el) {
                   if (

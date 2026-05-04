@@ -6,10 +6,13 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
+  useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
 import { cn } from './cn.ts';
+import { useScrollRestoration } from './scroll-restoration.ts';
 import { visibleVirtualRows } from './virtualRows.ts';
 
 export interface VirtualTableColumn<T> {
@@ -45,6 +48,7 @@ export interface VirtualTableProps<T> {
   readonly rowHeight?: number;
   readonly rowClassName?: string | ((row: T) => string | undefined);
   readonly rowWrapper?: (rowElement: ReactNode, row: T, index: number) => ReactNode;
+  readonly scrollRestorationKey?: string | undefined;
 }
 
 export function VirtualTable<T>(
@@ -67,11 +71,14 @@ export function VirtualTable<T>(
     rowHeight,
     rows,
     rowWrapper,
+    scrollRestorationKey,
   }: VirtualTableProps<T>,
 ) {
   const parentRef = useRef<HTMLDivElement>(null);
   const lastPrimaryClickKeyRef = useRef<Key | null>(null);
+  const pendingKeyboardFocusIndexRef = useRef<number | null>(null);
   const [isResizingColumn, setIsResizingColumn] = useState(false);
+  const [focusedRowIndex, setFocusedRowIndex] = useState(0);
   const resolvedRowHeight = rowHeight ?? densityTokens[density].rowHeight;
   const tableWidth = tableContentWidth(columns);
   const tableWidthStyle = tableWidth === undefined
@@ -87,11 +94,39 @@ export function VirtualTable<T>(
     },
     overscan: 12,
   });
+  const onScroll = useScrollRestoration(scrollRestorationKey, parentRef);
   const virtualRows = visibleVirtualRows(
     virtualizer.getVirtualItems(),
     rows.length,
     resolvedRowHeight,
   );
+  const clampedFocusedRowIndex = clampRowIndex(focusedRowIndex, rows.length);
+
+  useEffect(() => {
+    setFocusedRowIndex((current) => clampRowIndex(current, rows.length));
+  }, [rows.length]);
+
+  useLayoutEffect(() => {
+    const rowIndex = pendingKeyboardFocusIndexRef.current;
+    if (rowIndex === null) return;
+    const focused = focusRow(parentRef.current, rowIndex);
+    if (focused) pendingKeyboardFocusIndexRef.current = null;
+  }, [clampedFocusedRowIndex, virtualRows]);
+
+  function moveKeyboardFocus(rowIndex: number): void {
+    const nextIndex = clampRowIndex(rowIndex, rows.length);
+    pendingKeyboardFocusIndexRef.current = nextIndex;
+    setFocusedRowIndex(nextIndex);
+    (
+      virtualizer as {
+        readonly scrollToIndex?: (
+          index: number,
+          options?: { readonly align?: 'auto' | 'center' | 'end' | 'start'; },
+        ) => void;
+      }
+    ).scrollToIndex?.(nextIndex, { align: 'auto' });
+    if (focusRow(parentRef.current, nextIndex)) pendingKeyboardFocusIndexRef.current = null;
+  }
 
   return (
     <div
@@ -100,6 +135,7 @@ export function VirtualTable<T>(
       aria-rowcount={rows.length + 1}
       className={cn('h-full overflow-auto', className)}
       role='grid'
+      onScroll={onScroll}
     >
       <div
         aria-rowindex={1}
@@ -176,6 +212,7 @@ export function VirtualTable<T>(
               aria-selected={isRowSelected?.(item, row.index) ?? undefined}
               className={cn(
                 'flex border-b border-border-subtle text-sm text-text-primary hover:bg-action-ghost-hover',
+                'focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-border-focus)]',
                 onRowClick && 'cursor-pointer',
                 typeof rowClassName === 'function' ? rowClassName(item) : rowClassName,
               )}
@@ -190,9 +227,11 @@ export function VirtualTable<T>(
                 display: 'flex',
                 height: resolvedRowHeight,
               }}
-              tabIndex={onRowClick ? 0 : undefined}
+              tabIndex={onRowClick && clampedFocusedRowIndex === row.index ? 0 : -1}
+              onFocus={() => setFocusedRowIndex(row.index)}
               onClick={(event) => {
                 if (event.detail > 1) return;
+                setFocusedRowIndex(row.index);
                 lastPrimaryClickKeyRef.current = rowKey;
                 onRowClick?.(item);
               }}
@@ -214,6 +253,7 @@ export function VirtualTable<T>(
                   row: item,
                   rowIndex: row.index,
                   rowCount: rows.length,
+                  moveFocus: moveKeyboardFocus,
                 });
               }}
             >
@@ -251,6 +291,7 @@ function handleRowKeyDown<T>(
     row,
     rowCount,
     rowIndex,
+    moveFocus,
   }: {
     readonly event: KeyboardEvent<HTMLDivElement>;
     readonly onRowClick?: ((row: T) => void) | undefined;
@@ -258,6 +299,7 @@ function handleRowKeyDown<T>(
     readonly row: T;
     readonly rowCount: number;
     readonly rowIndex: number;
+    readonly moveFocus: (rowIndex: number) => void;
   },
 ): void {
   if ((event.key === 'Enter' || event.key === ' ') && onRowClick) {
@@ -269,7 +311,7 @@ function handleRowKeyDown<T>(
   const nextIndex = nextKeyboardRowIndex(event.key, rowIndex, rowCount);
   if (nextIndex === null) return;
   event.preventDefault();
-  focusRow(parent, nextIndex);
+  if (!focusRow(parent, nextIndex)) moveFocus(nextIndex);
 }
 
 function nextKeyboardRowIndex(key: string, rowIndex: number, rowCount: number): number | null {
@@ -280,10 +322,17 @@ function nextKeyboardRowIndex(key: string, rowIndex: number, rowCount: number): 
   return null;
 }
 
-function focusRow(parent: HTMLElement | null, rowIndex: number): void {
+function focusRow(parent: HTMLElement | null, rowIndex: number): boolean {
   const selector = `[data-virtual-table-row-index="${String(rowIndex)}"]`;
   const row = parent?.querySelector<HTMLElement>(selector);
-  row?.focus();
+  if (!row) return false;
+  row.focus();
+  return true;
+}
+
+function clampRowIndex(index: number, rowCount: number): number {
+  if (rowCount <= 0) return 0;
+  return Math.max(0, Math.min(index, rowCount - 1));
 }
 
 function ColumnResizeHandle<T>(

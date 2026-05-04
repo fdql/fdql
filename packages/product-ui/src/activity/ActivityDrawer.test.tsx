@@ -126,6 +126,31 @@ describe('ActivityDrawer', () => {
     expect(onExpandedChange).toHaveBeenCalledWith(false);
   });
 
+  it('closes on Escape from inside the drawer', () => {
+    const onClose = vi.fn();
+    render(
+      <ActivityDrawer
+        area='all'
+        entries={[]}
+        open
+        search=''
+        status='all'
+        onAreaChange={vi.fn()}
+        onClear={vi.fn()}
+        onClose={onClose}
+        onExport={vi.fn()}
+        onSearchChange={vi.fn()}
+        onStatusChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Search activity' }), {
+      key: 'Escape',
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('truncates very large payloads instead of freezing on JSON.stringify', () => {
     const huge: Record<string, string> = {};
     for (let i = 0; i < 50_000; i += 1) huge[`field_${i}`] = `value_${i}`;

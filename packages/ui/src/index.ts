@@ -15,6 +15,7 @@ export * from './inspector/index.ts';
 export * from './JsonTreeView.tsx';
 export * from './panel/index.ts';
 export * from './resizable-panel-group/index.ts';
+export * from './scroll-restoration.ts';
 export * from './status-badge/index.ts';
 export * from './tabs/index.ts';
 export * from './toolbar/index.ts';

@@ -1,14 +1,18 @@
 import type { BackgroundJob } from '@firebase-desk/repo-contracts/jobs';
-import { type BrowserWindow, shell } from 'electron';
+import { app, type BrowserWindow, Menu, nativeTheme, shell } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBackgroundJobNotifier, installNativeWindowBehavior } from './native-app.ts';
+import {
+  createBackgroundJobNotifier,
+  installNativeAppBehavior,
+  installNativeWindowBehavior,
+} from './native-app.ts';
 
 type ShowNotification = NonNullable<
   Parameters<typeof createBackgroundJobNotifier>[0]
 >['showNotification'];
 
 vi.mock('electron', () => ({
-  app: { isPackaged: true, name: 'Firebase Desk' },
+  app: { isPackaged: true, name: 'Firebase Desk', setAppUserModelId: vi.fn() },
   BrowserWindow: {
     getAllWindows: vi.fn(() => []),
     getFocusedWindow: vi.fn(() => null),
@@ -21,6 +25,20 @@ vi.mock('electron', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe('native app behavior', () => {
+  it('installs native app identity and menus', () => {
+    installNativeAppBehavior();
+
+    expect(nativeTheme.themeSource).toBe('system');
+    expect(Menu.setApplicationMenu).toHaveBeenCalledTimes(1);
+    if (process.platform === 'win32') {
+      expect(app.setAppUserModelId).toHaveBeenCalledWith('dev.firebase-desk.app');
+    } else {
+      expect(app.setAppUserModelId).not.toHaveBeenCalled();
+    }
+  });
 });
 
 describe('native window behavior', () => {
