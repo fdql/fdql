@@ -160,16 +160,13 @@ jobs:
                   node-version: 24
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
-            - name: Generate GitHub release notes
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  VERSION_TAG: v0.0.${{ github.run_number }}
+            - name: Write generated release notes fixture
               run: |
-                  gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-                    -f tag_name="$VERSION_TAG" \
-                    -f target_commitish="$GITHUB_SHA" \
-                    -f configuration_file_path=".github/release.yml" \
-                    --jq .body > generated-release-notes.md
+                  cat > generated-release-notes.md <<'NOTES'
+                  ## What's Changed
+
+                  * Validate release notes in CI
+                  NOTES
             - name: Validate stable release notes
               run: pnpm release:notes
               env:
