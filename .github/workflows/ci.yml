@@ -23,6 +23,39 @@ jobs:
                   node-version: 24
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
+            - name: Validate release notes
+              run: |
+                  cat > /tmp/generated-release-notes.md <<'NOTES'
+                  ## What's Changed
+
+                  * Validate release notes in CI
+                  NOTES
+                  GENERATED_RELEASE_NOTES_FILE=/tmp/generated-release-notes.md \
+                    RELEASE_COMMIT="$GITHUB_SHA" \
+                    RELEASE_NOTES_FILE=/tmp/stable-release-notes.md \
+                    pnpm release:notes
+                  RELEASE_NOTES_MODE=latest \
+                    RELEASE_COMMIT="$GITHUB_SHA" \
+                    RELEASE_NOTES_FILE=/tmp/latest-release-notes.md \
+                    pnpm release:notes
+                  grep -F "Unsigned Firebase Desk build." /tmp/stable-release-notes.md
+                  grep -F "Source commit: \`$GITHUB_SHA\`" /tmp/stable-release-notes.md
+                  grep -F "## What's Changed" /tmp/stable-release-notes.md
+                  grep -F "* Validate release notes in CI" /tmp/stable-release-notes.md
+                  grep -F "Rolling unsigned build mirrored" /tmp/latest-release-notes.md
+                  grep -F "Source commit: \`$GITHUB_SHA\`" /tmp/latest-release-notes.md
+                  if RELEASE_NOTES_MODE=unknown \
+                    RELEASE_NOTES_FILE=/tmp/invalid-mode-notes.md \
+                    pnpm release:notes; then
+                    echo "::error::Invalid RELEASE_NOTES_MODE was accepted."
+                    exit 1
+                  fi
+                  if GENERATED_RELEASE_NOTES_FILE=/tmp/missing-generated-release-notes.md \
+                    RELEASE_NOTES_FILE=/tmp/missing-generated-notes.md \
+                    pnpm release:notes; then
+                    echo "::error::Missing generated release notes file was accepted."
+                    exit 1
+                  fi
             - run: pnpm format:check
             - run: pnpm lint
             - run: pnpm typecheck
