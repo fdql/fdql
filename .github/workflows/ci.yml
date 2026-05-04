@@ -23,6 +23,21 @@ jobs:
                   node-version: 24
                   cache: pnpm
             - run: pnpm install --frozen-lockfile
+            - name: Validate release notes
+              run: |
+                  cat > generated-release-notes.md <<'NOTES'
+                  ## What's Changed
+
+                  * Validate release notes in CI
+                  NOTES
+                  GENERATED_RELEASE_NOTES_FILE=generated-release-notes.md \
+                    RELEASE_COMMIT="$GITHUB_SHA" \
+                    RELEASE_NOTES_FILE=/tmp/stable-release-notes.md \
+                    pnpm release:notes
+                  RELEASE_NOTES_MODE=latest \
+                    RELEASE_COMMIT="$GITHUB_SHA" \
+                    RELEASE_NOTES_FILE=/tmp/latest-release-notes.md \
+                    pnpm release:notes
             - run: pnpm format:check
             - run: pnpm lint
             - run: pnpm typecheck
