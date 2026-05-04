@@ -162,9 +162,9 @@ jobs:
             RELEASE_TAG: ${{ needs.prepare.outputs.version_tag }}
             RELEASE_CHANNEL: ${{ needs.prepare.outputs.release_channel }}
         steps:
-            - name: Skip release bump package
+            - name: Skip package
               if: needs.prepare.outputs.should_package != 'true'
-              run: echo "Release bump PR only changes package versions; release-policy validates it."
+              run: echo "Packaging skipped because prepare set should_package=false."
             - uses: actions/checkout@v6
               if: needs.prepare.outputs.should_package == 'true'
             - uses: pnpm/action-setup@v5
