@@ -30,11 +30,14 @@ describe('FirestoreCollectionJobRunner', () => {
       { path: 'orders', startAfter: 'orders/order_249' },
       { path: 'orders', startAfter: 'orders/order_499' },
     ]);
+    expect(db.counts).toEqual(['orders']);
+    expect(db.pathOnlyReads).toEqual(['orders', 'orders', 'orders']);
     expect(db.commits.map((commit) => commit.length)).toEqual([500, 1]);
     expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({
       currentPath: undefined,
       deleted: 501,
       read: 501,
+      total: 501,
     }));
   });
 
@@ -50,6 +53,28 @@ describe('FirestoreCollectionJobRunner', () => {
     expect(db.commits.flat()).toEqual([
       'orders/order_1/items/item_1',
       'orders/order_1',
+    ]);
+    expect(db.counts).toEqual(['orders', 'orders/order_1/items']);
+  });
+
+  it('recursively retries oversized delete commits as smaller batches', async () => {
+    const db = new FakeFirestore(
+      { orders: ['orders/order_1', 'orders/order_2', 'orders/order_3', 'orders/order_4'] },
+      {},
+      {
+        rejectCommitsOver: 1,
+        rejectMessage: 'Transaction too big. Decrease transaction size.',
+      },
+    );
+    const runner = new FirestoreCollectionJobRunner(provider(db), { tempDirectory: '/tmp' });
+
+    await runner.run(deleteJob(false), neverCancelled(), { update: vi.fn() });
+
+    expect(db.commits).toEqual([
+      ['orders/order_1'],
+      ['orders/order_2'],
+      ['orders/order_3'],
+      ['orders/order_4'],
     ]);
   });
 
@@ -126,10 +151,13 @@ describe('FirestoreCollectionJobRunner', () => {
     const db = new FakeFirestore({ users_imported: ['users_imported/user_2'] });
     const runner = new FirestoreCollectionJobRunner(provider(db), { tempDirectory: dir });
 
-    await runner.run(importJob(filePath), neverCancelled(), { update: vi.fn() });
+    const progress = vi.fn();
+
+    await runner.run(importJob(filePath), neverCancelled(), { update: progress });
 
     expect(db.getAllCalls).toEqual([['users_imported/user_1', 'users_imported/user_2']]);
     expect(db.commits.flat()).toEqual(['users_imported/user_1']);
+    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ total: 2 }));
   });
 
   it('removes partial JSONL exports on failure', async () => {
@@ -175,14 +203,19 @@ describe('FirestoreCollectionJobRunner', () => {
 
 class FakeFirestore {
   readonly commits: string[][] = [];
+  readonly counts: string[] = [];
   readonly getAllCalls: string[][] = [];
+  readonly pathOnlyReads: string[] = [];
   readonly reads: Array<{ readonly path: string; readonly startAfter: string | null; }> = [];
   private readonly existingPaths: Set<string>;
 
   constructor(
     private readonly docsByCollection: Record<string, string[]>,
     private readonly dataByPath: Record<string, Record<string, unknown>> = {},
-    private readonly options: { readonly rejectCommitsOver?: number; } = {},
+    private readonly options: {
+      readonly rejectCommitsOver?: number;
+      readonly rejectMessage?: string;
+    } = {},
   ) {
     this.existingPaths = new Set(Object.values(docsByCollection).flat());
   }
@@ -195,7 +228,9 @@ class FakeFirestore {
           this.options.rejectCommitsOver !== undefined
           && paths.length > this.options.rejectCommitsOver
         ) {
-          throw new Error('Request payload size exceeds the limit: 11534336 bytes.');
+          throw new Error(
+            this.options.rejectMessage ?? 'Request payload size exceeds the limit: 11534336 bytes.',
+          );
         }
         this.commits.push([...paths]);
       },
@@ -232,6 +267,11 @@ class FakeFirestore {
     );
   }
 
+  countDocuments(path: string): number {
+    this.counts.push(path);
+    return this.docsByCollection[path]?.length ?? 0;
+  }
+
   subcollections(documentPath: string): Array<{ readonly path: string; }> {
     const prefix = `${documentPath}/`;
     return Object.keys(this.docsByCollection)
@@ -240,10 +280,15 @@ class FakeFirestore {
       )
       .map((path) => ({ path }));
   }
+
+  trackPathOnlyRead(path: string): void {
+    this.pathOnlyReads.push(path);
+  }
 }
 
 class FakeQuery {
   private limitValue = 250;
+  private pathOnly = false;
   private startAfterPath: string | null = null;
 
   constructor(
@@ -255,8 +300,21 @@ class FakeQuery {
     return this;
   }
 
+  count() {
+    return {
+      get: async () => ({
+        data: () => ({ count: this.db.countDocuments(this.path) }),
+      }),
+    };
+  }
+
   limit(limit: number) {
     this.limitValue = limit;
+    return this;
+  }
+
+  select() {
+    this.pathOnly = true;
     return this;
   }
 
@@ -266,6 +324,7 @@ class FakeQuery {
   }
 
   async get() {
+    if (this.pathOnly) this.db.trackPathOnlyRead(this.path);
     const docs = this.db.documents(this.path, this.startAfterPath, this.limitValue);
     return { docs, empty: docs.length === 0 };
   }

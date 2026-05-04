@@ -34,6 +34,7 @@ export interface BackgroundJobProgress {
   readonly failed: number;
   readonly read: number;
   readonly skipped: number;
+  readonly total?: number | undefined;
   readonly written: number;
 }
 

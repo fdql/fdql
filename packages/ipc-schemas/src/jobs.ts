@@ -18,6 +18,7 @@ export const BackgroundJobProgressSchema = z.object({
   failed: z.number().int().nonnegative(),
   read: z.number().int().nonnegative(),
   skipped: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative().optional(),
   written: z.number().int().nonnegative(),
 });
 

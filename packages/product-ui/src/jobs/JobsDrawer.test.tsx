@@ -91,6 +91,53 @@ describe('JobsDrawer', () => {
       ),
     ).toBe('100');
   });
+
+  it('uses total counts for active job progress', () => {
+    render(
+      <JobsDrawer
+        jobs={[{
+          ...job,
+          progress: { deleted: 0, failed: 0, read: 4, skipped: 1, total: 10, written: 3 },
+        }]}
+        open
+        onCancel={vi.fn()}
+        onClearCompleted={vi.fn()}
+        onClose={vi.fn()}
+        onExpandedChange={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole('progressbar', { name: 'Copy collection progress' }).getAttribute(
+        'aria-valuenow',
+      ),
+    ).toBe('40');
+    expect(screen.getByText('total 10')).toBeTruthy();
+  });
+
+  it('uses reads as export progress', () => {
+    render(
+      <JobsDrawer
+        jobs={[{
+          ...job,
+          progress: { deleted: 0, failed: 0, read: 5, skipped: 0, total: 10, written: 0 },
+          title: 'Export collection',
+          type: 'firestore.exportCollection',
+        }]}
+        open
+        onCancel={vi.fn()}
+        onClearCompleted={vi.fn()}
+        onClose={vi.fn()}
+        onExpandedChange={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole('progressbar', { name: 'Export collection progress' }).getAttribute(
+        'aria-valuenow',
+      ),
+    ).toBe('50');
+  });
 });
 
 const job: BackgroundJob = {

@@ -25,7 +25,7 @@ describe('job schemas', () => {
         acknowledgedAt: '2026-04-29T00:00:02.000Z',
         createdAt: '2026-04-29T00:00:00.000Z',
         id: 'job-1',
-        progress: { deleted: 0, failed: 0, read: 1, skipped: 0, written: 1 },
+        progress: { deleted: 0, failed: 0, read: 1, skipped: 0, total: 2, written: 1 },
         request,
         status: 'running',
         title: 'Copy collection',
