@@ -165,6 +165,7 @@ function settingsSnapshot(): SettingsSnapshot {
     theme: 'system',
     density: 'compact',
     dataMode: 'mock',
+    firstRunGuide: { completedAt: null },
     hotkeyOverrides: {},
     resultTableLayouts: {},
     firestoreFieldCatalogs: {},

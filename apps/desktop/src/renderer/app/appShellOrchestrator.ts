@@ -63,6 +63,9 @@ export interface AppShellController {
     readonly density: DensityName;
     readonly destructiveAction: DestructiveAction | null;
     readonly editingProject: ProjectSummary | null;
+    readonly firstRunGuideError: string | null;
+    readonly firstRunGuideOpen: boolean;
+    readonly firstRunGuideSaving: boolean;
     readonly projectsRepository: ProjectsRepository;
     readonly settingsOpen: boolean;
     readonly onAddProjectOpenChange: (open: boolean) => void;
@@ -70,6 +73,10 @@ export interface AppShellController {
     readonly onDensityChange: (density: DensityName) => void;
     readonly onDestructiveActionOpenChange: (open: boolean) => void;
     readonly onEditProjectOpenChange: (open: boolean) => void;
+    readonly onFirstRunGuideKeepMock: () => void;
+    readonly onFirstRunGuideOpenChange: (open: boolean) => void;
+    readonly onFirstRunGuideOpenSettings: () => void;
+    readonly onFirstRunGuideSwitchToLive: () => void;
     readonly onOpenDataDirectory: () => Promise<void>;
     readonly onProjectAdded: (project: ProjectSummary) => void;
     readonly onProjectAddSubmit: (input: ProjectAddInput) => Promise<ProjectSummary>;
@@ -94,6 +101,7 @@ export interface AppShellController {
     readonly onBack: () => void;
     readonly onCheckForUpdates: () => void;
     readonly onForward: () => void;
+    readonly onOpenMockGuide: () => void;
     readonly onModeChange: (mode: 'dark' | 'light' | 'system') => void;
     readonly onOpenSettings: () => void;
   };
@@ -237,6 +245,7 @@ export interface AppShellOrchestratorInput {
   readonly editingProject: ProjectSummary | null;
   readonly firestoreTab: AppShellFirestoreTabFacade;
   readonly firestoreWrite: AppShellFirestoreWriteFacade;
+  readonly firstRunGuide: AppShellFirstRunGuideFacade;
   readonly focusAuthFilter: () => void;
   readonly focusTreeFilter: () => void;
   readonly jsTab: AppShellJsFacade;
@@ -417,6 +426,17 @@ export interface AppShellSettingsFacade {
   readonly openSettings: () => void;
   readonly recordSettingsSaved: (patch: SettingsPatch) => void;
   readonly setOpen: (open: boolean) => void;
+}
+
+export interface AppShellFirstRunGuideFacade {
+  readonly errorMessage: string | null;
+  readonly keepMock: () => void;
+  readonly open: boolean;
+  readonly openSettings: () => void;
+  readonly saving: boolean;
+  readonly setOpen: (open: boolean) => void;
+  readonly show: () => void;
+  readonly switchToLive: () => void;
 }
 
 export interface AppShellAuthFacade {
@@ -983,6 +1003,9 @@ export function createAppShellController(
       density: input.density,
       destructiveAction: input.destructiveAction.pendingAction,
       editingProject: input.editingProject,
+      firstRunGuideError: input.firstRunGuide.errorMessage,
+      firstRunGuideOpen: input.firstRunGuide.open,
+      firstRunGuideSaving: input.firstRunGuide.saving,
       projectsRepository: input.projectsRepository,
       settingsOpen: input.settings.open,
       onAddProjectOpenChange: input.ui.setAddProjectOpen,
@@ -992,6 +1015,10 @@ export function createAppShellController(
       onEditProjectOpenChange: (open) => {
         if (!open) input.ui.setEditingProjectId(null);
       },
+      onFirstRunGuideKeepMock: input.firstRunGuide.keepMock,
+      onFirstRunGuideOpenChange: input.firstRunGuide.setOpen,
+      onFirstRunGuideOpenSettings: input.firstRunGuide.openSettings,
+      onFirstRunGuideSwitchToLive: input.firstRunGuide.switchToLive,
       onOpenDataDirectory: input.settings.openDataDirectory,
       onProjectAdded: (project) => {
         if (project.hasCredential && project.credentialEncrypted === false) {
@@ -1020,6 +1047,7 @@ export function createAppShellController(
       onBack: handleBackInteraction,
       onCheckForUpdates: () => input.updates.check(true),
       onForward: handleForwardInteraction,
+      onOpenMockGuide: input.firstRunGuide.show,
       onModeChange: input.settings.changeTheme,
       onOpenSettings: input.settings.openSettings,
     },

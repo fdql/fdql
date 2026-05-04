@@ -1,7 +1,7 @@
 import { defaultDensity, type DensityName } from '@firebase-desk/design-tokens';
 import { useAppearance } from '@firebase-desk/product-ui';
 import { useSelector } from '@tanstack/react-store';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ActivityStore } from '../../app-core/activity/activityStore.ts';
 import { useActivityController } from '../../app-core/activity/useActivityController.ts';
 import { useFirestoreWriteController } from '../../app-core/firestore/write/useFirestoreWriteController.ts';
@@ -58,6 +58,9 @@ export function useAppShellController(
   const [density, setDensity] = useState<DensityName>(defaultDensity);
   const [addProjectOpen, setAddProjectOpen] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [firstRunGuideOpen, setFirstRunGuideOpen] = useState(false);
+  const [firstRunGuideSaving, setFirstRunGuideSaving] = useState(false);
+  const [firstRunGuideError, setFirstRunGuideError] = useState<string | null>(null);
   const [credentialWarning, setCredentialWarning] = useState<string | null>(null);
   const [lastAction, setLastAction] = useState('Ready');
   const [workspacePersistenceError, setWorkspacePersistenceError] = useState<
@@ -98,6 +101,51 @@ export function useAppShellController(
     setAppearanceMode: appearance.setMode,
     setDensity,
   });
+  const completeFirstRunGuide = useCallback(
+    async (patch: { readonly dataMode?: 'live' | 'mock'; } = {}) => {
+      setFirstRunGuideError(null);
+      setFirstRunGuideSaving(true);
+      try {
+        const settingsPatch = {
+          firstRunGuide: { completedAt: new Date().toISOString() },
+          ...patch,
+        };
+        await repositories.settings.save(settingsPatch);
+        settings.recordSettingsSaved(settingsPatch);
+        setFirstRunGuideOpen(false);
+        setLastAction(
+          patch.dataMode === 'live' ? 'Switched to live mode' : 'First-run guide saved',
+        );
+      } catch (error) {
+        setFirstRunGuideError(messageFromError(error, 'Could not save first-run guide.'));
+        setLastAction(`First-run guide failed: ${messageFromError(error, 'Could not save.')}`);
+      } finally {
+        setFirstRunGuideSaving(false);
+      }
+    },
+    [repositories.settings, settings],
+  );
+  const firstRunGuide = useMemo(() => ({
+    errorMessage: firstRunGuideError,
+    keepMock: () => void completeFirstRunGuide(),
+    open: firstRunGuideOpen,
+    openSettings: () => {
+      void completeFirstRunGuide().then(() => settings.openSettings());
+    },
+    saving: firstRunGuideSaving,
+    setOpen: setFirstRunGuideOpen,
+    show: () => {
+      setFirstRunGuideError(null);
+      setFirstRunGuideOpen(true);
+    },
+    switchToLive: () => void completeFirstRunGuide({ dataMode: 'live' }),
+  }), [
+    completeFirstRunGuide,
+    firstRunGuideError,
+    firstRunGuideOpen,
+    firstRunGuideSaving,
+    settings,
+  ]);
   const updates = useUpdateController({
     onStatus: setLastAction,
     recordActivity,
@@ -125,7 +173,12 @@ export function useAppShellController(
     let cancelled = false;
     void repositories.settings.load()
       .then((snapshot) => {
-        if (!cancelled) setDensity(snapshot.density);
+        if (!cancelled) {
+          setDensity(snapshot.density);
+          if (dataMode === 'mock' && !snapshot.firstRunGuide.completedAt) {
+            setFirstRunGuideOpen(true);
+          }
+        }
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -137,7 +190,7 @@ export function useAppShellController(
     return () => {
       cancelled = true;
     };
-  }, [repositories.settings]);
+  }, [dataMode, repositories.settings]);
   const firestoreWrite = useFirestoreWriteController({
     activeProject,
     activeTab,
@@ -235,6 +288,7 @@ export function useAppShellController(
     editingProject,
     firestoreTab,
     firestoreWrite,
+    firstRunGuide,
     focusAuthFilter,
     focusTreeFilter,
     jsTab,

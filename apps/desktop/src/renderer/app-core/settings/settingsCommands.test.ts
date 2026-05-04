@@ -165,6 +165,7 @@ class DensitySettingsRepository implements SettingsRepository {
     activityLog: DEFAULT_ACTIVITY_LOG_SETTINGS,
     dataMode: 'mock',
     density: 'compact',
+    firstRunGuide: { completedAt: null },
     firestoreFieldCatalogs: {},
     firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
     hotkeyOverrides: {},

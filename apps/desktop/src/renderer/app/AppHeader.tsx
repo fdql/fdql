@@ -17,6 +17,7 @@ interface AppHeaderProps {
   readonly onCheckForUpdates: () => void;
   readonly onForward: () => void;
   readonly onModeChange: (mode: AppearanceMode) => void;
+  readonly onOpenMockGuide: () => void;
   readonly onOpenSettings: () => void;
   readonly resolvedTheme: 'dark' | 'light';
 }
@@ -36,6 +37,7 @@ export function AppHeader(
     onCheckForUpdates,
     onForward,
     onModeChange,
+    onOpenMockGuide,
     onOpenSettings,
     resolvedTheme,
   }: AppHeaderProps,
@@ -73,7 +75,19 @@ export function AppHeader(
         <span className='max-w-20 truncate text-xs text-text-muted' title={`Version ${appVersion}`}>
           {displayVersion}
         </span>
-        <Badge variant={dataMode === 'live' ? 'warning' : 'neutral'}>{dataMode}</Badge>
+        {dataMode === 'mock'
+          ? (
+            <Button
+              aria-label='Mock mode guide'
+              size='xs'
+              title='Mock mode guide'
+              variant='secondary'
+              onClick={onOpenMockGuide}
+            >
+              mock data
+            </Button>
+          )
+          : <Badge variant='warning'>live</Badge>}
       </div>
       <div className='app-region-no-drag ml-auto flex shrink-0 items-center gap-2'>
         <Button

@@ -43,6 +43,16 @@ describe('AppHeader', () => {
 
     expect(screen.getByRole('status').textContent).toBe('Up to date');
   });
+
+  it('opens the mock guide from mock mode chrome', () => {
+    const onOpenMockGuide = vi.fn();
+
+    render(<AppHeader {...props({ onOpenMockGuide })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mock mode guide' }));
+
+    expect(onOpenMockGuide).toHaveBeenCalledTimes(1);
+  });
 });
 
 function stubNavigator(platform: string, userAgent: string): void {
@@ -65,6 +75,7 @@ function props(patch: Partial<Parameters<typeof AppHeader>[0]> = {}): Parameters
     onCheckForUpdates: vi.fn(),
     onForward: vi.fn(),
     onModeChange: vi.fn(),
+    onOpenMockGuide: vi.fn(),
     onOpenSettings: vi.fn(),
     resolvedTheme: 'light',
     updateStatusLabel: null,

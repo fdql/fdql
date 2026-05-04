@@ -1,101 +1,89 @@
 # Firebase Desk
 
-A free, open-source desktop Firebase admin client for developers: browse, query, and edit Firestore data, inspect Authentication users, connect to emulators, and run JavaScript admin scripts locally.
+Free, open-source desktop app for Firebase admin/data workflows.
 
-Status: active desktop app with mock mode, local emulator support, and production Firebase project support.
+Use it to browse and edit Firestore data, inspect Authentication users, connect local emulators, and run JavaScript admin scripts from a focused Electron app.
 
-Safety note: binaries are published as unsigned development builds with SHA-256 checksums. Expect OS warning prompts. Production Firebase writes are enabled, so use production credentials carefully.
+![Firebase Desk Firestore workspace](apps/docs/src/assets/screenshots/workspace.png)
 
-## MVP
+## Why
 
-- Manage multiple Firebase projects from service account JSON files.
-- Browse Firestore collections as a tree.
-- Query collections with filters, sorting, limits, and pagination.
-- View query results as a JSON tree or table.
-- Edit documents as full JSON or individual fields.
-- Run custom JavaScript against an initialized Firebase Admin SDK context.
-- Browse Firebase Authentication users, filter users, inspect details, and view custom claims.
-- Connect to real Firebase projects or local Firebase emulators.
+Firebase Desk is for developers who need a direct workbench for Firebase projects without a hosted SaaS subscription. It starts in mock mode, so first-time users can explore the app with local demo data before connecting an emulator or production project.
 
-## Tech Direction
+## Features
 
-- Electron desktop app.
-- React + TypeScript renderer.
-- Repository layer between UI and Firebase code.
-- Firebase Admin SDK in the Electron main process or an isolated worker process.
-- Native-feeling UI using system fonts, native menus, OS shortcuts, and keychain-backed local storage.
-- **pnpm + Turborepo monorepo** (`apps/desktop`, `apps/storybook`, `packages/*`, `e2e/`). See [docs/project-structure.md](docs/project-structure.md).
-- GitHub Actions from the first scaffold: lint, typecheck, unit tests, build, emulator e2e, and release packaging checks.
-- MIT license.
+- Mock mode with local sample data and first-run guide.
+- Multiple Firebase accounts and local emulator profiles.
+- Firestore collection browser with filters, sorting, limits, pagination, and table/tree/JSON result views.
+- Firestore document create and edit workflows.
+- Authentication user list, filtering, detail view, and custom claims editing.
+- JavaScript Query surface for trusted Firebase Admin SDK scripts.
+- Jobs, activity log, loading, empty, and error states.
+- Local settings and secure credential storage where the OS supports it.
 
 ## Docs
 
-- [docs/product.md](docs/product.md)
-- [docs/architecture.md](docs/architecture.md)
-- [docs/app-core-pattern.md](docs/app-core-pattern.md)
-- [docs/data-format.md](docs/data-format.md)
-- [docs/design-system.md](docs/design-system.md)
-- [docs/project-structure.md](docs/project-structure.md)
-- [docs/release-checklist.md](docs/release-checklist.md)
-- [docs/package-managers.md](docs/package-managers.md)
-- [docs/testing-ci.md](docs/testing-ci.md)
-
-## Local Scripts ↔ GitHub Actions
-
-Every workflow has an identical local pnpm command:
-
-| Workflow      | Local equivalent                                                                                       |
-| ------------- | ------------------------------------------------------------------------------------------------------ |
-| `ci.yml`      | `pnpm install && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build` |
-| `e2e.yml`     | `pnpm install && pnpm build && pnpm test:smoke`                                                        |
-| `release.yml` | `pnpm install && pnpm package` (per-OS)                                                                |
-
-Linux package smoke can be reproduced from macOS with Docker:
-
-```sh
-pnpm package:linux:docker
-```
-
-The Docker wrapper runs the Ubuntu image as `linux/amd64` and grants the Chromium sandbox capability needed by packaged Electron apps.
-
-## Release Workflow
-
-Firebase Desk publishes unsigned binaries with SHA-256 checksums. We do not plan to sign binaries; package-manager distribution starts with self-owned Homebrew and Scoop manifests.
-
-| Event           | Output                                                                                                                                      |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| PR to `main`    | CI, package Linux; package macOS/Windows when `package-all` or package paths change; upload temporary workflow artifacts                    |
-| Merge to `main` | CI, package macOS/Windows/Linux, create `vX.Y.Z`, publish a stable release, and update prerelease `latest` when the desktop version changed |
-| Tag `v*.*.*`    | CI, package macOS/Windows/Linux, publish or repair a stable versioned release                                                               |
-| Manual dispatch | Ad-hoc package smoke run with temporary workflow artifacts                                                                                  |
-
-Use PR artifacts to block broken packaging before merge. Use GitHub Release assets from version tags as stable download links. The rolling `latest` tag is created once and kept stable; the release assets and notes mirror the newest versioned `main` release only when the desktop package version changes.
-
-Pull requests to `main` must change `apps/desktop/package.json` version unless the title includes `[skip release]`. Version tags must match the desktop package version, for example `v0.1.0` requires `apps/desktop/package.json` version `0.1.0`.
+- Docs site: <https://viniciusrmcarneiro.github.io/firebase-desk/>
+- Getting started: <https://viniciusrmcarneiro.github.io/firebase-desk/getting-started.html>
+- Features: <https://viniciusrmcarneiro.github.io/firebase-desk/features.html>
+- Safety: <https://viniciusrmcarneiro.github.io/firebase-desk/safety.html>
+- Troubleshooting: <https://viniciusrmcarneiro.github.io/firebase-desk/troubleshooting.html>
 
 ## Downloads
 
-- Rolling dev build: <https://github.com/viniciusrmcarneiro/firebase-desk/releases/tag/latest>
+- Latest release: <https://github.com/viniciusrmcarneiro/firebase-desk/releases/tag/latest>
 - Versioned releases: <https://github.com/viniciusrmcarneiro/firebase-desk/releases>
 
-Artifact names include channel/version, OS, architecture, and target extension. PR and manual-dispatch artifacts are temporary workflow artifacts, not release assets. Each package artifact set includes a matching `SHA256SUMS*.txt` file.
-
-Versioned releases also include `release-manifest.json`. Version release workflows generate Homebrew cask and Scoop manifests as workflow artifacts for self-owned package manager distribution.
-
-## Checksums
-
-Release assets include matching `SHA256SUMS*.txt` files. Verify downloads before opening them:
+Release binaries are unsigned development builds. Verify checksums before opening downloaded packages:
 
 ```sh
 shasum -a 256 -c SHA256SUMS*.txt
 ```
 
-Run that command in the directory containing the downloaded binary and matching checksum file.
+## Safety
 
-## Unsigned App Warnings
+- Mock mode uses local fixtures only.
+- Emulator mode connects to hosts you configure.
+- Production mode uses service account credentials and can write to real Firebase projects.
+- Destructive operations require explicit user action, but credentials still control access.
 
-- macOS: Gatekeeper may block the app. For local smoke testing, remove quarantine with `xattr -dr com.apple.quarantine "Firebase Desk.app"`, then open from Finder.
-- Windows: SmartScreen may warn on the installer or zip app. For local smoke testing, use `More info > Run anyway`.
-- Linux: AppImage builds may need `chmod +x Firebase\ Desk-*.AppImage`; `.deb` builds can be installed with `sudo apt install ./Firebase\ Desk-*.deb`.
+## Development
 
-Signing, notarization, and Windows code-signing are intentionally out of scope. Package managers provide checksums and update paths, not signing. See [docs/release-checklist.md](docs/release-checklist.md).
+```sh
+pnpm install
+pnpm build
+pnpm test
+```
+
+Preferred root checks:
+
+```sh
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+Docs:
+
+```sh
+pnpm docs:build
+pnpm docs:screenshots
+```
+
+## Repo Layout
+
+- `apps/desktop`: Electron main, preload, and renderer integration.
+- `apps/docs`: GitHub Pages docs site.
+- `apps/storybook`: UI review and interaction stories.
+- `packages/ui`: domain-free primitives.
+- `packages/product-ui`: Firebase-aware UI and feature surfaces.
+- `packages/repo-contracts`: shared contracts and value shapes.
+- `packages/ipc-schemas`: zod validation for IPC boundaries.
+- `packages/repo-firebase`: live Firebase Admin repositories.
+- `packages/repo-mocks`: mock repositories and fixtures.
+- `packages/script-runner`: JavaScript query runner.
+- `e2e`: Electron Playwright coverage and docs screenshot capture.
+
+MIT licensed. Firebase Desk is not affiliated with Google or Firebase.

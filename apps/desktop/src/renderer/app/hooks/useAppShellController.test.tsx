@@ -264,6 +264,21 @@ describe('useAppShellController', () => {
       );
     });
   });
+
+  it('opens first-run guide for incomplete mock mode settings', async () => {
+    const scenario = createScenario();
+    setupMocks(scenario);
+
+    renderHook(() => useAppShellController({ appVersion: '0.1.0', dataMode: 'mock' }));
+
+    await waitFor(() => {
+      expect(mocks.createAppShellController).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          firstRunGuide: expect.objectContaining({ open: true }),
+        }),
+      );
+    });
+  });
 });
 
 interface Scenario {
@@ -386,10 +401,16 @@ function createScenario(
 
 function createRepositories(
   {
-    load = vi.fn(async () => ({ density: 'compact' as const })),
+    load = vi.fn(async () => ({
+      density: 'compact' as const,
+      firstRunGuide: { completedAt: null },
+    })),
     save = vi.fn(),
   }: {
-    readonly load?: () => Promise<{ readonly density: 'compact'; }>;
+    readonly load?: () => Promise<{
+      readonly density: 'compact';
+      readonly firstRunGuide: { readonly completedAt: string | null; };
+    }>;
     readonly save?: (patch: unknown) => unknown;
   } = {},
 ) {

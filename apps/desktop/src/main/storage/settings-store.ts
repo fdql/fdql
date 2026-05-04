@@ -4,6 +4,7 @@ import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_DENSITY,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_FIRST_RUN_GUIDE_SETTINGS,
   DEFAULT_UPDATE_SETTINGS,
   normalizeFirestoreWriteSettings,
   type SettingsSnapshot,
@@ -19,7 +20,8 @@ export const DEFAULT_SETTINGS_SNAPSHOT: SettingsSnapshot = {
   inspectorWidth: 360,
   theme: 'system',
   density: DEFAULT_DENSITY,
-  dataMode: 'live',
+  dataMode: 'mock',
+  firstRunGuide: DEFAULT_FIRST_RUN_GUIDE_SETTINGS,
   hotkeyOverrides: {},
   resultTableLayouts: {},
   firestoreFieldCatalogs: {},
@@ -80,6 +82,7 @@ function cloneSnapshot(snapshot: SettingsSnapshot): SettingsSnapshot {
     ...snapshot,
     activityLog: cloneActivityLogSettings(snapshot.activityLog),
     density: snapshot.density ?? DEFAULT_DENSITY,
+    firstRunGuide: cloneFirstRunGuideSettings(snapshot.firstRunGuide),
     firestoreWrites: normalizeFirestoreWriteSettings(snapshot.firestoreWrites),
     hotkeyOverrides: { ...snapshot.hotkeyOverrides },
     updates: cloneUpdateSettings(snapshot.updates),
@@ -113,6 +116,12 @@ function cloneWorkspaceState(value: unknown | null): unknown | null {
 
 function cloneActivityLogSettings(settings: ActivityLogSettings): ActivityLogSettings {
   return { ...settings };
+}
+
+function cloneFirstRunGuideSettings(
+  settings: SettingsSnapshot['firstRunGuide'] | null | undefined,
+): SettingsSnapshot['firstRunGuide'] {
+  return { completedAt: settings?.completedAt ?? null };
 }
 
 function cloneUpdateSettings(settings: UpdateSettings): UpdateSettings {

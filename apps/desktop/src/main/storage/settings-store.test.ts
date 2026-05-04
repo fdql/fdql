@@ -83,7 +83,17 @@ describe('SettingsStore', () => {
       dataMode: 'mock',
       resultTableLayouts: {},
       firestoreFieldCatalogs: {},
+      firstRunGuide: { completedAt: null },
       updates: DEFAULT_SETTINGS_SNAPSHOT.updates,
+    });
+  });
+
+  it('defaults first launch to mock mode', async () => {
+    const userDataPath = await makeTempDir();
+
+    await expect(new SettingsStore(userDataPath).load()).resolves.toMatchObject({
+      dataMode: 'mock',
+      firstRunGuide: { completedAt: null },
     });
   });
 });

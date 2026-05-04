@@ -2,6 +2,7 @@ import { defaultDensity, densityNames } from '@firebase-desk/design-tokens';
 import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_FIRST_RUN_GUIDE_SETTINGS,
   DEFAULT_UPDATE_SETTINGS,
   FIRESTORE_ARRAY_FIELD_TYPES,
   FIRESTORE_FIELD_STALE_BEHAVIORS,
@@ -49,6 +50,10 @@ export const UpdateSettingsSchema = z.object({
   lastCheckedAt: z.string().nullable(),
 });
 
+export const FirstRunGuideSettingsSchema = z.object({
+  completedAt: z.string().nullable(),
+});
+
 export const SettingsSnapshotSchema = z.object({
   activityLog: ActivityLogSettingsSchema.default(DEFAULT_ACTIVITY_LOG_SETTINGS),
   sidebarWidth: z.number().int().nonnegative(),
@@ -56,6 +61,7 @@ export const SettingsSnapshotSchema = z.object({
   theme: z.enum(['system', 'light', 'dark']),
   density: DensityNameSchema.default(defaultDensity),
   dataMode: DataModeSchema,
+  firstRunGuide: FirstRunGuideSettingsSchema.default(DEFAULT_FIRST_RUN_GUIDE_SETTINGS),
   hotkeyOverrides: HotkeyOverridesSchema,
   resultTableLayouts: ResultTableLayoutsSchema.default({}),
   firestoreFieldCatalogs: FirestoreFieldCatalogsSchema.default({}),
@@ -71,6 +77,7 @@ export const SettingsPatchSchema = z.object({
   theme: z.enum(['system', 'light', 'dark']).optional(),
   density: DensityNameSchema.optional(),
   dataMode: DataModeSchema.optional(),
+  firstRunGuide: FirstRunGuideSettingsSchema.optional(),
   hotkeyOverrides: HotkeyOverridesSchema.optional(),
   resultTableLayouts: ResultTableLayoutsSchema.optional(),
   firestoreFieldCatalogs: FirestoreFieldCatalogsSchema.optional(),

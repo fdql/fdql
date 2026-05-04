@@ -105,6 +105,11 @@ function renderShell(
 ) {
   tabActions.reset();
   selectionActions.reset();
+  const loadSettings = repositories.settings.load.bind(repositories.settings);
+  vi.spyOn(repositories.settings, 'load').mockImplementation(async () => ({
+    ...(await loadSettings()),
+    firstRunGuide: { completedAt: '2026-01-01T00:00:00.000Z' },
+  }));
   if (initialTab) tabActions.openTab(initialTab);
   vi.stubGlobal(
     'matchMedia',

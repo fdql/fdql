@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Troubleshooting | Firebase Desk</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="nav" aria-label="Main">
+        <a class="brand" href="./"><img src="./assets/app-icon.png" alt="">Firebase Desk</a>
+        <div class="nav-links">
+          <a href="./getting-started.html">Getting Started</a>
+          <a href="./features.html">Features</a>
+          <a href="./safety.html">Safety</a>
+          <a href="./roadmap.html">Roadmap</a>
+          <a href="https://github.com/viniciusrmcarneiro/firebase-desk/issues">Issues</a>
+        </div>
+      </nav>
+    </header>
+    <main class="page">
+      <h1>Troubleshooting</h1>
+      <p>Start with mock mode when you need to separate app behavior from Firebase credentials or emulator state.</p>
+
+      <h2>App will not open</h2>
+      <ul>
+        <li>Verify the downloaded file with the matching <code>SHA256SUMS</code> file.</li>
+        <li>On macOS, unsigned builds may need Gatekeeper approval.</li>
+        <li>On Windows, SmartScreen may show a warning for unsigned builds.</li>
+      </ul>
+
+      <h2>Project connection fails</h2>
+      <ul>
+        <li>Check the selected mode: mock, local emulator, or production.</li>
+        <li>For emulators, confirm Firestore and Auth host values match your Firebase Emulator Suite output.</li>
+        <li>For production, confirm the service account has the permissions needed for the action.</li>
+      </ul>
+
+      <h2>Firestore or Auth data looks wrong</h2>
+      <ul>
+        <li>Refresh the active surface.</li>
+        <li>Check the visible connection label before making writes.</li>
+        <li>Use mock mode to compare the expected UI flow against stable sample data.</li>
+      </ul>
+
+      <h2>Report a bug</h2>
+      <p>Open a GitHub issue with your OS, app version, selected mode, expected result, actual result, and any visible error message.</p>
+    </main>
+    <footer class="site-footer">Firebase Desk docs</footer>
+  </body>
+</html>

@@ -26,6 +26,8 @@
     "coverage:summary": "node scripts/coverage-summary.mjs",
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
+    "docs:build": "pnpm --dir apps/docs build",
+    "docs:screenshots": "node e2e/scripts/capture-doc-screenshots.mjs",
     "icons:generate": "node scripts/generate-icons.mjs",
     "package:checksums": "node scripts/write-package-checksums.mjs",
     "package:smoke": "turbo run package:smoke:root",
