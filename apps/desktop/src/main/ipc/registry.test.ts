@@ -185,6 +185,7 @@ function fakeDeps(): CreateIpcHandlersDeps {
       subscribe: vi.fn(),
     },
     openDataDirectory: vi.fn(),
+    openExternalUrl: vi.fn(),
     pickServiceAccountFile: vi.fn(),
     projectsRepository: {
       add: vi.fn(),

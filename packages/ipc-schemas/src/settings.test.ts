@@ -2,6 +2,7 @@ import { defaultDensity } from '@firebase-desk/design-tokens';
 import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_UPDATE_SETTINGS,
 } from '@firebase-desk/repo-contracts';
 import { describe, expect, it } from 'vitest';
 import { SettingsFileSchema, SettingsPatchSchema } from './settings.ts';
@@ -24,6 +25,7 @@ describe('settings schemas', () => {
       density: defaultDensity,
       firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
       resultTableLayouts: {},
+      updates: DEFAULT_UPDATE_SETTINGS,
     });
   });
 
@@ -45,6 +47,22 @@ describe('settings schemas', () => {
       }),
     ).toEqual({
       firestoreWrites: { fieldStaleBehavior: 'block' },
+    });
+  });
+
+  it('validates update settings in patches', () => {
+    expect(
+      SettingsPatchSchema.parse({
+        updates: {
+          dismissedVersion: '0.0.7',
+          lastCheckedAt: '2026-05-04T00:00:00.000Z',
+        },
+      }),
+    ).toEqual({
+      updates: {
+        dismissedVersion: '0.0.7',
+        lastCheckedAt: '2026-05-04T00:00:00.000Z',
+      },
     });
   });
 

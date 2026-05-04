@@ -53,6 +53,11 @@ import {
   SettingsPatchSchema,
   SettingsSnapshotSchema,
 } from './settings.ts';
+import {
+  OpenExternalUrlRequestSchema,
+  UpdateCheckRequestSchema,
+  UpdateCheckResultSchema,
+} from './updates.ts';
 
 /**
  * Central registry of every IPC channel. Keys are channel names; values are
@@ -74,6 +79,14 @@ export const IPC_CHANNELS = {
   },
   'app.openDataDirectory': {
     request: z.object({}),
+    response: z.void(),
+  },
+  'app.checkForUpdates': {
+    request: UpdateCheckRequestSchema,
+    response: UpdateCheckResultSchema,
+  },
+  'app.openExternalUrl': {
+    request: OpenExternalUrlRequestSchema,
     response: z.void(),
   },
   'activity.append': {

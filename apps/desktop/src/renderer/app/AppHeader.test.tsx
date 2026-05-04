@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppHeader } from './AppHeader.tsx';
 
@@ -25,23 +25,49 @@ describe('AppHeader', () => {
 
     expect(container.querySelector('.native-titlebar-traffic-spacer')).toBeNull();
   });
+
+  it('shows the app version and exposes manual update check', () => {
+    const onCheckForUpdates = vi.fn();
+
+    render(<AppHeader {...props({ onCheckForUpdates })} appVersion='1.2.3' />);
+
+    expect(screen.getByText('v1.2.3')).toBeTruthy();
+    expect(screen.getByText('Check updates')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+
+    expect(onCheckForUpdates).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows manual no-update feedback', () => {
+    render(<AppHeader {...props({ updateStatusLabel: 'Up to date' })} />);
+
+    expect(screen.getByRole('status').textContent).toBe('Up to date');
+  });
 });
 
 function stubNavigator(platform: string, userAgent: string): void {
   vi.stubGlobal('navigator', { platform, userAgent });
 }
 
-function props(): Parameters<typeof AppHeader>[0] {
+function props(patch: Partial<Parameters<typeof AppHeader>[0]> = {}): Parameters<
+  typeof AppHeader
+>[0] {
   return {
+    appVersion: '0.1.0',
     canGoBack: false,
     canGoForward: false,
+    canCheckForUpdates: true,
+    checkingForUpdates: false,
     dataMode: 'mock',
     mode: 'system',
     onAddProject: vi.fn(),
     onBack: vi.fn(),
+    onCheckForUpdates: vi.fn(),
     onForward: vi.fn(),
     onModeChange: vi.fn(),
     onOpenSettings: vi.fn(),
     resolvedTheme: 'light',
+    updateStatusLabel: null,
+    ...patch,
   };
 }

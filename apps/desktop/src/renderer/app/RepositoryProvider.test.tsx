@@ -1,6 +1,7 @@
 import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_UPDATE_SETTINGS,
   type SettingsSnapshot,
 } from '@firebase-desk/repo-contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +18,7 @@ const snapshot: SettingsSnapshot = {
   resultTableLayouts: {},
   firestoreFieldCatalogs: {},
   firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  updates: DEFAULT_UPDATE_SETTINGS,
   workspaceState: null,
 };
 

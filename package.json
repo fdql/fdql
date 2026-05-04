@@ -1,6 +1,6 @@
 {
   "name": "firebase-desk",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "private": true,
   "description": "Firebase Desk monorepo root.",
   "license": "MIT",

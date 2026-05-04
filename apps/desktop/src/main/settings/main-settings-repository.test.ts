@@ -1,6 +1,7 @@
 import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_UPDATE_SETTINGS,
   type SettingsSnapshot,
 } from '@firebase-desk/repo-contracts';
 import { describe, expect, it } from 'vitest';
@@ -17,6 +18,7 @@ const initialSnapshot: SettingsSnapshot = {
   resultTableLayouts: {},
   firestoreFieldCatalogs: {},
   firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  updates: DEFAULT_UPDATE_SETTINGS,
   workspaceState: null,
 };
 
@@ -128,6 +130,7 @@ class MemorySettingsStore {
           })),
         ]),
       ),
+      updates: { ...snapshot.updates },
     };
   }
 }

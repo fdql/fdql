@@ -4,8 +4,10 @@ import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_DENSITY,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_UPDATE_SETTINGS,
   normalizeFirestoreWriteSettings,
   type SettingsSnapshot,
+  type UpdateSettings,
 } from '@firebase-desk/repo-contracts';
 import { readFile, rename } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
@@ -22,6 +24,7 @@ export const DEFAULT_SETTINGS_SNAPSHOT: SettingsSnapshot = {
   resultTableLayouts: {},
   firestoreFieldCatalogs: {},
   firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  updates: DEFAULT_UPDATE_SETTINGS,
   workspaceState: null,
 };
 
@@ -79,6 +82,7 @@ function cloneSnapshot(snapshot: SettingsSnapshot): SettingsSnapshot {
     density: snapshot.density ?? DEFAULT_DENSITY,
     firestoreWrites: normalizeFirestoreWriteSettings(snapshot.firestoreWrites),
     hotkeyOverrides: { ...snapshot.hotkeyOverrides },
+    updates: cloneUpdateSettings(snapshot.updates),
     workspaceState: cloneWorkspaceState(snapshot.workspaceState),
     firestoreFieldCatalogs: Object.fromEntries(
       Object.entries(snapshot.firestoreFieldCatalogs).map(([key, entries]) => [
@@ -108,6 +112,10 @@ function cloneWorkspaceState(value: unknown | null): unknown | null {
 }
 
 function cloneActivityLogSettings(settings: ActivityLogSettings): ActivityLogSettings {
+  return { ...settings };
+}
+
+function cloneUpdateSettings(settings: UpdateSettings): UpdateSettings {
   return { ...settings };
 }
 

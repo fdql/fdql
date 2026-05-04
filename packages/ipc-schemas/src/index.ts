@@ -7,3 +7,4 @@ export * from './pagination.ts';
 export * from './projects.ts';
 export * from './script-runner.ts';
 export * from './settings.ts';
+export * from './updates.ts';

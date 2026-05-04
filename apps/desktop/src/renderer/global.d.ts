@@ -6,7 +6,13 @@ import type { BackgroundJobEvent } from '@firebase-desk/repo-contracts/jobs';
 
 declare global {
   interface DesktopAppApi {
+    readonly checkForUpdates: (
+      request: IpcRequest<'app.checkForUpdates'>,
+    ) => Promise<IpcResponse<'app.checkForUpdates'>>;
     readonly getConfig: () => Promise<IpcResponse<'app.config'>>;
+    readonly openExternalUrl: (
+      request: IpcRequest<'app.openExternalUrl'>,
+    ) => Promise<IpcResponse<'app.openExternalUrl'>>;
     readonly openDataDirectory: () => Promise<IpcResponse<'app.openDataDirectory'>>;
   }
 

@@ -7,6 +7,7 @@ import type {
 import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_UPDATE_SETTINGS,
 } from '@firebase-desk/repo-contracts';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -24,6 +25,7 @@ class TestSettingsRepository implements SettingsRepository {
     resultTableLayouts: {},
     firestoreFieldCatalogs: {},
     firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
+    updates: DEFAULT_UPDATE_SETTINGS,
     workspaceState: null,
   };
 
@@ -43,6 +45,7 @@ class TestSettingsRepository implements SettingsRepository {
       resultTableLayouts: patch.resultTableLayouts ?? this.snapshot.resultTableLayouts,
       firestoreFieldCatalogs: patch.firestoreFieldCatalogs ?? this.snapshot.firestoreFieldCatalogs,
       firestoreWrites: patch.firestoreWrites ?? this.snapshot.firestoreWrites,
+      updates: patch.updates ?? this.snapshot.updates,
       workspaceState: patch.workspaceState ?? this.snapshot.workspaceState,
     };
     return this.snapshot;

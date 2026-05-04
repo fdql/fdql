@@ -190,6 +190,39 @@ describe('createAppShellController', () => {
     expect(mocks.ui.setLastAction).toHaveBeenCalledWith('Choose a connection item first');
   });
 
+  it('exposes update notice actions', () => {
+    const check = vi.fn();
+    const dismiss = vi.fn();
+    const openRelease = vi.fn();
+    const notice = {
+      message: 'Update 0.0.7 available',
+      status: 'available' as const,
+    };
+    const { input } = createInput({
+      updates: {
+        canCheck: true,
+        check,
+        dismiss,
+        isChecking: false,
+        notice,
+        openRelease,
+        statusLabel: null,
+      },
+    });
+    const controller = createAppShellController(input);
+
+    controller.header.onCheckForUpdates();
+    controller.workspace.onUpdateOpenRelease();
+    controller.workspace.onUpdateDismiss();
+    controller.workspace.onUpdateRetry();
+
+    expect(controller.workspace.updateNotice).toBe(notice);
+    expect(check).toHaveBeenCalledWith(true);
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(openRelease).toHaveBeenCalledTimes(1);
+    expect(dismiss).toHaveBeenCalledTimes(1);
+  });
+
   it('scopes results changed state to the active Firestore tab', () => {
     const tab = firestoreTab({ id: 'tab-firestore-1' });
     const { input, mocks } = createInput({
@@ -358,6 +391,15 @@ function createInput(
     refreshLoadedRoots: vi.fn(),
     setFilter: vi.fn(),
   };
+  const updates = {
+    canCheck: true,
+    check: vi.fn(),
+    dismiss: vi.fn(),
+    isChecking: false,
+    notice: null,
+    openRelease: vi.fn(),
+    statusLabel: null,
+  };
   const ui = {
     clearAuthSelection: vi.fn(),
     recordInteraction: vi.fn(),
@@ -440,6 +482,7 @@ function createInput(
     ...overrides,
     activity,
     tree: treeFacade,
+    updates: { ...updates, ...overrides.updates },
     ui,
   };
   return {

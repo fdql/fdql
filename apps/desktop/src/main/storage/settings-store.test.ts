@@ -83,6 +83,7 @@ describe('SettingsStore', () => {
       dataMode: 'mock',
       resultTableLayouts: {},
       firestoreFieldCatalogs: {},
+      updates: DEFAULT_SETTINGS_SNAPSHOT.updates,
     });
   });
 });

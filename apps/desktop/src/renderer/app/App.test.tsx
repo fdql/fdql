@@ -169,6 +169,7 @@ function settingsSnapshot(): SettingsSnapshot {
     resultTableLayouts: {},
     firestoreFieldCatalogs: {},
     firestoreWrites: { fieldStaleBehavior: 'save-and-notify' },
+    updates: { dismissedVersion: null, lastCheckedAt: null },
     workspaceState: null,
   };
 }

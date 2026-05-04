@@ -176,6 +176,32 @@ describe('preload script runner api', () => {
     });
   });
 
+  it('exposes update check app methods', async () => {
+    const api = exposedApi();
+    electronMocks.invoke
+      .mockResolvedValueOnce({
+        checkedAt: '2026-05-04T00:00:00.000Z',
+        currentVersion: '0.0.6',
+        latestVersion: '0.0.7',
+        releaseUrl: 'https://github.com/viniciusrmcarneiro/firebase-desk/releases/tag/v0.0.7',
+        status: 'available',
+      })
+      .mockResolvedValueOnce(undefined);
+
+    await expect(api.app.checkForUpdates({ force: true })).resolves.toMatchObject({
+      latestVersion: '0.0.7',
+      status: 'available',
+    });
+    await expect(api.app.openExternalUrl({
+      url: 'https://github.com/viniciusrmcarneiro/firebase-desk/releases/tag/v0.0.7',
+    })).resolves.toBeUndefined();
+
+    expect(electronMocks.invoke).toHaveBeenCalledWith('app.checkForUpdates', { force: true });
+    expect(electronMocks.invoke).toHaveBeenCalledWith('app.openExternalUrl', {
+      url: 'https://github.com/viniciusrmcarneiro/firebase-desk/releases/tag/v0.0.7',
+    });
+  });
+
   it('exposes jobs methods and subscriptions', async () => {
     const api = exposedApi();
     const listener = vi.fn();

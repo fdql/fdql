@@ -4,6 +4,7 @@ import type {
   SettingsPatch,
   SettingsRepository,
   SettingsSnapshot,
+  UpdateSettings,
 } from '@firebase-desk/repo-contracts';
 import { DEFAULT_DENSITY, normalizeFirestoreWriteSettings } from '@firebase-desk/repo-contracts';
 
@@ -46,6 +47,9 @@ export class MainSettingsRepository implements SettingsRepository {
       firestoreWrites: normalizeFirestoreWriteSettings(
         patch.firestoreWrites ?? current.firestoreWrites,
       ),
+      updates: patch.updates
+        ? cloneUpdateSettings(patch.updates)
+        : cloneUpdateSettings(current.updates),
       workspaceState: patch.workspaceState === undefined
         ? cloneWorkspaceState(current.workspaceState)
         : cloneWorkspaceState(patch.workspaceState),
@@ -67,6 +71,10 @@ function cloneWorkspaceState(value: unknown | null): unknown | null {
 }
 
 function cloneActivityLogSettings(settings: ActivityLogSettings): ActivityLogSettings {
+  return { ...settings };
+}
+
+function cloneUpdateSettings(settings: UpdateSettings): UpdateSettings {
   return { ...settings };
 }
 

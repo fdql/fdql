@@ -70,6 +70,16 @@ export const DEFAULT_FIRESTORE_WRITE_SETTINGS: FirestoreWriteSettings = {
   fieldStaleBehavior: 'save-and-notify',
 };
 
+export interface UpdateSettings {
+  readonly dismissedVersion: string | null;
+  readonly lastCheckedAt: string | null;
+}
+
+export const DEFAULT_UPDATE_SETTINGS: UpdateSettings = {
+  dismissedVersion: null,
+  lastCheckedAt: null,
+};
+
 export function isFirestoreFieldStaleBehavior(
   value: unknown,
 ): value is FirestoreFieldStaleBehavior {
@@ -98,6 +108,7 @@ export interface SettingsSnapshot {
   readonly resultTableLayouts: ResultTableLayouts;
   readonly firestoreFieldCatalogs: FirestoreFieldCatalogs;
   readonly firestoreWrites: FirestoreWriteSettings;
+  readonly updates: UpdateSettings;
   readonly workspaceState: unknown | null;
 }
 
@@ -112,6 +123,7 @@ export interface SettingsPatch {
   readonly resultTableLayouts?: ResultTableLayouts | undefined;
   readonly firestoreFieldCatalogs?: FirestoreFieldCatalogs | undefined;
   readonly firestoreWrites?: FirestoreWriteSettings | undefined;
+  readonly updates?: UpdateSettings | undefined;
   readonly workspaceState?: unknown | null | undefined;
 }
 

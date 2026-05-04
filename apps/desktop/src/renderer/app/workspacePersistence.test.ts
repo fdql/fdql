@@ -1,6 +1,7 @@
 import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_UPDATE_SETTINGS,
   type SettingsRepository,
   type SettingsSnapshot,
 } from '@firebase-desk/repo-contracts';
@@ -276,6 +277,7 @@ function settingsSnapshot(workspaceState: unknown | null): SettingsSnapshot {
     resultTableLayouts: {},
     sidebarWidth: 320,
     theme: 'system',
+    updates: DEFAULT_UPDATE_SETTINGS,
     workspaceState,
   };
 }
