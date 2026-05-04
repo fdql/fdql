@@ -323,6 +323,7 @@ export class FirestoreCollectionJobRunner {
       await sink.update({ ...progress, currentPath: undefined });
     } finally {
       lines.close();
+      await destroyStream(input);
     }
   }
 
