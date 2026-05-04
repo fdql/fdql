@@ -38,6 +38,12 @@ jobs:
                     RELEASE_COMMIT="$GITHUB_SHA" \
                     RELEASE_NOTES_FILE=/tmp/latest-release-notes.md \
                     pnpm release:notes
+                  grep -F "Unsigned Firebase Desk build." /tmp/stable-release-notes.md
+                  grep -F "Source commit: \`$GITHUB_SHA\`" /tmp/stable-release-notes.md
+                  grep -F "## What's Changed" /tmp/stable-release-notes.md
+                  grep -F "* Validate release notes in CI" /tmp/stable-release-notes.md
+                  grep -F "Rolling unsigned build mirrored" /tmp/latest-release-notes.md
+                  grep -F "Source commit: \`$GITHUB_SHA\`" /tmp/latest-release-notes.md
             - run: pnpm format:check
             - run: pnpm lint
             - run: pnpm typecheck
