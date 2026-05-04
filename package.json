@@ -1,6 +1,6 @@
 {
   "name": "firebase-desk",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "private": true,
   "description": "Firebase Desk monorepo root.",
   "license": "MIT",
@@ -35,6 +35,7 @@
     "test:smoke": "pnpm --dir e2e test:withEmulators",
     "package": "pnpm --filter @firebase-desk/desktop package",
     "release:manifest": "tsx scripts/write-release-manifest.ts",
+    "release:notes": "tsx scripts/write-release-notes.ts",
     "package-managers:manifests": "tsx scripts/write-package-manager-manifests.ts"
   },
   "devDependencies": {

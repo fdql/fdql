@@ -1,0 +1,27 @@
+changelog:
+    exclude:
+        labels:
+            - duplicate
+            - invalid
+            - question
+            - wontfix
+            - type:tracker
+    categories:
+        - title: Features
+          labels:
+              - enhancement
+        - title: Fixes
+          labels:
+              - bug
+        - title: Release
+          labels:
+              - area:release
+        - title: Docs
+          labels:
+              - documentation
+        - title: Dependencies
+          labels:
+              - dependencies
+        - title: Other
+          labels:
+              - "*"

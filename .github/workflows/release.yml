@@ -43,6 +43,7 @@ jobs:
                       ];
                       const packagePaths = new Set([
                           '.dockerignore',
+                          '.github/release.yml',
                           '.github/workflows/ci.yml',
                           '.github/workflows/release.yml',
                           '.github/workflows/release-gate.yml',
@@ -55,6 +56,7 @@ jobs:
                           'scripts/write-package-manager-manifests.ts',
                           'scripts/write-package-checksums.mjs',
                           'scripts/write-release-manifest.ts',
+                          'scripts/write-release-notes.ts',
                       ]);
 
                       const eventName = context.eventName;
@@ -252,13 +254,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   ROLLING_RELEASE_TAG: latest
               run: |
-                  cat > release-notes.md <<'NOTES'
-                  Rolling unsigned build mirrored from the latest versioned `main` release.
-
-                  These binaries are published intentionally for development smoke testing. They are unsigned, so OS warning prompts are expected. Verify downloads with the matching SHA256SUMS asset.
-                  NOTES
-                  echo "" >> release-notes.md
-                  echo "Source commit: \`$GITHUB_SHA\`" >> release-notes.md
+                  RELEASE_NOTES_MODE=latest pnpm release:notes
 
                   if gh release view "$ROLLING_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
                     # Update the release target to the current commit (note: the git tag itself will not move)
@@ -352,16 +348,26 @@ jobs:
                       -f sha="$expected_sha" >/dev/null
                     echo "Created tag $VERSION_TAG at $expected_sha."
                   fi
+            - name: Generate GitHub release notes
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  VERSION_TAG: ${{ needs.prepare.outputs.version_tag }}
+              run: |
+                  gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+                    -f tag_name="$VERSION_TAG" \
+                    -f target_commitish="$GITHUB_SHA" \
+                    -f configuration_file_path=".github/release.yml" \
+                    --jq .body > generated-release-notes.md
+            - name: Write release notes
+              run: pnpm release:notes
+              env:
+                  GENERATED_RELEASE_NOTES_FILE: generated-release-notes.md
             - name: Publish version release
               env:
                   GH_TOKEN: ${{ github.token }}
                   MARK_LATEST: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
                   VERSION_TAG: ${{ needs.prepare.outputs.version_tag }}
               run: |
-                  cat > release-notes.md <<'NOTES'
-                  Unsigned Firebase Desk build. OS warning prompts are expected. Verify downloads with the matching SHA256SUMS asset.
-                  NOTES
-
                   latest_args=()
                   if [ "$MARK_LATEST" = "true" ]; then
                     latest_args=(--latest)
