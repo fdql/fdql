@@ -7,6 +7,7 @@ import { launchDesktop } from './launch.ts';
 
 export const EMULATOR_ACCOUNT_NAME = 'Local Emulator E2E';
 export const FIRESTORE_PROJECT_ID = 'demo-local';
+export const FIRESTORE_TREE_ITEM_LABEL = 'Firestore';
 
 export interface LiveApp {
   readonly app: ElectronApplication;
@@ -74,16 +75,16 @@ export async function expandEmulatorAccount(page: Page): Promise<void> {
   const tree = page.getByRole('tree', { name: 'Account tree' });
   const account = tree.getByRole('treeitem', { name: new RegExp(EMULATOR_ACCOUNT_NAME) });
   await expect(account).toBeVisible();
-  if (await tree.getByRole('treeitem', { name: /Firestore/ }).count()) return;
+  if (await tree.getByText(FIRESTORE_TREE_ITEM_LABEL, { exact: true }).count()) return;
   await account.click();
-  await expect(tree.getByRole('treeitem', { name: /Firestore/ })).toBeVisible();
+  await expect(tree.getByText(FIRESTORE_TREE_ITEM_LABEL, { exact: true })).toBeVisible();
 }
 
 export async function openFirestore(page: Page): Promise<void> {
   await expandEmulatorAccount(page);
   const tree = page.getByRole('tree', { name: 'Account tree' });
-  await expect(tree.getByRole('treeitem', { name: /Firestore/ })).toBeVisible();
-  await tree.getByText('Firestore', { exact: true }).click();
+  await expect(tree.getByText(FIRESTORE_TREE_ITEM_LABEL, { exact: true })).toBeVisible();
+  await tree.getByText(FIRESTORE_TREE_ITEM_LABEL, { exact: true }).click();
 }
 
 export async function openAuthentication(page: Page): Promise<void> {
