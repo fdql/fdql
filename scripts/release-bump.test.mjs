@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { bumpVersion, planReleaseBump, pullRequestNumbersFromSubjects } from './release-bump.mjs';
+import {
+  bumpVersion,
+  planReleaseBump,
+  pullRequestNumbersFromSubjects,
+  releaseBranch,
+} from './release-bump.mjs';
 
 describe('bumpVersion', () => {
   it('bumps patch versions', () => {
@@ -14,6 +19,12 @@ describe('bumpVersion', () => {
 
   it('bumps major versions', () => {
     assert.equal(bumpVersion('0.0.8', 'major'), '1.0.0');
+  });
+});
+
+describe('releaseBranch', () => {
+  it('uses the target version in the release branch name', () => {
+    assert.equal(releaseBranch('0.2.0'), 'release/bump/v0.2.0');
   });
 });
 
@@ -50,6 +61,7 @@ describe('planReleaseBump', () => {
     });
 
     assert.equal(plan.shouldBump, true);
+    assert.equal(plan.branch, 'release/bump/v0.0.9');
     assert.equal(plan.nextVersion, '0.0.9');
   });
 
