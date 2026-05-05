@@ -22,13 +22,13 @@ jobs:
             - name: Skip release bump CI
               if: ${{ inputs.skip_expensive || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
               run: echo "Release bump PR only changes package versions; release-policy validates it."
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
               if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
-            - uses: pnpm/action-setup@v5
+            - uses: pnpm/action-setup@8912a9102ac27614460f54aedde9e1e7f9aec20d
               if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
               with:
                   version: 10.33.2
-            - uses: actions/setup-node@v6
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
               if: ${{ !inputs.skip_expensive && (github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')) }}
               with:
                   node-version: 24

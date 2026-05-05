@@ -18,16 +18,16 @@ jobs:
             - name: Skip release bump e2e
               if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
               run: echo "Release bump PR only changes package versions; release-policy validates it."
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
               if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
-            - uses: pnpm/action-setup@v5
+            - uses: pnpm/action-setup@8912a9102ac27614460f54aedde9e1e7f9aec20d
               if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
-            - uses: actions/setup-node@v6
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
               if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
               with:
                   node-version: 24
                   cache: pnpm
-            - uses: actions/setup-java@v5
+            - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654
               if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
               with:
                   distribution: temurin
@@ -51,7 +51,7 @@ jobs:
                   @firebase-desk/emulator-tools seed && pnpm --filter
                   @firebase-desk/e2e test:e2e"
             - if: failure()
-              uses: actions/upload-artifact@v7
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
               with:
                   name: playwright-report
                   if-no-files-found: ignore
