@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 import { AUTOMATION_LABEL } from './release-policy.mjs';
 
-export const RELEASE_BRANCH = 'release/bump';
+export const RELEASE_BRANCH_PREFIX = 'release/bump';
 export const RELEASE_LEVELS = Object.freeze(['patch', 'minor', 'major']);
 export const RELEASE_LABEL_TO_LEVEL = Object.freeze({
   'release:patch': 'patch',
@@ -53,7 +53,7 @@ export function planReleaseBump({ currentVersion, latestTag, pullRequests }) {
 
   const nextVersion = bumpVersion(currentVersion, level);
   return {
-    branch: RELEASE_BRANCH,
+    branch: releaseBranch(nextVersion),
     includedPullRequests,
     latestTag,
     level,
@@ -85,6 +85,13 @@ export function bumpVersion(version, level) {
   if (level === 'minor') return `${major}.${minor + 1}.0`;
   if (level === 'patch') return `${major}.${minor}.${patch + 1}`;
   throw new Error(`Unsupported release level "${level}".`);
+}
+
+export function releaseBranch(version) {
+  if (!stableVersionPattern.test(version)) {
+    throw new Error(`Release branch version must be stable semver, got ${version}.`);
+  }
+  return `${RELEASE_BRANCH_PREFIX}/v${version}`;
 }
 
 async function main() {
