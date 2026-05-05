@@ -814,6 +814,7 @@ Insert from select:
 
 ```sql
 insert into project("staging").archivedOrders(@id, sourceId, status)
+on conflict fail
 write batch size 400
 select id(o), id(o), o.status
 from project("prod").orders o
@@ -852,6 +853,7 @@ Command-level clauses:
 
 ```sql
 insert into project("staging").archivedOrders(@id, sourceId, status)
+on conflict fail
 write batch size 400
 write mode batch
 select id(o), id(o), o.status
