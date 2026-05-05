@@ -279,6 +279,24 @@ describe('useAppShellController', () => {
       );
     });
   });
+
+  it('keeps first-run guide closed in demo mode', async () => {
+    const scenario = createScenario();
+    setupMocks(scenario);
+
+    renderHook(() =>
+      useAppShellController({ appVersion: '0.1.0', dataMode: 'mock', demoMode: true })
+    );
+
+    await waitFor(() => {
+      expect(mocks.createAppShellController).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          demoMode: true,
+          firstRunGuide: expect.objectContaining({ open: false }),
+        }),
+      );
+    });
+  });
 });
 
 interface Scenario {

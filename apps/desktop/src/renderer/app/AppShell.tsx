@@ -13,6 +13,7 @@ export interface AppShellProps {
   readonly appVersion: string;
   readonly activityStore?: ActivityStore | undefined;
   readonly dataMode?: 'live' | 'mock';
+  readonly demoMode?: boolean | undefined;
   readonly initialSidebarWidth?: number;
 }
 
@@ -21,6 +22,7 @@ export function AppShell(
     activityStore,
     appVersion,
     dataMode = 'mock',
+    demoMode = false,
     initialSidebarWidth = DEFAULT_SIDEBAR_WIDTH,
   }: AppShellProps,
 ) {
@@ -28,6 +30,7 @@ export function AppShell(
     activityStore,
     appVersion,
     dataMode,
+    demoMode,
     initialSidebarWidth,
   });
   const activeView = controller.tabView ? <WorkspaceTabView {...controller.tabView} /> : null;

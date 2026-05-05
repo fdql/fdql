@@ -5,6 +5,11 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "dev": "astro dev --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.38.4",
+    "astro": "6.2.2"
   }
 }

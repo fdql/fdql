@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "build:web-demo": "vite build --config vite.demo.config.ts",
     "preview": "electron-vite preview",
     "lint": "oxlint --config ../../packages/config-oxlint/oxlintrc.base.json src/main src/preload && oxlint --config ../../packages/config-oxlint/oxlintrc.renderer.json src/renderer",
     "typecheck": "tsc -p tsconfig.main.typecheck.json && tsc -p tsconfig.preload.typecheck.json && tsc -p tsconfig.renderer.typecheck.json",

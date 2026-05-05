@@ -7,9 +7,11 @@ interface AppHeaderProps {
   readonly appVersion: string;
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;
+  readonly canAddProject: boolean;
   readonly canCheckForUpdates: boolean;
   readonly checkingForUpdates: boolean;
   readonly dataMode: 'live' | 'mock';
+  readonly demoMode: boolean;
   readonly mode: AppearanceMode;
   readonly updateStatusLabel: string | null;
   readonly onAddProject: () => void;
@@ -25,11 +27,13 @@ interface AppHeaderProps {
 export function AppHeader(
   {
     appVersion,
+    canAddProject,
     canGoBack,
     canGoForward,
     canCheckForUpdates,
     checkingForUpdates,
     dataMode,
+    demoMode,
     mode,
     updateStatusLabel,
     onAddProject,
@@ -75,7 +79,9 @@ export function AppHeader(
         <span className='max-w-20 truncate text-xs text-text-muted' title={`Version ${appVersion}`}>
           {displayVersion}
         </span>
-        {dataMode === 'mock'
+        {demoMode
+          ? <Badge variant='neutral'>browser demo</Badge>
+          : dataMode === 'mock'
           ? (
             <Button
               aria-label='Mock mode guide'
@@ -118,9 +124,13 @@ export function AppHeader(
         <Button variant='secondary' onClick={onOpenSettings}>
           <Settings size={14} aria-hidden='true' /> Settings
         </Button>
-        <Button variant='primary' onClick={onAddProject}>
-          <Plus size={14} aria-hidden='true' /> Add account
-        </Button>
+        {canAddProject
+          ? (
+            <Button variant='primary' onClick={onAddProject}>
+              <Plus size={14} aria-hidden='true' /> Add account
+            </Button>
+          )
+          : null}
         <ThemeSegment mode={mode} resolvedTheme={resolvedTheme} onModeChange={onModeChange} />
       </div>
     </header>

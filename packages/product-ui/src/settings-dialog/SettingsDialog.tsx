@@ -15,6 +15,8 @@ import { messageFromError } from '../shared/errors.ts';
 
 export interface SettingsDialogProps {
   readonly appVersion: string;
+  readonly dataModeHelpText?: string | undefined;
+  readonly dataModeOptions?: readonly DataMode[] | undefined;
   readonly dataDirectoryPath?: string | null | undefined;
   readonly density?: DensityName | undefined;
   readonly onOpenChange: (open: boolean) => void;
@@ -38,6 +40,8 @@ const BYTES_PER_MB = 1024 * 1024;
 export function SettingsDialog(
   {
     appVersion,
+    dataModeHelpText,
+    dataModeOptions = dataModes,
     dataDirectoryPath,
     density,
     onDensityChange,
@@ -228,7 +232,7 @@ export function SettingsDialog(
             <div className='grid gap-2'>
               <div className='text-sm font-medium text-text-primary'>Data source</div>
               <div className='flex gap-1'>
-                {dataModes.map((dataMode) => (
+                {dataModeOptions.map((dataMode) => (
                   <Button
                     key={dataMode}
                     aria-label={`${dataMode} data mode`}
@@ -241,7 +245,9 @@ export function SettingsDialog(
                   </Button>
                 ))}
               </div>
-              <div className='text-xs text-text-secondary'>Changes apply immediately.</div>
+              <div className='text-xs text-text-secondary'>
+                {dataModeHelpText ?? 'Changes apply immediately.'}
+              </div>
             </div>
           )
           : null}

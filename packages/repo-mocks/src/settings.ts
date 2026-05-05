@@ -31,7 +31,11 @@ const DEFAULT_SNAPSHOT: SettingsSnapshot = {
 };
 
 export class MockSettingsRepository implements SettingsRepository {
-  private snapshot: SettingsSnapshot = { ...DEFAULT_SNAPSHOT };
+  private snapshot: SettingsSnapshot;
+
+  constructor(snapshot: SettingsSnapshot = DEFAULT_SNAPSHOT) {
+    this.snapshot = cloneSnapshot(snapshot);
+  }
 
   async load(): Promise<SettingsSnapshot> {
     return cloneSnapshot(this.snapshot);

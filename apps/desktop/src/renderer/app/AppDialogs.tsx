@@ -20,6 +20,8 @@ interface AppDialogsProps {
   readonly canOpenDataDirectory: boolean;
   readonly credentialWarning: string | null;
   readonly dataDirectoryPath: string | null | undefined;
+  readonly dataModeHelpText?: string | undefined;
+  readonly dataModeOptions?: ComponentProps<typeof SettingsDialog>['dataModeOptions'];
   readonly density: DensityName;
   readonly destructiveAction: DestructiveAction | null;
   readonly editingProject: ProjectSummary | null;
@@ -55,6 +57,8 @@ export function AppDialogs(
     canOpenDataDirectory,
     credentialWarning,
     dataDirectoryPath,
+    dataModeHelpText,
+    dataModeOptions,
     density,
     destructiveAction,
     editingProject,
@@ -91,6 +95,8 @@ export function AppDialogs(
           }
           : {})}
         density={density}
+        {...(dataModeHelpText ? { dataModeHelpText } : {})}
+        {...(dataModeOptions ? { dataModeOptions } : {})}
         open={settingsOpen}
         onDensityChange={onDensityChange}
         onOpenChange={onSettingsOpenChange}

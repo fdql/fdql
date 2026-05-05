@@ -1,13 +1,29 @@
-import { cp, mkdir, rm } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const source = resolve(root, 'src');
-const output = resolve(root, '.build/site');
+const repoRoot = resolve(root, '../..');
+const desktopRoot = resolve(repoRoot, 'apps/desktop');
 
-await rm(output, { force: true, recursive: true });
-await mkdir(output, { recursive: true });
-await cp(source, output, { recursive: true });
+await run('pnpm', ['exec', 'astro', 'build'], root);
+await run('pnpm', ['--dir', desktopRoot, 'build:web-demo'], repoRoot);
 
-console.log(`Built docs site: ${output}`);
+function run(command, args, cwd) {
+  return new Promise((resolveRun, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: { ...process.env, ASTRO_TELEMETRY_DISABLED: '1' },
+      shell: false,
+      stdio: 'inherit',
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolveRun();
+        return;
+      }
+      reject(new Error(`${command} ${args.join(' ')} exited with ${code ?? 'unknown'}`));
+    });
+  });
+}

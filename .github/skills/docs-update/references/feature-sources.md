@@ -32,7 +32,6 @@ Use these entry points when updating docs.
 - `apps/desktop/src/renderer/app/workspaceModel.ts`
 - `apps/desktop/src/renderer/app-core/workspace/`
 - `packages/product-ui/src/features/projects/AccountTree.tsx`
-- `packages/product-ui/src/features/tabs/WorkspaceTabStrip.tsx`
 
 ## Firestore
 
@@ -55,10 +54,25 @@ Use these entry points when updating docs.
 - `packages/product-ui/src/features/js-query/`
 - `apps/desktop/src/renderer/app/hooks/useJsTabState.ts`
 - `packages/script-runner/src/`
-- `apps/desktop/src/main/ipc/script-handlers.ts`
+- `apps/desktop/src/main/ipc/script-runner-handlers.ts`
+
+## Browser Demo
+
+- `apps/desktop/vite.demo.config.ts`
+- `apps/desktop/src/renderer/app/runtime.ts`
+- `apps/desktop/src/renderer/app/App.tsx`
+- `apps/desktop/src/renderer/app/RepositoryProvider.tsx`
+- `apps/desktop/src/renderer/app/hooks/useAppShellController.ts`
+- `apps/desktop/src/renderer/app/appShellOrchestrator.ts`
+- `packages/repo-mocks/src/fixtures/index.ts`
 
 ## Docs And Screenshots
 
-- `apps/docs/src/`
+- `apps/docs/astro.config.mjs`
+- `apps/docs/src/pages/`
+- `apps/docs/src/content/docs/docs/`
+- `apps/docs/src/layouts/`
+- `apps/docs/src/styles/`
 - `e2e/scripts/capture-doc-screenshots.mjs`
-- `package.json` scripts `docs:build` and `docs:screenshots`
+- `e2e/scripts/docs-site-smoke.mjs`
+- `package.json` scripts `docs:build`, `docs:smoke`, and `docs:screenshots`

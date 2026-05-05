@@ -68,6 +68,8 @@ export interface AppShellController {
     readonly firstRunGuideSaving: boolean;
     readonly projectsRepository: ProjectsRepository;
     readonly settingsOpen: boolean;
+    readonly dataModeOptions?: readonly ('live' | 'mock')[] | undefined;
+    readonly dataModeHelpText?: string | undefined;
     readonly onAddProjectOpenChange: (open: boolean) => void;
     readonly onCredentialWarningDismiss: () => void;
     readonly onDensityChange: (density: DensityName) => void;
@@ -93,7 +95,9 @@ export interface AppShellController {
     readonly canGoForward: boolean;
     readonly canCheckForUpdates: boolean;
     readonly checkingForUpdates: boolean;
+    readonly canAddProject: boolean;
     readonly dataMode: 'live' | 'mock';
+    readonly demoMode: boolean;
     readonly mode: 'dark' | 'light' | 'system';
     readonly resolvedTheme: 'dark' | 'light';
     readonly updateStatusLabel: string | null;
@@ -128,7 +132,7 @@ export interface AppShellController {
     readonly density: DensityName;
     readonly filterValue: string;
     readonly items: AccountTreeProps['items'];
-    readonly onAddProject: () => void;
+    readonly onAddProject?: (() => void) | undefined;
     readonly onCollapse: () => void;
     readonly onCreateCollection: (id: string) => void;
     readonly onCreateDocument: (id: string) => void;
@@ -136,7 +140,7 @@ export interface AppShellController {
       id: string,
       kind: 'copy' | 'delete' | 'duplicate' | 'export' | 'import',
     ) => void;
-    readonly onEditItem: (id: string) => void;
+    readonly onEditItem?: ((id: string) => void) | undefined;
     readonly onExpand: () => void;
     readonly onFilterChange: (value: string) => void;
     readonly onOpenItem: (id: string) => void;
@@ -240,6 +244,7 @@ export interface AppShellOrchestratorInput {
     readonly requestId: number;
   } | null;
   readonly dataMode: 'live' | 'mock';
+  readonly demoMode?: boolean | undefined;
   readonly density: DensityName;
   readonly destructiveAction: AppShellDestructiveActionFacade;
   readonly editingProject: ProjectSummary | null;
@@ -1008,6 +1013,12 @@ export function createAppShellController(
       firstRunGuideSaving: input.firstRunGuide.saving,
       projectsRepository: input.projectsRepository,
       settingsOpen: input.settings.open,
+      ...(input.demoMode
+        ? {
+          dataModeHelpText: 'The browser demo always uses local sample data.',
+          dataModeOptions: ['mock'] as const,
+        }
+        : {}),
       onAddProjectOpenChange: input.ui.setAddProjectOpen,
       onCredentialWarningDismiss: () => input.ui.setCredentialWarning(null),
       onDensityChange: input.settings.changeDensity,
@@ -1037,9 +1048,11 @@ export function createAppShellController(
       canGoBack: input.tabsState.interactionHistoryIndex > 0,
       canGoForward: input.tabsState.interactionHistoryIndex
         < input.tabsState.interactionHistory.length - 1,
+      canAddProject: !input.demoMode,
       canCheckForUpdates: input.updates.canCheck,
       checkingForUpdates: input.updates.isChecking,
       dataMode: input.dataMode,
+      demoMode: Boolean(input.demoMode),
       mode: input.appearance.mode,
       resolvedTheme: input.appearance.resolvedTheme,
       updateStatusLabel: input.updates.statusLabel,
@@ -1076,12 +1089,12 @@ export function createAppShellController(
       density: input.density,
       filterValue: input.tree.filter,
       items: input.tree.items,
-      onAddProject: () => input.ui.setAddProjectOpen(true),
+      ...(input.demoMode ? {} : { onAddProject: () => input.ui.setAddProjectOpen(true) }),
       onCollapse: () => input.ui.setSidebarCollapsed(true),
       onCreateCollection: handleCreateCollectionFromTree,
       onCreateDocument: handleCreateDocumentFromTree,
       onCollectionJob: handleCollectionJobFromTree,
-      onEditItem: handleEditTreeItem,
+      onEditItem: input.demoMode ? undefined : handleEditTreeItem,
       onExpand: () => input.ui.setSidebarCollapsed(false),
       onFilterChange: input.tree.setFilter,
       onOpenItem: input.tree.handleOpenItem,

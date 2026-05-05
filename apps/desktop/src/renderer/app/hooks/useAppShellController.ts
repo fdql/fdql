@@ -33,6 +33,7 @@ export interface UseAppShellControllerInput {
   readonly appVersion: string;
   readonly activityStore?: ActivityStore | undefined;
   readonly dataMode?: 'live' | 'mock';
+  readonly demoMode?: boolean | undefined;
   readonly initialSidebarWidth?: number;
 }
 
@@ -41,6 +42,7 @@ export function useAppShellController(
     activityStore,
     appVersion,
     dataMode = 'mock',
+    demoMode = false,
     initialSidebarWidth = DEFAULT_SIDEBAR_WIDTH,
   }: UseAppShellControllerInput,
 ): AppShellController {
@@ -169,13 +171,20 @@ export function useAppShellController(
     selectedTreeItemId: selection.treeItemId,
     setLastAction,
   });
+  const treeItems = useMemo(
+    () =>
+      demoMode
+        ? workspaceTree.treeItems.map((item) => ({ ...item, canRemove: false }))
+        : workspaceTree.treeItems,
+    [demoMode, workspaceTree.treeItems],
+  );
   useEffect(() => {
     let cancelled = false;
     void repositories.settings.load()
       .then((snapshot) => {
         if (!cancelled) {
           setDensity(snapshot.density);
-          if (dataMode === 'mock' && !snapshot.firstRunGuide.completedAt) {
+          if (!demoMode && dataMode === 'mock' && !snapshot.firstRunGuide.completedAt) {
             setFirstRunGuideOpen(true);
           }
         }
@@ -190,7 +199,7 @@ export function useAppShellController(
     return () => {
       cancelled = true;
     };
-  }, [dataMode, repositories.settings]);
+  }, [dataMode, demoMode, repositories.settings]);
   const firestoreWrite = useFirestoreWriteController({
     activeProject,
     activeTab,
@@ -280,6 +289,7 @@ export function useAppShellController(
     closeWorkspaceTabs: closeWorkspaceTabsCommand,
     credentialWarning,
     dataMode,
+    demoMode,
     density,
     destructiveAction: {
       pendingAction: destructiveAction.pendingAction,
@@ -334,7 +344,7 @@ export function useAppShellController(
       handleRefreshItem: workspaceTree.handleRefreshItem,
       handleSelectItem: workspaceTree.handleSelectItem,
       handleToggleItem: workspaceTree.handleToggleItem,
-      items: workspaceTree.treeItems,
+      items: treeItems,
       refreshLoadedRoots: workspaceTree.refreshLoadedRoots,
       setFilter: workspaceTree.setTreeFilter,
     },

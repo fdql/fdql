@@ -1,0 +1,165 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+import activity from '../assets/screenshots/activity.png';
+import auth from '../assets/screenshots/auth.png';
+import jsQuery from '../assets/screenshots/js-query.png';
+import workspace from '../assets/screenshots/workspace.png';
+
+const base = import.meta.env.BASE_URL.endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+const demoAppUrl = `${base}demo/app/`;
+---
+
+<SiteLayout
+  title='Firebase Desk - Firebase admin workbench'
+  description='Firebase Desk is a focused desktop workbench for Firestore, Auth, JavaScript query, jobs, and multi-environment Firebase workflows.'
+>
+  <main>
+    <section class='hero'>
+      <div class='hero-grid'>
+        <div>
+          <div class='eyebrow'>Browser demo with sample data</div>
+          <h1>Firebase Desk</h1>
+          <p class='hero-copy'>
+            A focused Firebase admin workbench for developers who move between local emulators,
+            staging, and production without losing track of where each write lands.
+          </p>
+          <div class='hero-actions'>
+            <a class='button primary' href={`${base}demo/`}>Try the demo</a>
+            <a class='button secondary' href={`${base}docs/`}>Read docs</a>
+            <a class='button ghost' href='https://github.com/viniciusrmcarneiro/firebase-desk'>
+              View GitHub
+            </a>
+          </div>
+          <div class='signal-row' aria-label='Product strengths'>
+            <div class='signal'>
+              <strong>Multi-environment</strong>
+              <span>Keep prod, staging, and emulator contexts visible per tab.</span>
+            </div>
+            <div class='signal'>
+              <strong>Admin workflows</strong>
+              <span>Inspect Firestore, Auth users, scripts, and collection jobs in one tool.</span>
+            </div>
+            <div class='signal'>
+              <strong>Explicit safety</strong>
+              <span>Mock data first, clear live badges, confirmations, and activity history.</span>
+            </div>
+          </div>
+        </div>
+        <div class='demo-shell' aria-label='Firebase Desk demo preview'>
+          <div class='demo-toolbar'>
+            <div class='pills' aria-hidden='true'><span></span><span></span><span></span></div>
+            <strong>Live browser demo</strong>
+            <span>sample data</span>
+          </div>
+          <iframe
+            class='demo-frame'
+            title='Firebase Desk browser demo preview'
+            src={demoAppUrl}
+            loading='eager'
+          ></iframe>
+        </div>
+      </div>
+      <p class='hint'>Scroll for the workflow map. The full demo opens without Firebase credentials.</p>
+    </section>
+
+    <section class='section light'>
+      <div class='section-kicker'>Built for real Firebase routines</div>
+      <h2>One dense workspace for the things the console spreads out.</h2>
+      <p class='section-intro'>
+        Firebase Desk is not a marketing dashboard. It is a local work tool for repeated admin
+        tasks: querying data, checking users, running scripts, moving collections, and verifying
+        what changed.
+      </p>
+      <div class='workflow-grid'>
+        <article class='workflow'>
+          <h3>Firestore inspection</h3>
+          <p>Open root collections, nested subcollections, table/tree/JSON views, filters, sort, pagination, and document detail.</p>
+        </article>
+        <article class='workflow'>
+          <h3>Document writes</h3>
+          <p>Create, edit, patch, delete, handle stale fields, and review conflicts before committing changes.</p>
+        </article>
+        <article class='workflow'>
+          <h3>Auth operations</h3>
+          <p>List users, search accounts, inspect provider data, and edit custom claims from the same workspace.</p>
+        </article>
+        <article class='workflow'>
+          <h3>JavaScript Query</h3>
+          <p>Run admin-style scripts against a selected connection and inspect yielded documents, arrays, logs, and errors.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class='section'>
+      <div class='section-kicker'>Product surface</div>
+      <h2>Fast to scan, hard to confuse.</h2>
+      <p class='section-intro'>
+        The app keeps account, target, tab, activity, and job context visible because Firebase
+        developers often have the same project in multiple environments.
+      </p>
+      <div class='screenshot-band'>
+        <img src={workspace.src} alt='Firebase Desk workspace showing Firestore orders query' />
+        <div class='screenshot-stack'>
+          <img src={auth.src} alt='Firebase Desk Auth user workflow' />
+          <img src={jsQuery.src} alt='Firebase Desk JavaScript Query workflow' />
+        </div>
+      </div>
+    </section>
+
+    <section class='section light'>
+      <div class='section-kicker'>Safety model</div>
+      <h2>Designed for developers with prod and dev open at the same time.</h2>
+      <div class='safety-list'>
+        <article class='feature'>
+          <h3>Sample data demo</h3>
+          <p>The browser demo runs local fixtures only. No Firebase login, no service account, no production calls.</p>
+        </article>
+        <article class='feature'>
+          <h3>Visible targets</h3>
+          <p>Tabs, project badges, emulator markers, and live mode labels keep the selected target in view.</p>
+        </article>
+        <article class='feature'>
+          <h3>Reviewable changes</h3>
+          <p>Destructive actions use confirmations, write flows expose conflicts, and Activity keeps a local trail.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class='section'>
+      <div class='section-kicker'>Background work</div>
+      <h2>Move collections without losing the rest of your session.</h2>
+      <p class='section-intro'>
+        Copy, duplicate, export, import, and delete collection workflows run through a jobs drawer
+        with status, progress, issue acknowledgement, and Activity entries.
+      </p>
+      <div class='screenshot-band'>
+        <img src={activity.src} alt='Firebase Desk Activity drawer showing recent operations' />
+        <div class='feature-grid'>
+          <article class='feature'>
+            <h3>Jobs drawer</h3>
+            <p>Track collection jobs without leaving the active Firestore tab.</p>
+          </article>
+          <article class='feature'>
+            <h3>Activity log</h3>
+            <p>Search, filter, export, and jump back to related targets.</p>
+          </article>
+          <article class='feature'>
+            <h3>Command palette</h3>
+            <p>Run common actions with keyboard-first navigation.</p>
+          </article>
+          <article class='feature'>
+            <h3>Persistent workspace</h3>
+            <p>Restore tabs, drafts, scripts, filters, density, and layout settings.</p>
+          </article>
+        </div>
+      </div>
+      <div class='section-actions'>
+        <a class='button primary' href={`${base}demo/`}>Open full demo</a>
+        <a class='button secondary' href={`${base}docs/features/`}>See all features</a>
+      </div>
+    </section>
+  </main>
+  <footer class='footer'>MIT licensed. Built for local Firebase admin workflows.</footer>
+</SiteLayout>

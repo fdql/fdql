@@ -156,6 +156,34 @@ describe('createRepositories', () => {
     expect(save).not.toHaveBeenCalled();
     expect(onDataModeChange).not.toHaveBeenCalled();
   });
+
+  it('uses mock repositories in demo mode even when desktop APIs are available', async () => {
+    const listUsers = vi.fn(async () => ({ items: [], nextCursor: null }));
+    const listActivity = vi.fn(async () => []);
+    stubDesktopApi({
+      activity: {
+        ...desktopActivityApi(),
+        list: listActivity,
+      },
+      auth: {
+        ...desktopAuthApi(),
+        listUsers,
+      },
+    });
+
+    const repositories = createRepositories({ dataMode: 'mock', demoMode: true });
+    const users = await repositories.auth.listUsers('emu');
+    await repositories.activity.list({ limit: 1 });
+    const settings = await repositories.settings.load();
+
+    expect(listUsers).not.toHaveBeenCalled();
+    expect(listActivity).not.toHaveBeenCalled();
+    expect(users.items.some((user) => user.email === 'ada@example.com')).toBe(true);
+    expect(settings.firstRunGuide.completedAt).toBeTruthy();
+    await expect(repositories.settings.save({ dataMode: 'live' })).rejects.toThrow(
+      'Live mode requires the Firebase Desk desktop app.',
+    );
+  });
 });
 
 function stubDesktopApi(overrides: Partial<DesktopApi>): void {

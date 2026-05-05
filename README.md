@@ -2,17 +2,18 @@
 
 Free, open-source desktop app for Firebase admin/data workflows.
 
-Use it to browse and edit Firestore data, inspect Authentication users, connect local emulators, and run JavaScript admin scripts from a focused Electron app.
+Use it to browse and edit Firestore data, inspect Authentication users, connect local emulators, and run JavaScript admin scripts from a focused Electron app. Try the browser demo with safe sample data before installing.
 
 ![Firebase Desk Firestore workspace](apps/docs/src/assets/screenshots/workspace.png)
 
 ## Why
 
-Firebase Desk is for developers who need a direct workbench for Firebase projects without a hosted SaaS subscription. It starts in mock mode, so first-time users can explore the app with local demo data before connecting an emulator or production project.
+Firebase Desk is for developers who need a direct workbench for Firebase projects without a hosted SaaS subscription. Mock mode and the browser demo let first-time users explore with local sample data before connecting an emulator or production project.
 
 ## Features
 
 - Mock mode with local sample data and first-run guide.
+- Static browser demo backed by mock repositories.
 - Multiple Firebase accounts for dev, emulator, and production workflows.
 - Workspace tree, tabs, project switcher, command palette, and keyboard shortcuts.
 - Firestore query builder with filters, sorting, limits, pagination, and table/tree/JSON result views.
@@ -23,15 +24,17 @@ Firebase Desk is for developers who need a direct workbench for Firebase project
 - Jobs drawer, activity log, status bar, loading, empty, and error states.
 - Local settings for theme, density, mock/live mode, activity retention, stale-write behavior, saved table layouts, field catalogs, and credential storage.
 
-See the full feature inventory in the docs: <https://viniciusrmcarneiro.github.io/firebase-desk/features.html>
+See the full feature inventory in the docs: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/features/>
 
 ## Docs
 
-- Docs site: <https://viniciusrmcarneiro.github.io/firebase-desk/>
-- Getting started: <https://viniciusrmcarneiro.github.io/firebase-desk/getting-started.html>
-- Features: <https://viniciusrmcarneiro.github.io/firebase-desk/features.html>
-- Safety: <https://viniciusrmcarneiro.github.io/firebase-desk/safety.html>
-- Troubleshooting: <https://viniciusrmcarneiro.github.io/firebase-desk/troubleshooting.html>
+- Website: <https://viniciusrmcarneiro.github.io/firebase-desk/>
+- Browser demo: <https://viniciusrmcarneiro.github.io/firebase-desk/demo/>
+- Docs: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/>
+- Getting started: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/getting-started/>
+- Features: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/features/>
+- Safety: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/safety/>
+- Troubleshooting: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/troubleshooting/>
 
 ## Downloads
 
@@ -73,6 +76,7 @@ Docs:
 
 ```sh
 pnpm docs:build
+pnpm docs:smoke
 pnpm docs:screenshots
 ```
 

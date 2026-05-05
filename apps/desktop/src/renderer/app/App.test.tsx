@@ -135,6 +135,35 @@ describe('desktop App', () => {
     );
   });
 
+  it('uses mock config in demo when preload app API is unavailable', async () => {
+    settingsLoad.mockResolvedValue(settingsSnapshot());
+    vi.stubGlobal('firebaseDesk', undefined);
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('VITE_FIREBASE_DESK_RUNTIME', 'demo');
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('app-shell')).toBeTruthy());
+    expect(createRepositories).toHaveBeenCalledWith(
+      expect.objectContaining({ dataMode: 'mock', demoMode: true }),
+    );
+    expect(appShellProps).toHaveBeenCalledWith(
+      expect.objectContaining({ appVersion: 'demo', demoMode: true }),
+    );
+  });
+
+  it('does not open first-run guide through demo app props', async () => {
+    settingsLoad.mockResolvedValue(settingsSnapshot());
+    vi.stubGlobal('firebaseDesk', undefined);
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('VITE_FIREBASE_DESK_RUNTIME', 'demo');
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('app-shell')).toBeTruthy());
+    expect(appShellProps).toHaveBeenLastCalledWith(expect.objectContaining({ demoMode: true }));
+  });
+
   it('shows a retryable boot failure when settings load fails', async () => {
     settingsLoad.mockRejectedValueOnce(new Error('settings unavailable'))
       .mockResolvedValue(settingsSnapshot());
