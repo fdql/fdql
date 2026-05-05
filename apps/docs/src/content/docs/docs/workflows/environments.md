@@ -13,6 +13,8 @@ Mock mode and the browser demo use local fixtures. They are useful for learning 
 
 Emulator projects use explicit host settings for Firestore and Auth. Use them as the default place to validate write workflows.
 
+![Add account dialog configured for a local Firebase emulator profile.](/firebase-desk/screenshots/add-account.png)
+
 ## Production
 
 Production projects use service account JSON in the desktop app. Name them clearly and rely on live badges, tab connection labels, confirmations, and Activity to keep writes intentional.

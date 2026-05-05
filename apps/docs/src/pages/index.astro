@@ -1,6 +1,5 @@
 ---
 import SiteLayout from '../layouts/SiteLayout.astro';
-import workspace from '../assets/screenshots/workspace.png';
 
 const base = import.meta.env.BASE_URL.endsWith('/')
   ? import.meta.env.BASE_URL
@@ -27,10 +26,14 @@ const base = import.meta.env.BASE_URL.endsWith('/')
             GitHub
           </a>
         </div>
+        <p class='hero-note'>Free and open source under MIT.</p>
       </div>
 
       <figure class='product-shot'>
-        <img src={workspace.src} alt='Firebase Desk workspace showing a Firestore orders query' />
+        <img
+          src={`${base}screenshots/workspace.png`}
+          alt='Firebase Desk workspace showing a Firestore orders query'
+        />
         <figcaption>
           The browser demo uses sample data only. The desktop app can connect to emulators or
           projects you configure.
@@ -55,8 +58,8 @@ const base = import.meta.env.BASE_URL.endsWith('/')
           <p>Run trusted Firebase Admin style snippets against the selected target.</p>
         </article>
         <article>
-          <h3>Workspace context</h3>
-          <p>Keep tabs, activity, jobs, account targets, and data mode visible while you work.</p>
+          <h3>Activity</h3>
+          <p>Keep a local trail of queries, writes, scripts, jobs, failures, and settings changes.</p>
         </article>
       </div>
     </section>
@@ -94,6 +97,7 @@ const base = import.meta.env.BASE_URL.endsWith('/')
           <a href={`${base}docs/workflows/firestore/`}>Firestore workflow</a>
           <a href={`${base}docs/workflows/auth/`}>Authentication workflow</a>
           <a href={`${base}docs/workflows/js-query/`}>JavaScript Query workflow</a>
+          <a href={`${base}docs/workflows/activity/`}>Activity workflow</a>
           <a href={`${base}docs/features/`}>Feature reference</a>
         </div>
       </div>

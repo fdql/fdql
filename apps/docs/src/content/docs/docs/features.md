@@ -18,7 +18,7 @@ description: Complete Firebase Desk feature inventory.
 11. **Jobs drawer**: job status, progress counters, cancellation, cleanup, issue acknowledgement, and history.
 12. **Auth users**: list, search/filter, paginate, inspect, and edit custom claims.
 13. **JavaScript Query**: run scripts, cancel runs, stream logs/output, inspect arrays, objects, documents, and errors.
-14. **Activity log**: record operations, filter/search entries, export entries, and reopen related targets.
+14. **Activity log**: local audit trail for operations, issues, metadata, exports, and target reopening.
 15. **Command palette and hotkeys**: keyboard-first access to tabs, query/run actions, theme, and settings.
 
 ## Workspace
@@ -95,7 +95,7 @@ description: Complete Firebase Desk feature inventory.
 - Display empty-result states.
 - Record script run success/failure in Activity.
 
-## Jobs and Activity
+## Jobs
 
 - Start copy collection jobs.
 - Start duplicate collection jobs.
@@ -107,12 +107,21 @@ description: Complete Firebase Desk feature inventory.
 - Cancel non-final jobs.
 - Clear completed jobs.
 - Acknowledge failed/interrupted jobs.
+
+## Activity
+
+- Record Firestore, Auth, JavaScript Query, jobs, projects, settings, workspace, and app events.
+- Track success, failure, conflict, and cancelled statuses.
+- Show unread issue badges for failures and conflicts.
 - Search Activity entries.
 - Filter Activity by area and status.
 - Expand Activity detail.
+- Inspect target, metadata, payload, error, and duration detail.
 - Export Activity entries.
 - Clear Activity with confirmation.
 - Open Firestore/Auth targets from Activity entries.
+- Configure metadata-only or full-payload detail capture.
+- Prune older entries by local retention size.
 
 ## Settings and app chrome
 

@@ -4,7 +4,7 @@ Free, open-source desktop app for Firebase admin/data workflows.
 
 Use it to browse and edit Firestore data, inspect Authentication users, connect local emulators, and run JavaScript admin scripts from a focused Electron app. Try the browser demo with safe sample data before installing.
 
-![Firebase Desk Firestore workspace](apps/docs/src/assets/screenshots/workspace.png)
+![Firebase Desk Firestore workspace](apps/docs/public/screenshots/workspace.png)
 
 ## Why
 

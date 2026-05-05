@@ -32,6 +32,7 @@ try {
   await expect(page.getByAltText('Firebase Desk workspace showing a Firestore orders query'))
     .toBeVisible();
   await expect(page.locator('iframe[title="Firebase Desk browser demo preview"]')).toHaveCount(0);
+  await expectSiteThemeSwitcher(page);
 
   await page.goto(`${baseUrl}/demo/`);
   const demo = page.frameLocator('iframe[title="Firebase Desk browser demo"]');
@@ -101,6 +102,28 @@ async function expectLightThemeVariables(page) {
     background: '#ffffff',
     text: '#0f172a',
   });
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+async function expectSiteThemeSwitcher(page) {
+  const root = page.locator('html');
+  await expect(root).toHaveAttribute('data-theme-choice', 'system');
+
+  await page.getByLabel('Theme').selectOption('light');
+  await expect(root).toHaveAttribute('data-theme-choice', 'light');
+  await expect(root).toHaveAttribute('data-theme', 'light');
+  await expect.poll(() => page.evaluate("localStorage.getItem('starlight-theme')")).toBe('light');
+
+  await page.getByLabel('Theme').selectOption('dark');
+  await expect(root).toHaveAttribute('data-theme-choice', 'dark');
+  await expect(root).toHaveAttribute('data-theme', 'dark');
+  await expect.poll(() => page.evaluate("localStorage.getItem('starlight-theme')")).toBe('dark');
+
+  await page.getByLabel('Theme').selectOption('system');
+  await expect(root).toHaveAttribute('data-theme-choice', 'system');
+  await expect.poll(() => page.evaluate("localStorage.getItem('starlight-theme')")).toBe(null);
 }
 
 /**

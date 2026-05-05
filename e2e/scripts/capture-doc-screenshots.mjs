@@ -8,7 +8,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '../..');
 const desktopDir = resolve(repoRoot, 'apps/desktop');
 const mainEntry = resolve(desktopDir, '.build/out/main/index.js');
-const outputDir = resolve(repoRoot, 'apps/docs/src/assets/screenshots');
+const outputDir = resolve(repoRoot, 'apps/docs/public/screenshots');
 
 await mkdir(outputDir, { recursive: true });
 
@@ -175,6 +175,8 @@ async function captureActivity(page) {
   }
   await expect(drawer).toBeVisible();
   await expect(drawer.getByText('Run query').first()).toBeVisible({ timeout: 20_000 });
+  await drawer.getByText('Run query').first().click();
+  await expect(drawer.getByText('Metadata').first()).toBeVisible();
   await page.screenshot({ path: resolve(outputDir, 'activity.png'), fullPage: true });
   await drawer.getByRole('button', { name: 'Close' }).click();
   await expect(drawer).toBeHidden();

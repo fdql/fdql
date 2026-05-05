@@ -19,6 +19,25 @@ const base = import.meta.env.BASE_URL.endsWith('/')
     <meta name='viewport' content='width=device-width, initial-scale=1' />
     <meta name='description' content={description} />
     <title>{title}</title>
+    <script is:inline>
+      (() => {
+        const key = 'starlight-theme';
+        const modes = ['system', 'light', 'dark'];
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+        const getChoice = () => {
+          try {
+            const stored = window.localStorage.getItem(key);
+            return modes.includes(stored) ? stored : 'system';
+          } catch {
+            return 'system';
+          }
+        };
+        const choice = getChoice();
+        document.documentElement.dataset.themeChoice = choice;
+        document.documentElement.dataset.theme =
+          choice === 'system' ? (prefersDark.matches ? 'dark' : 'light') : choice;
+      })();
+    </script>
   </head>
   <body>
     <header class='site-nav'>
@@ -26,12 +45,64 @@ const base = import.meta.env.BASE_URL.endsWith('/')
         <span class='brand-mark' aria-hidden='true'></span>
         <span>Firebase Desk</span>
       </a>
-      <nav aria-label='Primary navigation'>
-        <a href={`${base}demo/`}>Demo</a>
-        <a href={`${base}docs/`}>Docs</a>
-        <a href='https://github.com/viniciusrmcarneiro/firebase-desk'>GitHub</a>
-      </nav>
+      <div class='nav-actions'>
+        <nav aria-label='Primary navigation'>
+          <a href={`${base}demo/`}>Demo</a>
+          <a href={`${base}docs/`}>Docs</a>
+          <a href='https://github.com/viniciusrmcarneiro/firebase-desk'>GitHub</a>
+        </nav>
+        <label class='theme-switcher'>
+          <span class='sr-only'>Theme</span>
+          <select aria-label='Theme' data-theme-select>
+            <option value='system'>System</option>
+            <option value='light'>Light</option>
+            <option value='dark'>Dark</option>
+          </select>
+        </label>
+      </div>
     </header>
     <slot />
+    <script is:inline>
+      (() => {
+        const key = 'starlight-theme';
+        const modes = ['system', 'light', 'dark'];
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+        const picker = document.querySelector('[data-theme-select]');
+        const getChoice = () => {
+          try {
+            const stored = window.localStorage.getItem(key);
+            return modes.includes(stored) ? stored : 'system';
+          } catch {
+            return 'system';
+          }
+        };
+        const applyTheme = (choice) => {
+          const normalized = modes.includes(choice) ? choice : 'system';
+          document.documentElement.dataset.themeChoice = normalized;
+          document.documentElement.dataset.theme =
+            normalized === 'system' ? (prefersDark.matches ? 'dark' : 'light') : normalized;
+          if (picker) picker.value = normalized;
+        };
+
+        picker?.addEventListener('change', () => {
+          const choice = picker.value;
+          try {
+            if (choice === 'system') {
+              window.localStorage.removeItem(key);
+            } else {
+              window.localStorage.setItem(key, choice);
+            }
+          } catch {
+            // Theme still applies for the current page view.
+          }
+          applyTheme(choice);
+        });
+
+        prefersDark.addEventListener('change', () => {
+          if (document.documentElement.dataset.themeChoice === 'system') applyTheme('system');
+        });
+        applyTheme(getChoice());
+      })();
+    </script>
   </body>
 </html>

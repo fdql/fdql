@@ -14,6 +14,7 @@ Use the [browser demo](/firebase-desk/demo/) first if you want to try the produc
 - Run admin-style JavaScript queries against the selected connection.
 - Copy, duplicate, export, import, and delete Firestore collections through background jobs.
 - Keep tabs, account targets, Activity, and write context visible while switching environments.
+- Review a local audit trail of queries, writes, scripts, jobs, settings, and failures.
 
 ## Good first reads
 
@@ -21,4 +22,5 @@ Use the [browser demo](/firebase-desk/demo/) first if you want to try the produc
 - [Firestore workflow](./workflows/firestore/)
 - [Authentication workflow](./workflows/auth/)
 - [JavaScript Query](./workflows/js-query/)
+- [Activity workflow](./workflows/activity/)
 - [Feature reference](./features/)
