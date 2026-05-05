@@ -14,6 +14,7 @@ const snapshot: SettingsSnapshot = {
   theme: 'system',
   density: 'compact',
   dataMode: 'mock',
+  firstRunGuide: { completedAt: null },
   hotkeyOverrides: {},
   resultTableLayouts: {},
   firestoreFieldCatalogs: {},
@@ -46,9 +47,9 @@ describe('createRepositories', () => {
     expect(onDataModeChange).toHaveBeenCalledWith('live');
   });
 
-  it('uses desktop activity in mock data mode when the desktop API is available', async () => {
+  it('uses desktop activity and mock jobs in mock data mode when the desktop API is available', async () => {
     const listActivity = vi.fn(async () => []);
-    const listJobs = vi.fn(async () => []);
+    const startJob = vi.fn();
     stubDesktopApi({
       activity: {
         append: vi.fn(),
@@ -60,20 +61,29 @@ describe('createRepositories', () => {
         acknowledgeIssues: vi.fn(),
         cancel: vi.fn(),
         clearCompleted: vi.fn(),
-        list: listJobs,
+        list: vi.fn(async () => []),
         pickExportFile: vi.fn(),
         pickImportFile: vi.fn(),
-        start: vi.fn(),
+        start: startJob,
         subscribe: vi.fn(() => () => {}),
       },
     });
 
     const repositories = createRepositories({ dataMode: 'mock' });
     await repositories.activity.list({ limit: 1 });
-    await repositories.jobs.list({ limit: 1 });
+    const job = await repositories.jobs.start({
+      collisionPolicy: 'skip',
+      includeSubcollections: false,
+      sourceCollectionPath: 'orders',
+      sourceConnectionId: 'emu',
+      targetCollectionPath: 'orders_copy',
+      targetConnectionId: 'emu',
+      type: 'firestore.copyCollection',
+    });
 
     expect(listActivity).toHaveBeenCalledWith({ limit: 1 });
-    expect(listJobs).toHaveBeenCalledWith({ limit: 1 });
+    expect(startJob).not.toHaveBeenCalled();
+    expect(job).toMatchObject({ status: 'succeeded', title: 'Copy collection' });
   });
 
   it('does not fall back to mock feature repositories in live data mode', async () => {
@@ -145,6 +155,34 @@ describe('createRepositories', () => {
     );
     expect(save).not.toHaveBeenCalled();
     expect(onDataModeChange).not.toHaveBeenCalled();
+  });
+
+  it('uses mock repositories in demo mode even when desktop APIs are available', async () => {
+    const listUsers = vi.fn(async () => ({ items: [], nextCursor: null }));
+    const listActivity = vi.fn(async () => []);
+    stubDesktopApi({
+      activity: {
+        ...desktopActivityApi(),
+        list: listActivity,
+      },
+      auth: {
+        ...desktopAuthApi(),
+        listUsers,
+      },
+    });
+
+    const repositories = createRepositories({ dataMode: 'mock', demoMode: true });
+    const users = await repositories.auth.listUsers('emu');
+    await repositories.activity.list({ limit: 1 });
+    const settings = await repositories.settings.load();
+
+    expect(listUsers).not.toHaveBeenCalled();
+    expect(listActivity).not.toHaveBeenCalled();
+    expect(users.items.some((user) => user.email === 'ada@example.com')).toBe(true);
+    expect(settings.firstRunGuide.completedAt).toBeTruthy();
+    await expect(repositories.settings.save({ dataMode: 'live' })).rejects.toThrow(
+      'Live mode requires the Firebase Desk desktop app.',
+    );
   });
 });
 

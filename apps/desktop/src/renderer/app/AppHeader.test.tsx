@@ -43,6 +43,24 @@ describe('AppHeader', () => {
 
     expect(screen.getByRole('status').textContent).toBe('Up to date');
   });
+
+  it('opens the mock guide from mock mode chrome', () => {
+    const onOpenMockGuide = vi.fn();
+
+    render(<AppHeader {...props({ onOpenMockGuide })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mock mode guide' }));
+
+    expect(onOpenMockGuide).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows demo chrome without account actions', () => {
+    render(<AppHeader {...props({ canAddProject: false, demoMode: true })} />);
+
+    expect(screen.getByText('browser demo')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Add account' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Mock mode guide' })).toBeNull();
+  });
 });
 
 function stubNavigator(platform: string, userAgent: string): void {
@@ -54,17 +72,20 @@ function props(patch: Partial<Parameters<typeof AppHeader>[0]> = {}): Parameters
 >[0] {
   return {
     appVersion: '0.1.0',
+    canAddProject: true,
     canGoBack: false,
     canGoForward: false,
     canCheckForUpdates: true,
     checkingForUpdates: false,
     dataMode: 'mock',
+    demoMode: false,
     mode: 'system',
     onAddProject: vi.fn(),
     onBack: vi.fn(),
     onCheckForUpdates: vi.fn(),
     onForward: vi.fn(),
     onModeChange: vi.fn(),
+    onOpenMockGuide: vi.fn(),
     onOpenSettings: vi.fn(),
     resolvedTheme: 'light',
     updateStatusLabel: null,

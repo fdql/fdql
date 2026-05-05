@@ -14,6 +14,7 @@ const snapshot: SettingsSnapshot = {
   theme: 'system',
   density: 'compact',
   dataMode: 'mock',
+  firstRunGuide: { completedAt: null },
   hotkeyOverrides: {},
   resultTableLayouts: {},
   firestoreFieldCatalogs: {},
@@ -44,5 +45,13 @@ describe('data mode config', () => {
     await expect(resolveDataMode({ load: async () => snapshot }, ['electron'])).resolves.toEqual({
       dataMode: 'mock',
     });
+  });
+
+  it('defaults to mock mode when saved settings omit data mode', async () => {
+    await expect(
+      resolveDataMode({ load: async () => ({ ...snapshot, dataMode: undefined as never }) }, [
+        'electron',
+      ]),
+    ).resolves.toEqual({ dataMode: 'mock' });
   });
 });

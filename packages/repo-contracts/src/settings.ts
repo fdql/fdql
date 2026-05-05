@@ -80,6 +80,14 @@ export const DEFAULT_UPDATE_SETTINGS: UpdateSettings = {
   lastCheckedAt: null,
 };
 
+export interface FirstRunGuideSettings {
+  readonly completedAt: string | null;
+}
+
+export const DEFAULT_FIRST_RUN_GUIDE_SETTINGS: FirstRunGuideSettings = {
+  completedAt: null,
+};
+
 export function isFirestoreFieldStaleBehavior(
   value: unknown,
 ): value is FirestoreFieldStaleBehavior {
@@ -104,6 +112,7 @@ export interface SettingsSnapshot {
   readonly theme: 'system' | 'light' | 'dark';
   readonly density: DensityName;
   readonly dataMode: DataMode;
+  readonly firstRunGuide: FirstRunGuideSettings;
   readonly hotkeyOverrides: HotkeyOverrides;
   readonly resultTableLayouts: ResultTableLayouts;
   readonly firestoreFieldCatalogs: FirestoreFieldCatalogs;
@@ -119,6 +128,7 @@ export interface SettingsPatch {
   readonly theme?: SettingsSnapshot['theme'] | undefined;
   readonly density?: DensityName | undefined;
   readonly dataMode?: DataMode | undefined;
+  readonly firstRunGuide?: FirstRunGuideSettings | undefined;
   readonly hotkeyOverrides?: HotkeyOverrides | undefined;
   readonly resultTableLayouts?: ResultTableLayouts | undefined;
   readonly firestoreFieldCatalogs?: FirestoreFieldCatalogs | undefined;

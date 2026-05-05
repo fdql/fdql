@@ -9,6 +9,7 @@ import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_DENSITY,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_FIRST_RUN_GUIDE_SETTINGS,
   DEFAULT_UPDATE_SETTINGS,
   normalizeFirestoreWriteSettings,
 } from '@firebase-desk/repo-contracts';
@@ -20,6 +21,7 @@ const DEFAULT_SNAPSHOT: SettingsSnapshot = {
   theme: 'system',
   density: DEFAULT_DENSITY,
   dataMode: 'mock',
+  firstRunGuide: DEFAULT_FIRST_RUN_GUIDE_SETTINGS,
   hotkeyOverrides: {},
   resultTableLayouts: {},
   firestoreFieldCatalogs: {},
@@ -29,7 +31,11 @@ const DEFAULT_SNAPSHOT: SettingsSnapshot = {
 };
 
 export class MockSettingsRepository implements SettingsRepository {
-  private snapshot: SettingsSnapshot = { ...DEFAULT_SNAPSHOT };
+  private snapshot: SettingsSnapshot;
+
+  constructor(snapshot: SettingsSnapshot = DEFAULT_SNAPSHOT) {
+    this.snapshot = cloneSnapshot(snapshot);
+  }
 
   async load(): Promise<SettingsSnapshot> {
     return cloneSnapshot(this.snapshot);
@@ -45,6 +51,9 @@ export class MockSettingsRepository implements SettingsRepository {
       theme: patch.theme ?? this.snapshot.theme,
       density: patch.density ?? this.snapshot.density,
       dataMode: patch.dataMode ?? this.snapshot.dataMode,
+      firstRunGuide: patch.firstRunGuide
+        ? cloneFirstRunGuideSettings(patch.firstRunGuide)
+        : cloneFirstRunGuideSettings(this.snapshot.firstRunGuide),
       hotkeyOverrides: patch.hotkeyOverrides
         ? { ...patch.hotkeyOverrides }
         : { ...this.snapshot.hotkeyOverrides },
@@ -79,6 +88,7 @@ function cloneSnapshot(snapshot: SettingsSnapshot): SettingsSnapshot {
     ...snapshot,
     activityLog: cloneActivityLogSettings(snapshot.activityLog),
     density: snapshot.density ?? DEFAULT_DENSITY,
+    firstRunGuide: cloneFirstRunGuideSettings(snapshot.firstRunGuide),
     hotkeyOverrides: { ...snapshot.hotkeyOverrides },
     resultTableLayouts: cloneResultTableLayouts(snapshot.resultTableLayouts),
     firestoreFieldCatalogs: cloneFirestoreFieldCatalogs(snapshot.firestoreFieldCatalogs),
@@ -95,6 +105,12 @@ function cloneWorkspaceState(value: unknown | null): unknown | null {
 
 function cloneActivityLogSettings(settings: ActivityLogSettings): ActivityLogSettings {
   return { ...settings };
+}
+
+function cloneFirstRunGuideSettings(
+  settings: SettingsSnapshot['firstRunGuide'] | null | undefined,
+): SettingsSnapshot['firstRunGuide'] {
+  return { completedAt: settings?.completedAt ?? null };
 }
 
 function cloneResultTableLayouts(

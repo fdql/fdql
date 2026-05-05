@@ -7,6 +7,7 @@ import splashLogoUrl from '../assets/splash-logo.png';
 import { AppShell } from './AppShell.tsx';
 import { RenderErrorBoundary } from './RenderErrorBoundary.tsx';
 import { createRepositories, RepositoryProvider } from './RepositoryProvider.tsx';
+import { type AppRuntime, isDemoRuntime, resolveAppRuntime } from './runtime.ts';
 
 interface AppConfig {
   readonly appVersion: string;
@@ -62,6 +63,8 @@ function BootFailureScreen(
 }
 
 export function App() {
+  const runtime = resolveAppRuntime();
+  const demoMode = isDemoRuntime(runtime);
   const [dataMode, setDataMode] = useState<DataMode | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
@@ -85,9 +88,9 @@ export function App() {
   const repositories = useMemo(
     () =>
       dataMode
-        ? createRepositories({ dataMode, onDataModeChange: handleDataModeChange })
+        ? createRepositories({ dataMode, demoMode, onDataModeChange: handleDataModeChange })
         : null,
-    [dataMode, handleDataModeChange],
+    [dataMode, demoMode, handleDataModeChange],
   );
   const handleHotkeySettingsError = useCallback((message: string) => {
     void repositories?.activity.append({
@@ -103,7 +106,7 @@ export function App() {
   useEffect(() => {
     let cancelled = false;
     setBootError(null);
-    loadAppConfig().then((config) => {
+    loadAppConfig(runtime).then((config) => {
       if (!cancelled) {
         setAppVersion(config.appVersion);
         setDataMode(config.dataMode);
@@ -116,7 +119,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [bootAttempt]);
+  }, [bootAttempt, runtime]);
 
   useEffect(() => {
     if (!repositories) return;
@@ -152,6 +155,7 @@ export function App() {
               <AppShell
                 appVersion={appVersion}
                 dataMode={dataMode ?? 'mock'}
+                demoMode={demoMode}
                 initialSidebarWidth={snapshot.sidebarWidth}
               />
             </RenderErrorBoundary>
@@ -166,9 +170,12 @@ function messageFromError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-async function loadAppConfig(): Promise<AppConfig> {
+async function loadAppConfig(runtime: AppRuntime): Promise<AppConfig> {
   if (typeof window !== 'undefined' && window.firebaseDesk?.app?.getConfig) {
     return await window.firebaseDesk.app.getConfig();
+  }
+  if (runtime === 'demo') {
+    return { appVersion: 'demo', dataMode: 'mock' };
   }
   if (import.meta.env.DEV) {
     return { appVersion: 'dev-browser', dataMode: 'mock' };

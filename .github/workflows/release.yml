@@ -36,27 +36,6 @@ jobs:
                           { os: 'windows-latest', platform: 'windows', smoke: 'packaged' },
                       ];
 
-                      const packagePathPrefixes = [
-                          'apps/desktop/',
-                          'docker/',
-                          'e2e/',
-                      ];
-                      const packagePaths = new Set([
-                          '.dockerignore',
-                          '.github/workflows/ci.yml',
-                          '.github/workflows/release-policy.yml',
-                          '.github/workflows/release.yml',
-                          'package.json',
-                          'pnpm-lock.yaml',
-                          'scripts/check-release-version.ts',
-                          'scripts/generate-icons.mjs',
-                          'scripts/package-desktop.mjs',
-                          'scripts/package-linux-docker.sh',
-                          'scripts/write-package-manager-manifests.ts',
-                          'scripts/write-package-checksums.mjs',
-                          'scripts/write-release-manifest.ts',
-                      ]);
-
                       const eventName = context.eventName;
                       const ref = context.ref;
                       let releaseChannel = `dispatch-${context.runId}`;
@@ -70,22 +49,10 @@ jobs:
                           releaseChannel = `pr-${pullRequest.number}`;
                           const labels = pullRequest.labels.map((label) => label.name);
                           const hasReleaseBumpLabel = labels.includes('automation:release-bump');
-                          const hasPackageAllLabel = labels.includes('package-all');
-                          const files = await github.paginate(github.rest.pulls.listFiles, {
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              pull_number: pullRequest.number,
-                              per_page: 100,
-                          });
-                          const touchesPackagePaths = files.some((file) => {
-                              return packagePaths.has(file.filename)
-                                  || packagePathPrefixes.some((prefix) => file.filename.startsWith(prefix));
-                          });
-                          includeAllPlatforms = hasReleaseBumpLabel || hasPackageAllLabel || touchesPackagePaths;
+                          includeAllPlatforms = false;
                           shouldPackage = !hasReleaseBumpLabel;
                           core.info(`PR release bump label: ${hasReleaseBumpLabel}`);
-                          core.info(`PR package-all label: ${hasPackageAllLabel}`);
-                          core.info(`PR touches package paths: ${touchesPackagePaths}`);
+                          core.info('PR package matrix limited to Linux.');
                       } else if (eventName === 'push' && ref === 'refs/heads/main') {
                           retentionDays = '90';
                           includeAllPlatforms = true;

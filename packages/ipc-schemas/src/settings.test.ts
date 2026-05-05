@@ -2,6 +2,7 @@ import { defaultDensity } from '@firebase-desk/design-tokens';
 import {
   DEFAULT_ACTIVITY_LOG_SETTINGS,
   DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_FIRST_RUN_GUIDE_SETTINGS,
   DEFAULT_UPDATE_SETTINGS,
 } from '@firebase-desk/repo-contracts';
 import { describe, expect, it } from 'vitest';
@@ -23,6 +24,7 @@ describe('settings schemas', () => {
     ).toMatchObject({
       activityLog: DEFAULT_ACTIVITY_LOG_SETTINGS,
       density: defaultDensity,
+      firstRunGuide: DEFAULT_FIRST_RUN_GUIDE_SETTINGS,
       firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
       resultTableLayouts: {},
       updates: DEFAULT_UPDATE_SETTINGS,
@@ -63,6 +65,16 @@ describe('settings schemas', () => {
         dismissedVersion: '0.0.7',
         lastCheckedAt: '2026-05-04T00:00:00.000Z',
       },
+    });
+  });
+
+  it('validates first-run guide settings in patches', () => {
+    expect(
+      SettingsPatchSchema.parse({
+        firstRunGuide: { completedAt: '2026-05-05T00:00:00.000Z' },
+      }),
+    ).toEqual({
+      firstRunGuide: { completedAt: '2026-05-05T00:00:00.000Z' },
     });
   });
 

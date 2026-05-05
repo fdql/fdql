@@ -50,7 +50,7 @@ export interface AccountTreeProps {
   readonly density?: DensityName | undefined;
   readonly filterValue: string;
   readonly items: ReadonlyArray<AccountTreeItem>;
-  readonly onAddProject: () => void;
+  readonly onAddProject?: (() => void) | undefined;
   readonly onCreateCollection?: (id: string) => void;
   readonly onCreateDocument?: (id: string) => void;
   readonly onCollectionJob?: (
@@ -94,12 +94,16 @@ export function AccountTree(
             value={filterValue}
             onChange={(event) => onFilterChange(event.currentTarget.value)}
           />
-          <IconButton
-            icon={<Plus size={15} aria-hidden='true' />}
-            label='Add project'
-            variant='primary'
-            onClick={onAddProject}
-          />
+          {onAddProject
+            ? (
+              <IconButton
+                icon={<Plus size={15} aria-hidden='true' />}
+                label='Add project'
+                variant='primary'
+                onClick={onAddProject}
+              />
+            )
+            : null}
         </div>
       </div>
       <div className='min-h-0'>

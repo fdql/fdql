@@ -10,6 +10,12 @@ import type {
   SettingsRepository,
   SettingsSnapshot,
 } from '@firebase-desk/repo-contracts';
+import {
+  DEFAULT_ACTIVITY_LOG_SETTINGS,
+  DEFAULT_DENSITY,
+  DEFAULT_FIRESTORE_WRITE_SETTINGS,
+  DEFAULT_UPDATE_SETTINGS,
+} from '@firebase-desk/repo-contracts';
 import type { BackgroundJobRepository } from '@firebase-desk/repo-contracts/jobs';
 import {
   MockActivityLogRepository,
@@ -48,6 +54,7 @@ export interface RepositoryProviderProps {
 
 export interface CreateRepositoriesOptions {
   readonly dataMode: DataMode;
+  readonly demoMode?: boolean | undefined;
   readonly onDataModeChange?: (dataMode: DataMode) => void;
 }
 
@@ -90,7 +97,9 @@ const PROJECTS_API_METHODS = [
 const SCRIPT_RUNNER_API_METHODS = ['cancel', 'run', 'subscribe'] as const;
 const SETTINGS_API_METHODS = ['getHotkeyOverrides', 'load', 'save', 'setHotkeyOverrides'] as const;
 
-export function createMockRepositories(): RepositorySet {
+export function createMockRepositories(
+  options: { readonly settings?: SettingsRepository | undefined; } = {},
+): RepositorySet {
   return {
     activity: new MockActivityLogRepository(),
     auth: new MockAuthRepository(),
@@ -98,22 +107,25 @@ export function createMockRepositories(): RepositorySet {
     jobs: new MockBackgroundJobRepository(),
     projects: new MockProjectsRepository(),
     scriptRunner: new MockScriptRunnerRepository(),
-    settings: new MockSettingsRepository(),
+    settings: options.settings ?? new MockSettingsRepository(),
   };
 }
 
 export function createRepositories(
-  { dataMode, onDataModeChange }: CreateRepositoriesOptions,
+  { dataMode, demoMode = false, onDataModeChange }: CreateRepositoriesOptions,
 ): RepositorySet {
-  const liveApiAvailable = hasLiveDesktopApi();
+  const liveApiAvailable = !demoMode && hasLiveDesktopApi();
+  const mockSettings = new MockSettingsRepository(
+    demoMode ? createDemoSettingsSnapshot() : undefined,
+  );
   const settings = new LiveModeGuardSettingsRepository(
-    hasDesktopSettingsApi() ? new IpcSettingsRepository() : new MockSettingsRepository(),
+    !demoMode && hasDesktopSettingsApi() ? new IpcSettingsRepository() : mockSettings,
     () => liveApiAvailable,
   );
-  const activity = hasDesktopActivityApi()
+  const activity = !demoMode && hasDesktopActivityApi()
     ? new IpcActivityLogRepository()
     : new MockActivityLogRepository();
-  const jobs = hasDesktopJobsApi()
+  const jobs = dataMode === 'live' && !demoMode && hasDesktopJobsApi()
     ? new IpcBackgroundJobRepository()
     : new MockBackgroundJobRepository();
   const repositories: RepositorySet = dataMode === 'live'
@@ -126,13 +138,88 @@ export function createRepositories(
       scriptRunner: new IpcScriptRunnerRepository(),
       settings,
     }
-    : { ...createMockRepositories(), activity, jobs, settings };
+    : { ...createMockRepositories({ settings }), activity, settings };
 
   return {
     ...repositories,
     settings: onDataModeChange
       ? new DataModeNotifyingSettingsRepository(repositories.settings, onDataModeChange)
       : repositories.settings,
+  };
+}
+
+function createDemoSettingsSnapshot(): SettingsSnapshot {
+  return {
+    activityLog: DEFAULT_ACTIVITY_LOG_SETTINGS,
+    sidebarWidth: 320,
+    inspectorWidth: 360,
+    theme: 'dark',
+    density: DEFAULT_DENSITY,
+    dataMode: 'mock',
+    firstRunGuide: { completedAt: '2026-05-05T00:00:00.000Z' },
+    hotkeyOverrides: {},
+    resultTableLayouts: {},
+    firestoreFieldCatalogs: {},
+    firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
+    updates: DEFAULT_UPDATE_SETTINGS,
+    workspaceState: {
+      version: 1,
+      authFilter: '',
+      drafts: {
+        'tab-firestore-query-demo': {
+          path: 'orders',
+          filters: [],
+          filterField: '',
+          filterOp: '==',
+          filterValue: '',
+          sortField: '',
+          sortDirection: 'desc',
+          limit: 25,
+        },
+      },
+      scripts: {
+        'tab-js-query-demo':
+          "const paidOrders = await db.collection('orders').where('status', '==', 'paid').get();\nyield paidOrders.docs[0];\nreturn paidOrders;",
+      },
+      tabsState: {
+        activeTabId: 'tab-firestore-query-demo',
+        interactionHistory: [{
+          activeTabId: 'tab-firestore-query-demo',
+          path: 'orders',
+          selectedTreeItemId: 'collection:emu:orders',
+        }],
+        interactionHistoryIndex: 0,
+        tabs: [
+          {
+            id: 'tab-firestore-query-demo',
+            kind: 'firestore-query',
+            title: 'orders',
+            connectionId: 'emu',
+            history: ['orders'],
+            historyIndex: 0,
+            inspectorWidth: 360,
+          },
+          {
+            id: 'tab-auth-users-demo',
+            kind: 'auth-users',
+            title: 'Authentication',
+            connectionId: 'emu',
+            history: ['auth'],
+            historyIndex: 0,
+            inspectorWidth: 360,
+          },
+          {
+            id: 'tab-js-query-demo',
+            kind: 'js-query',
+            title: 'JavaScript Query',
+            connectionId: 'emu',
+            history: ['scripts/default'],
+            historyIndex: 0,
+            inspectorWidth: 360,
+          },
+        ],
+      },
+    },
   };
 }
 

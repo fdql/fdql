@@ -1,0 +1,40 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+
+const base = import.meta.env.BASE_URL.endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+const demoAppUrl = `${base}demo/app/`;
+---
+
+<SiteLayout
+  title='Firebase Desk browser demo'
+  description='Try Firebase Desk in the browser with local sample data.'
+>
+  <main class='demo-page'>
+    <div class='demo-page-head'>
+      <div>
+        <div class='eyebrow'>Safe sample data</div>
+        <h1>Browser demo</h1>
+        <p>
+          This is Firebase Desk running as a static browser build. It is locked to mock repositories:
+          no Firebase credentials, no production calls, and no desktop file-system access.
+        </p>
+      </div>
+      <a class='button secondary' href={`${base}demo/`}>Reset demo</a>
+    </div>
+    <div class='demo-shell'>
+      <div class='demo-toolbar'>
+        <div class='pills' aria-hidden='true'><span></span><span></span><span></span></div>
+        <strong>Firebase Desk</strong>
+        <span>mock repositories</span>
+      </div>
+      <iframe
+        class='demo-frame'
+        title='Firebase Desk browser demo'
+        src={demoAppUrl}
+        loading='eager'
+      ></iframe>
+    </div>
+  </main>
+</SiteLayout>

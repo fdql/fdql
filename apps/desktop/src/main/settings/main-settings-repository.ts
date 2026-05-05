@@ -35,6 +35,9 @@ export class MainSettingsRepository implements SettingsRepository {
       theme: patch.theme ?? current.theme,
       density: patch.density ?? current.density ?? DEFAULT_DENSITY,
       dataMode: patch.dataMode ?? current.dataMode,
+      firstRunGuide: patch.firstRunGuide
+        ? cloneFirstRunGuideSettings(patch.firstRunGuide)
+        : cloneFirstRunGuideSettings(current.firstRunGuide),
       hotkeyOverrides: patch.hotkeyOverrides
         ? { ...patch.hotkeyOverrides }
         : { ...current.hotkeyOverrides },
@@ -72,6 +75,12 @@ function cloneWorkspaceState(value: unknown | null): unknown | null {
 
 function cloneActivityLogSettings(settings: ActivityLogSettings): ActivityLogSettings {
   return { ...settings };
+}
+
+function cloneFirstRunGuideSettings(
+  settings: SettingsSnapshot['firstRunGuide'] | null | undefined,
+): SettingsSnapshot['firstRunGuide'] {
+  return { completedAt: settings?.completedAt ?? null };
 }
 
 function cloneUpdateSettings(settings: UpdateSettings): UpdateSettings {

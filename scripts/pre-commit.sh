@@ -21,4 +21,5 @@ run pnpm test:coverage
 run pnpm build
 run pnpm --filter @firebase-desk/e2e typecheck
 run pnpm --filter @firebase-desk/e2e exec playwright install chromium
+run pnpm docs:smoke
 run pnpm dlx firebase-tools@15.15.0 --project demo-local emulators:exec --only auth,firestore --config firebase/emulator/firebase.json "pnpm --filter @firebase-desk/emulator-tools seed && pnpm --filter @firebase-desk/e2e test:e2e"

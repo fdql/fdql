@@ -21,6 +21,6 @@ export async function resolveDataMode(
   argv: ReadonlyArray<string> = process.argv,
 ): Promise<DataModeConfig> {
   return {
-    dataMode: readDataModeSwitch(argv) ?? (await settingsRepository.load()).dataMode ?? 'live',
+    dataMode: readDataModeSwitch(argv) ?? (await settingsRepository.load()).dataMode ?? 'mock',
   };
 }

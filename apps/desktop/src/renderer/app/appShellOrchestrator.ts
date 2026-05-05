@@ -63,13 +63,22 @@ export interface AppShellController {
     readonly density: DensityName;
     readonly destructiveAction: DestructiveAction | null;
     readonly editingProject: ProjectSummary | null;
+    readonly firstRunGuideError: string | null;
+    readonly firstRunGuideOpen: boolean;
+    readonly firstRunGuideSaving: boolean;
     readonly projectsRepository: ProjectsRepository;
     readonly settingsOpen: boolean;
+    readonly dataModeOptions?: readonly ('live' | 'mock')[] | undefined;
+    readonly dataModeHelpText?: string | undefined;
     readonly onAddProjectOpenChange: (open: boolean) => void;
     readonly onCredentialWarningDismiss: () => void;
     readonly onDensityChange: (density: DensityName) => void;
     readonly onDestructiveActionOpenChange: (open: boolean) => void;
     readonly onEditProjectOpenChange: (open: boolean) => void;
+    readonly onFirstRunGuideKeepMock: () => void;
+    readonly onFirstRunGuideOpenChange: (open: boolean) => void;
+    readonly onFirstRunGuideOpenSettings: () => void;
+    readonly onFirstRunGuideSwitchToLive: () => void;
     readonly onOpenDataDirectory: () => Promise<void>;
     readonly onProjectAdded: (project: ProjectSummary) => void;
     readonly onProjectAddSubmit: (input: ProjectAddInput) => Promise<ProjectSummary>;
@@ -86,7 +95,9 @@ export interface AppShellController {
     readonly canGoForward: boolean;
     readonly canCheckForUpdates: boolean;
     readonly checkingForUpdates: boolean;
+    readonly canAddProject: boolean;
     readonly dataMode: 'live' | 'mock';
+    readonly demoMode: boolean;
     readonly mode: 'dark' | 'light' | 'system';
     readonly resolvedTheme: 'dark' | 'light';
     readonly updateStatusLabel: string | null;
@@ -94,6 +105,7 @@ export interface AppShellController {
     readonly onBack: () => void;
     readonly onCheckForUpdates: () => void;
     readonly onForward: () => void;
+    readonly onOpenMockGuide: () => void;
     readonly onModeChange: (mode: 'dark' | 'light' | 'system') => void;
     readonly onOpenSettings: () => void;
   };
@@ -120,7 +132,7 @@ export interface AppShellController {
     readonly density: DensityName;
     readonly filterValue: string;
     readonly items: AccountTreeProps['items'];
-    readonly onAddProject: () => void;
+    readonly onAddProject?: (() => void) | undefined;
     readonly onCollapse: () => void;
     readonly onCreateCollection: (id: string) => void;
     readonly onCreateDocument: (id: string) => void;
@@ -128,7 +140,7 @@ export interface AppShellController {
       id: string,
       kind: 'copy' | 'delete' | 'duplicate' | 'export' | 'import',
     ) => void;
-    readonly onEditItem: (id: string) => void;
+    readonly onEditItem?: ((id: string) => void) | undefined;
     readonly onExpand: () => void;
     readonly onFilterChange: (value: string) => void;
     readonly onOpenItem: (id: string) => void;
@@ -232,11 +244,13 @@ export interface AppShellOrchestratorInput {
     readonly requestId: number;
   } | null;
   readonly dataMode: 'live' | 'mock';
+  readonly demoMode?: boolean | undefined;
   readonly density: DensityName;
   readonly destructiveAction: AppShellDestructiveActionFacade;
   readonly editingProject: ProjectSummary | null;
   readonly firestoreTab: AppShellFirestoreTabFacade;
   readonly firestoreWrite: AppShellFirestoreWriteFacade;
+  readonly firstRunGuide: AppShellFirstRunGuideFacade;
   readonly focusAuthFilter: () => void;
   readonly focusTreeFilter: () => void;
   readonly jsTab: AppShellJsFacade;
@@ -417,6 +431,17 @@ export interface AppShellSettingsFacade {
   readonly openSettings: () => void;
   readonly recordSettingsSaved: (patch: SettingsPatch) => void;
   readonly setOpen: (open: boolean) => void;
+}
+
+export interface AppShellFirstRunGuideFacade {
+  readonly errorMessage: string | null;
+  readonly keepMock: () => void;
+  readonly open: boolean;
+  readonly openSettings: () => void;
+  readonly saving: boolean;
+  readonly setOpen: (open: boolean) => void;
+  readonly show: () => void;
+  readonly switchToLive: () => void;
 }
 
 export interface AppShellAuthFacade {
@@ -983,8 +1008,17 @@ export function createAppShellController(
       density: input.density,
       destructiveAction: input.destructiveAction.pendingAction,
       editingProject: input.editingProject,
+      firstRunGuideError: input.firstRunGuide.errorMessage,
+      firstRunGuideOpen: input.firstRunGuide.open,
+      firstRunGuideSaving: input.firstRunGuide.saving,
       projectsRepository: input.projectsRepository,
       settingsOpen: input.settings.open,
+      ...(input.demoMode
+        ? {
+          dataModeHelpText: 'The browser demo always uses local sample data.',
+          dataModeOptions: ['mock'] as const,
+        }
+        : {}),
       onAddProjectOpenChange: input.ui.setAddProjectOpen,
       onCredentialWarningDismiss: () => input.ui.setCredentialWarning(null),
       onDensityChange: input.settings.changeDensity,
@@ -992,6 +1026,10 @@ export function createAppShellController(
       onEditProjectOpenChange: (open) => {
         if (!open) input.ui.setEditingProjectId(null);
       },
+      onFirstRunGuideKeepMock: input.firstRunGuide.keepMock,
+      onFirstRunGuideOpenChange: input.firstRunGuide.setOpen,
+      onFirstRunGuideOpenSettings: input.firstRunGuide.openSettings,
+      onFirstRunGuideSwitchToLive: input.firstRunGuide.switchToLive,
       onOpenDataDirectory: input.settings.openDataDirectory,
       onProjectAdded: (project) => {
         if (project.hasCredential && project.credentialEncrypted === false) {
@@ -1010,9 +1048,11 @@ export function createAppShellController(
       canGoBack: input.tabsState.interactionHistoryIndex > 0,
       canGoForward: input.tabsState.interactionHistoryIndex
         < input.tabsState.interactionHistory.length - 1,
+      canAddProject: !input.demoMode,
       canCheckForUpdates: input.updates.canCheck,
       checkingForUpdates: input.updates.isChecking,
       dataMode: input.dataMode,
+      demoMode: Boolean(input.demoMode),
       mode: input.appearance.mode,
       resolvedTheme: input.appearance.resolvedTheme,
       updateStatusLabel: input.updates.statusLabel,
@@ -1020,6 +1060,7 @@ export function createAppShellController(
       onBack: handleBackInteraction,
       onCheckForUpdates: () => input.updates.check(true),
       onForward: handleForwardInteraction,
+      onOpenMockGuide: input.firstRunGuide.show,
       onModeChange: input.settings.changeTheme,
       onOpenSettings: input.settings.openSettings,
     },
@@ -1048,12 +1089,12 @@ export function createAppShellController(
       density: input.density,
       filterValue: input.tree.filter,
       items: input.tree.items,
-      onAddProject: () => input.ui.setAddProjectOpen(true),
+      ...(input.demoMode ? {} : { onAddProject: () => input.ui.setAddProjectOpen(true) }),
       onCollapse: () => input.ui.setSidebarCollapsed(true),
       onCreateCollection: handleCreateCollectionFromTree,
       onCreateDocument: handleCreateDocumentFromTree,
       onCollectionJob: handleCollectionJobFromTree,
-      onEditItem: handleEditTreeItem,
+      onEditItem: input.demoMode ? undefined : handleEditTreeItem,
       onExpand: () => input.ui.setSidebarCollapsed(false),
       onFilterChange: input.tree.setFilter,
       onOpenItem: input.tree.handleOpenItem,

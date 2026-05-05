@@ -1,0 +1,111 @@
+---
+import SiteLayout from '../layouts/SiteLayout.astro';
+
+const base = import.meta.env.BASE_URL.endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+---
+
+<SiteLayout
+  title='Firebase Desk - Firebase admin workbench'
+  description='Firebase Desk is a local desktop workbench for Firestore, Auth, JavaScript Query, jobs, and multi-environment Firebase workflows.'
+>
+  <main>
+    <section class='hero relaxed'>
+      <div class='hero-copy-block'>
+        <div class='eyebrow'>Local Firebase workbench</div>
+        <h1>Firebase Desk</h1>
+        <p class='hero-copy'>
+          A desktop app for Firebase admin work: browse Firestore, check Auth users, run small
+          admin scripts, and keep emulator, staging, and production contexts visible.
+        </p>
+        <div class='hero-actions'>
+          <a class='button primary' href={`${base}demo/`}>Open demo</a>
+          <a class='button secondary' href={`${base}docs/getting-started/`}>Getting started</a>
+          <a class='button ghost' href='https://github.com/viniciusrmcarneiro/firebase-desk'>
+            GitHub
+          </a>
+        </div>
+        <p class='hero-note'>Free and open source under MIT.</p>
+      </div>
+
+      <figure class='product-shot'>
+        <img
+          src={`${base}screenshots/workspace.png`}
+          alt='Firebase Desk workspace showing a Firestore orders query'
+        />
+        <figcaption>
+          The browser demo uses sample data only. The desktop app can connect to emulators or
+          projects you configure.
+        </figcaption>
+      </figure>
+    </section>
+
+    <section class='section compact'>
+      <div class='section-kicker'>What it is</div>
+      <h2>A focused place for common Firebase admin chores.</h2>
+      <div class='plain-grid'>
+        <article>
+          <h3>Firestore</h3>
+          <p>Query collections, inspect nested values, edit documents, and run collection jobs.</p>
+        </article>
+        <article>
+          <h3>Authentication</h3>
+          <p>Search users, review provider data, and edit custom claims without switching tools.</p>
+        </article>
+        <article>
+          <h3>JavaScript Query</h3>
+          <p>Run trusted Firebase Admin style snippets against the selected target.</p>
+        </article>
+        <article>
+          <h3>Activity</h3>
+          <p>Keep a local trail of queries, writes, scripts, jobs, failures, and settings changes.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class='section light compact'>
+      <div class='two-column'>
+        <div>
+          <div class='section-kicker'>Modes</div>
+          <h2>Start with sample data. Move to real targets when you are ready.</h2>
+        </div>
+        <div class='mode-list'>
+          <div>
+            <strong>Browser demo</strong>
+            <span>Static, mock-only, no credentials, resets on refresh.</span>
+          </div>
+          <div>
+            <strong>Mock mode</strong>
+            <span>Local fixtures in the desktop app for learning and screenshots.</span>
+          </div>
+          <div>
+            <strong>Emulator or production</strong>
+            <span>Explicit user setup, visible target labels, and confirmations for risky work.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class='section compact'>
+      <div class='two-column'>
+        <div>
+          <div class='section-kicker'>Docs</div>
+          <h2>Short guides first, full feature reference when needed.</h2>
+        </div>
+        <div class='link-list'>
+          <a href={`${base}docs/workflows/firestore/`}>Firestore workflow</a>
+          <a href={`${base}docs/workflows/auth/`}>Authentication workflow</a>
+          <a href={`${base}docs/workflows/js-query/`}>JavaScript Query workflow</a>
+          <a href={`${base}docs/workflows/activity/`}>Activity workflow</a>
+          <a href={`${base}docs/features/`}>Feature reference</a>
+        </div>
+      </div>
+      <div class='section-actions'>
+        <a class='button primary' href={`${base}demo/`}>Try sample data</a>
+        <a class='button secondary' href={`${base}docs/`}>Read docs</a>
+      </div>
+    </section>
+  </main>
+  <footer class='footer'>MIT licensed. Firebase Desk is not affiliated with Google or Firebase.</footer>
+</SiteLayout>

@@ -11,12 +11,12 @@ interface AppSidebarProps {
   readonly density: DensityName;
   readonly filterValue: string;
   readonly items: AccountTreeProps['items'];
-  readonly onAddProject: AccountTreeProps['onAddProject'];
+  readonly onAddProject?: AccountTreeProps['onAddProject'];
   readonly onCollapse: () => void;
   readonly onCreateCollection: AccountTreeProps['onCreateCollection'];
   readonly onCreateDocument: AccountTreeProps['onCreateDocument'];
   readonly onCollectionJob: AccountTreeProps['onCollectionJob'];
-  readonly onEditItem: AccountTreeProps['onEditItem'];
+  readonly onEditItem?: AccountTreeProps['onEditItem'];
   readonly onExpand: () => void;
   readonly onFilterChange: AccountTreeProps['onFilterChange'];
   readonly onOpenItem: AccountTreeProps['onOpenItem'];

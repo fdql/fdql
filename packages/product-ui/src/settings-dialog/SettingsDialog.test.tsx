@@ -120,6 +120,32 @@ describe('SettingsDialog', () => {
     await waitFor(async () => expect((await settings.load()).dataMode).toBe('live'));
   });
 
+  it('limits data mode choices when provided', async () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    render(
+      <AppearanceProvider settings={new MockSettingsRepository()}>
+        <SettingsDialog
+          appVersion='0.1.0'
+          dataModeHelpText='The browser demo always uses local sample data.'
+          dataModeOptions={['mock']}
+          open
+          onOpenChange={vi.fn()}
+        />
+      </AppearanceProvider>,
+    );
+
+    expect(await screen.findByRole('button', { name: 'mock data mode' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'live data mode' })).toBeNull();
+    expect(screen.getByText('The browser demo always uses local sample data.')).toBeTruthy();
+  });
+
   it('updates activity settings and notifies saves', async () => {
     vi.stubGlobal(
       'matchMedia',

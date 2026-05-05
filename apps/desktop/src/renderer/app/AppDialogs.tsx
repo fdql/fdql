@@ -10,6 +10,7 @@ import { CredentialWarningToast } from './CredentialWarningToast.tsx';
 import { DestructiveActionDialog } from './DestructiveActionDialog.tsx';
 import { AddProjectDialog } from './dialogs/AddProjectDialog.tsx';
 import { EditProjectDialog } from './dialogs/EditProjectDialog.tsx';
+import { FirstRunGuideDialog } from './FirstRunGuideDialog.tsx';
 import type { DestructiveAction } from './hooks/useDestructiveActionController.ts';
 import type { RepositorySet } from './RepositoryProvider.tsx';
 
@@ -19,9 +20,14 @@ interface AppDialogsProps {
   readonly canOpenDataDirectory: boolean;
   readonly credentialWarning: string | null;
   readonly dataDirectoryPath: string | null | undefined;
+  readonly dataModeHelpText?: string | undefined;
+  readonly dataModeOptions?: ComponentProps<typeof SettingsDialog>['dataModeOptions'];
   readonly density: DensityName;
   readonly destructiveAction: DestructiveAction | null;
   readonly editingProject: ProjectSummary | null;
+  readonly firstRunGuideError: string | null;
+  readonly firstRunGuideOpen: boolean;
+  readonly firstRunGuideSaving: boolean;
   readonly projectsRepository: RepositorySet['projects'];
   readonly settingsOpen: boolean;
   readonly onAddProjectOpenChange: (open: boolean) => void;
@@ -29,6 +35,10 @@ interface AppDialogsProps {
   readonly onDensityChange: (density: DensityName) => void;
   readonly onDestructiveActionOpenChange: (open: boolean) => void;
   readonly onEditProjectOpenChange: (open: boolean) => void;
+  readonly onFirstRunGuideKeepMock: () => void;
+  readonly onFirstRunGuideOpenChange: (open: boolean) => void;
+  readonly onFirstRunGuideOpenSettings: () => void;
+  readonly onFirstRunGuideSwitchToLive: () => void;
   readonly onOpenDataDirectory: () => Promise<void>;
   readonly onProjectAdded: (project: ProjectSummary) => void;
   readonly onProjectAddSubmit: (input: ProjectAddInput) => Promise<ProjectSummary>;
@@ -47,9 +57,14 @@ export function AppDialogs(
     canOpenDataDirectory,
     credentialWarning,
     dataDirectoryPath,
+    dataModeHelpText,
+    dataModeOptions,
     density,
     destructiveAction,
     editingProject,
+    firstRunGuideError,
+    firstRunGuideOpen,
+    firstRunGuideSaving,
     projectsRepository,
     settingsOpen,
     onAddProjectOpenChange,
@@ -57,6 +72,10 @@ export function AppDialogs(
     onDensityChange,
     onDestructiveActionOpenChange,
     onEditProjectOpenChange,
+    onFirstRunGuideKeepMock,
+    onFirstRunGuideOpenChange,
+    onFirstRunGuideOpenSettings,
+    onFirstRunGuideSwitchToLive,
     onOpenDataDirectory,
     onProjectAdded,
     onProjectAddSubmit,
@@ -76,10 +95,21 @@ export function AppDialogs(
           }
           : {})}
         density={density}
+        {...(dataModeHelpText ? { dataModeHelpText } : {})}
+        {...(dataModeOptions ? { dataModeOptions } : {})}
         open={settingsOpen}
         onDensityChange={onDensityChange}
         onOpenChange={onSettingsOpenChange}
         onSettingsSaved={onSettingsSaved}
+      />
+      <FirstRunGuideDialog
+        errorMessage={firstRunGuideError}
+        open={firstRunGuideOpen}
+        saving={firstRunGuideSaving}
+        onKeepMock={onFirstRunGuideKeepMock}
+        onOpenChange={onFirstRunGuideOpenChange}
+        onOpenSettings={onFirstRunGuideOpenSettings}
+        onSwitchToLive={onFirstRunGuideSwitchToLive}
       />
       <DestructiveActionDialog
         action={destructiveAction}

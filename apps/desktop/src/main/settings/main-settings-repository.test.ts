@@ -14,6 +14,7 @@ const initialSnapshot: SettingsSnapshot = {
   theme: 'system',
   density: 'compact',
   dataMode: 'mock',
+  firstRunGuide: { completedAt: null },
   hotkeyOverrides: { 'query.run': 'Meta+Enter' },
   resultTableLayouts: {},
   firestoreFieldCatalogs: {},
@@ -94,6 +95,19 @@ describe('MainSettingsRepository', () => {
       },
     });
   });
+
+  it('preserves first-run guide state through partial saves', async () => {
+    const store = new MemorySettingsStore({
+      ...initialSnapshot,
+      firstRunGuide: { completedAt: '2026-05-05T00:00:00.000Z' },
+    });
+    const repository = new MainSettingsRepository(store);
+
+    await expect(repository.save({ dataMode: 'live' })).resolves.toMatchObject({
+      dataMode: 'live',
+      firstRunGuide: { completedAt: '2026-05-05T00:00:00.000Z' },
+    });
+  });
 });
 
 class MemorySettingsStore {
@@ -111,6 +125,7 @@ class MemorySettingsStore {
   private clone(snapshot: SettingsSnapshot): SettingsSnapshot {
     return {
       ...snapshot,
+      firstRunGuide: { ...snapshot.firstRunGuide },
       hotkeyOverrides: { ...snapshot.hotkeyOverrides },
       resultTableLayouts: Object.fromEntries(
         Object.entries(snapshot.resultTableLayouts).map(([key, layout]) => [
