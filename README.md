@@ -76,6 +76,7 @@ Docs:
 
 ```sh
 pnpm docs:build
+pnpm docs:dev
 pnpm docs:smoke
 pnpm docs:screenshots
 ```

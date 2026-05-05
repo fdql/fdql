@@ -128,6 +128,8 @@ async function captureDocumentEdit(page) {
   await page.getByRole('button', { name: 'Edit document' }).click();
   const dialog = page.getByRole('dialog', { name: 'Edit document JSON' });
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('status')).toBeHidden({ timeout: 20_000 });
+  await expect(dialog.locator('.monaco-editor')).toBeVisible({ timeout: 20_000 });
   await dialog.screenshot({ path: resolve(outputDir, 'document-edit.png') });
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
   await expect(dialog).toBeHidden();

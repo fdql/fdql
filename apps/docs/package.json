@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "dev": "astro dev --host 127.0.0.1"
+    "dev": "node scripts/dev.mjs"
   },
   "dependencies": {
     "@astrojs/starlight": "0.38.4",

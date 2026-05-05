@@ -75,4 +75,4 @@ Use these entry points when updating docs.
 - `apps/docs/src/styles/`
 - `e2e/scripts/capture-doc-screenshots.mjs`
 - `e2e/scripts/docs-site-smoke.mjs`
-- `package.json` scripts `docs:build`, `docs:smoke`, and `docs:screenshots`
+- `package.json` scripts `docs:build`, `docs:dev`, `docs:smoke`, and `docs:screenshots`

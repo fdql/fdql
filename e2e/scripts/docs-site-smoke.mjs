@@ -30,7 +30,8 @@ try {
   await page.goto(`${baseUrl}/`);
   await expect(page.getByRole('heading', { name: 'Firebase Desk' })).toBeVisible();
   const preview = page.frameLocator('iframe[title="Firebase Desk browser demo preview"]');
-  await expect(preview.getByText('Firebase Desk').first()).toBeVisible({ timeout: 20_000 });
+  await expect(preview.getByText('browser demo')).toBeVisible({ timeout: 20_000 });
+  await expect(preview.getByText('Page not found')).toHaveCount(0);
 
   await page.goto(`${baseUrl}/demo/`);
   const demo = page.frameLocator('iframe[title="Firebase Desk browser demo"]');
@@ -45,6 +46,7 @@ try {
   await expect(demo.getByRole('button', { name: 'live data mode' })).toHaveCount(0);
 
   await page.goto(`${baseUrl}/docs/`);
+  await expectLightThemeVariables(page);
   const searchButton = page.getByRole('button', { name: /search/i }).first();
   await expect(searchButton).toBeEnabled({ timeout: 20_000 });
   await searchButton.click();
@@ -81,6 +83,24 @@ async function expectNoHorizontalOverflow(page) {
       Boolean(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'))
     )
     .toBe(true);
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+async function expectLightThemeVariables(page) {
+  const colors = await page.evaluate(`(() => {
+    document.documentElement.dataset.theme = 'light';
+    const style = getComputedStyle(document.documentElement);
+    return {
+      background: style.getPropertyValue('--sl-color-black').trim(),
+      text: style.getPropertyValue('--sl-color-white').trim(),
+    };
+  })()`);
+  expect(colors).toEqual({
+    background: '#ffffff',
+    text: '#0f172a',
+  });
 }
 
 /**

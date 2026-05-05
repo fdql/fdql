@@ -30,6 +30,7 @@ Use this skill when Firebase Desk docs, README content, docs screenshots, landin
    - `apps/docs/src/assets/screenshots/auth.png`
 7. Run `pnpm docs:build` and relevant root checks.
 8. Run `pnpm docs:smoke` when landing page, Starlight docs, search, or browser demo behavior changes.
+9. Use `pnpm docs:dev` when checking the local docs site; it builds and serves the browser demo iframe path.
 
 ## Rules
 
