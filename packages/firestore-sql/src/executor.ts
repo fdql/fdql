@@ -33,6 +33,7 @@ export interface FirestoreSqlReadRequest {
   readonly limit?: number;
   readonly pageSize: number;
   readonly projectId: string;
+  readonly select?: readonly FirestoreSqlSelectField[];
 }
 
 export interface FirestoreSqlSubcollectionRequest {
@@ -40,6 +41,11 @@ export interface FirestoreSqlSubcollectionRequest {
   readonly name: string;
   readonly pageSize: number;
   readonly parent: FirestoreSqlRuntimeDocument;
+  readonly select?: readonly FirestoreSqlSelectField[];
+}
+
+export interface FirestoreSqlSelectField {
+  readonly segments: readonly string[];
 }
 
 export interface FirestoreSqlRuntime {
@@ -226,6 +232,18 @@ interface SelectRun {
   readonly rows: readonly WorkingRow[];
 }
 
+interface SourceReadOptions {
+  readonly limit?: number;
+  readonly select?: readonly FirestoreSqlSelectField[];
+}
+
+interface SourceProjectionState {
+  readonly aliases: ReadonlySet<string>;
+  readonly disabled: Set<string>;
+  readonly fields: Map<string, Map<string, FirestoreSqlSelectField>>;
+  readonly primaryAlias?: string;
+}
+
 const DEFAULT_READ_BUDGET = 5000;
 const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -346,7 +364,7 @@ async function runSelectRows(
 ): Promise<SelectRun> {
   let rows: readonly WorkingRow[] = [];
   const readEvents: ReadExecutionEvent[] = [];
-  const baseReadLimit = sourceReadLimitFor(stages, controls.limit);
+  const readOptions = sourceReadOptionsFor(stages, controls.limit);
 
   for (const stage of stages) {
     if (shouldStop(stats, options, startedAt)) break;
@@ -360,7 +378,7 @@ async function runSelectRows(
           runtime,
           stats,
           controls,
-          baseReadLimit,
+          readOptionsForSource(stage.source, readOptions),
           options,
           startedAt,
         );
@@ -376,6 +394,7 @@ async function runSelectRows(
           stats,
           controls,
           readEvents,
+          readOptions,
           options,
           startedAt,
         );
@@ -402,11 +421,22 @@ async function joinRows(
   stats: MutableExecutionStats,
   controls: ExecutionControls,
   readEvents: ReadExecutionEvent[],
+  readOptions: ReadonlyMap<string, SourceReadOptions>,
   options: FirestoreSqlExecutionOptions,
   startedAt: number,
 ): Promise<readonly WorkingRow[]> {
   if (stage.source.classification === 'local') {
-    return joinLocalRows(leftRows, stage, runtime, stats, controls, readEvents, options, startedAt);
+    return joinLocalRows(
+      leftRows,
+      stage,
+      runtime,
+      stats,
+      controls,
+      readEvents,
+      readOptions,
+      options,
+      startedAt,
+    );
   }
 
   const read = await readSource(
@@ -415,7 +445,7 @@ async function joinRows(
     runtime,
     stats,
     controls,
-    undefined,
+    readOptionsForSource(stage.source, readOptions),
     options,
     startedAt,
   );
@@ -430,6 +460,7 @@ async function joinLocalRows(
   stats: MutableExecutionStats,
   controls: ExecutionControls,
   readEvents: ReadExecutionEvent[],
+  readOptions: ReadonlyMap<string, SourceReadOptions>,
   options: FirestoreSqlExecutionOptions,
   startedAt: number,
 ): Promise<readonly WorkingRow[]> {
@@ -444,7 +475,7 @@ async function joinLocalRows(
       runtime,
       stats,
       controls,
-      undefined,
+      readOptionsForSource(stage.source, readOptions),
       options,
       startedAt,
     );
@@ -520,7 +551,7 @@ async function readSource(
   runtime: FirestoreSqlRuntime,
   stats: MutableExecutionStats,
   controls: ExecutionControls,
-  readLimit: number | undefined,
+  readOptions: SourceReadOptions,
   options: FirestoreSqlExecutionOptions,
   startedAt: number,
 ): Promise<{ readonly event: ReadExecutionEvent; readonly rows: readonly WorkingRow[]; }> {
@@ -531,7 +562,7 @@ async function readSource(
     runtime,
     stats,
     controls,
-    readLimit,
+    readOptions,
     options,
     startedAt,
   );
@@ -556,7 +587,7 @@ async function valuesForSource(
   runtime: FirestoreSqlRuntime,
   stats: MutableExecutionStats,
   controls: ExecutionControls,
-  readLimit: number | undefined,
+  readOptions: SourceReadOptions,
   options: FirestoreSqlExecutionOptions,
   startedAt: number,
 ): Promise<readonly RuntimeSourceValue[]> {
@@ -590,14 +621,14 @@ async function valuesForSource(
     if (!parentDoc || !name) return [];
     return collectRuntimeDocs(
       runtime.readSubcollection({
-        ...(readLimit === undefined ? {} : { limit: readLimit }),
+        ...readOptions,
         name,
         pageSize: controls.pageSize,
         parent: parentDoc,
       }),
       stats,
       controls,
-      readLimit,
+      readOptions.limit,
       options,
       startedAt,
     );
@@ -606,13 +637,13 @@ async function valuesForSource(
     return collectRuntimeDocs(
       runtime.readCollectionGroup({
         collectionGroup: source.collectionGroup,
-        ...(readLimit === undefined ? {} : { limit: readLimit }),
+        ...readOptions,
         pageSize: controls.pageSize,
         projectId: source.projectId,
       }),
       stats,
       controls,
-      readLimit,
+      readOptions.limit,
       options,
       startedAt,
     );
@@ -621,13 +652,13 @@ async function valuesForSource(
     return collectRuntimeDocs(
       runtime.readCollection({
         collectionPath: source.collectionPath,
-        ...(readLimit === undefined ? {} : { limit: readLimit }),
+        ...readOptions,
         pageSize: controls.pageSize,
         projectId: source.projectId,
       }),
       stats,
       controls,
-      readLimit,
+      readOptions.limit,
       options,
       startedAt,
     );
@@ -964,7 +995,7 @@ export class InMemoryFirestoreSqlRuntimeAdapter implements FirestoreSqlRuntime {
     for (const [id, data] of limitedEntries(documents, request.limit)) {
       yield {
         collectionPath: request.collectionPath,
-        data,
+        data: projectRuntimeData(data, request.select),
         id,
         path: `${request.collectionPath}/${id}`,
         projectId: request.projectId,
@@ -984,7 +1015,7 @@ export class InMemoryFirestoreSqlRuntimeAdapter implements FirestoreSqlRuntime {
       for (const [id, data] of Object.entries(documents)) {
         yield {
           collectionPath,
-          data,
+          data: projectRuntimeData(data, request.select),
           id,
           path: `${collectionPath}/${id}`,
           projectId: request.projectId,
@@ -1003,7 +1034,7 @@ export class InMemoryFirestoreSqlRuntimeAdapter implements FirestoreSqlRuntime {
     for (const [id, data] of limitedEntries(documents, request.limit)) {
       yield {
         collectionPath,
-        data,
+        data: projectRuntimeData(data, request.select),
         id,
         path: `${collectionPath}/${id}`,
         projectId: request.parent.projectId,
@@ -1037,6 +1068,20 @@ function limitedEntries(
   return limit === undefined
     ? Object.entries(documents)
     : Object.entries(documents).slice(0, limit);
+}
+
+function projectRuntimeData(
+  data: FirestoreSqlDocumentData,
+  select: readonly FirestoreSqlSelectField[] | undefined,
+): FirestoreSqlDocumentData {
+  if (select === undefined) return data;
+
+  const projected: FirestoreSqlDocumentData = {};
+  for (const field of select) {
+    const value = getNested(data, field.segments);
+    if (value !== undefined) setNested(projected, field.segments, value);
+  }
+  return projected;
 }
 
 async function* finishExecution(stats: MutableExecutionStats): AsyncIterable<ExecutionEvent> {
@@ -1074,6 +1119,83 @@ function projectStage(stages: readonly PlanStage[]): ProjectPlanStage | undefine
   return stages.find((stage) => stage.kind === 'project') as ProjectPlanStage | undefined;
 }
 
+function sourceReadOptionsFor(
+  stages: readonly PlanStage[],
+  limit: number | undefined,
+): ReadonlyMap<string, SourceReadOptions> {
+  const projection = sourceProjectionStateFor(stages);
+  const baseLimit = sourceReadLimitFor(stages, limit);
+  const options = new Map<string, SourceReadOptions>();
+
+  for (const alias of projection.aliases) {
+    if (projection.disabled.has(alias)) {
+      if (alias === projection.primaryAlias && baseLimit !== undefined) {
+        options.set(alias, { limit: baseLimit });
+      }
+      continue;
+    }
+
+    const select = [...(projection.fields.get(alias)?.values() ?? [])];
+    options.set(alias, {
+      ...(alias === projection.primaryAlias && baseLimit !== undefined ? { limit: baseLimit } : {}),
+      select,
+    });
+  }
+
+  return options;
+}
+
+function sourceProjectionStateFor(stages: readonly PlanStage[]): SourceProjectionState {
+  const aliases = new Set<string>();
+  const primary = stages.find((stage): stage is ReadPlanStage => stage.kind === 'read');
+  const primaryAlias = primary ? sourceAlias(primary.source) : undefined;
+  if (primaryAlias) aliases.add(primaryAlias);
+
+  for (const stage of stages) {
+    if (stage.kind === 'join') aliases.add(sourceAlias(stage.source));
+  }
+
+  const state: SourceProjectionState = {
+    aliases,
+    disabled: new Set(),
+    fields: new Map(),
+    ...(primaryAlias ? { primaryAlias } : {}),
+  };
+
+  for (const stage of stages) {
+    switch (stage.kind) {
+      case 'read':
+        collectProjectionExpressions(stage.source.args ?? [], state);
+        break;
+      case 'join':
+        collectProjectionExpressions(stage.source.args ?? [], state);
+        if (stage.condition) collectProjectionExpression(stage.condition, state);
+        break;
+      case 'filter':
+        collectProjectionExpression(stage.expression, state);
+        break;
+      case 'project':
+        collectProjectionExpressions(stage.columns.map((column) => column.expression), state);
+        collectProjectionExpressions(stage.orderBy?.map((item) => item.expression) ?? [], state);
+        break;
+      case 'aggregate':
+      case 'execution':
+      case 'unionBranch':
+      case 'write':
+        break;
+    }
+  }
+
+  return state;
+}
+
+function readOptionsForSource(
+  source: SourcePlan,
+  options: ReadonlyMap<string, SourceReadOptions>,
+): SourceReadOptions {
+  return options.get(sourceAlias(source)) ?? {};
+}
+
 function sourceReadLimitFor(
   stages: readonly PlanStage[],
   limit: number | undefined,
@@ -1084,6 +1206,151 @@ function sourceReadLimitFor(
   return stages.some((stage) => stage.kind === 'filter' || stage.kind === 'join')
     ? undefined
     : limit;
+}
+
+function collectProjectionExpressions(
+  expressions: readonly FirestoreSqlExpression[],
+  state: SourceProjectionState,
+): void {
+  for (const expression of expressions) collectProjectionExpression(expression, state);
+}
+
+function collectProjectionExpression(
+  expression: FirestoreSqlExpression,
+  state: SourceProjectionState,
+): void {
+  switch (expression.kind) {
+    case 'array':
+    case 'tuple':
+      collectProjectionExpressions(expression.items, state);
+      return;
+    case 'binary':
+      collectProjectionExpression(expression.left, state);
+      collectProjectionExpression(expression.right, state);
+      return;
+    case 'call':
+      collectCallProjection(expression.name, expression.args, state);
+      return;
+    case 'case':
+      for (const branch of expression.cases) {
+        collectProjectionExpression(branch.when, state);
+        collectProjectionExpression(branch.result, state);
+      }
+      if (expression.else) collectProjectionExpression(expression.else, state);
+      return;
+    case 'fieldPath':
+      collectFieldPathProjection(expression.parts, state);
+      return;
+    case 'unary':
+      collectProjectionExpression(expression.expression, state);
+      return;
+    case 'wildcard':
+      collectWildcardProjection(expression.qualifier ?? [], state);
+      return;
+    case 'existsSubquery':
+    case 'literal':
+    case 'parameter':
+      return;
+  }
+}
+
+function collectCallProjection(
+  name: string,
+  args: readonly FirestoreSqlExpression[],
+  state: SourceProjectionState,
+): void {
+  const normalizedName = name.toLowerCase();
+  if (normalizedName === 'value') {
+    disableAliasForSourceArgument(args[0], state);
+    return;
+  }
+  if (
+    ['id', 'key', 'parent_path', 'parent_ref', 'path', 'project_id', 'ref'].includes(
+      normalizedName,
+    )
+  ) {
+    for (const arg of args.slice(1)) collectProjectionExpression(arg, state);
+    return;
+  }
+  collectProjectionExpressions(args, state);
+}
+
+function collectFieldPathProjection(
+  parts: readonly FieldSegment[],
+  state: SourceProjectionState,
+): void {
+  const first = parts[0]?.text;
+  if (!first) return;
+
+  if (state.aliases.has(first)) {
+    addProjectionField(state, first, parts.slice(1).map((part) => part.text));
+    return;
+  }
+
+  if (state.primaryAlias) {
+    addProjectionField(state, state.primaryAlias, parts.map((part) => part.text));
+  }
+}
+
+function collectWildcardProjection(
+  qualifier: readonly FieldSegment[],
+  state: SourceProjectionState,
+): void {
+  if (qualifier.length === 0) {
+    if (state.primaryAlias) state.disabled.add(state.primaryAlias);
+    return;
+  }
+
+  const [first, ...path] = qualifier.map((part) => part.text);
+  if (first && state.aliases.has(first)) {
+    addProjectionField(state, first, path);
+    return;
+  }
+
+  if (first && state.primaryAlias) addProjectionField(state, state.primaryAlias, [first, ...path]);
+}
+
+function disableAliasForSourceArgument(
+  expression: FirestoreSqlExpression | undefined,
+  state: SourceProjectionState,
+): void {
+  if (expression?.kind !== 'fieldPath') return;
+  const alias = expression.parts[0]?.text;
+  if (alias && state.aliases.has(alias) && expression.parts.length === 1) {
+    state.disabled.add(alias);
+  } else {
+    collectProjectionExpression(expression, state);
+  }
+}
+
+function addProjectionField(
+  state: SourceProjectionState,
+  alias: string,
+  segments: readonly string[],
+): void {
+  if (segments.length === 0) {
+    state.disabled.add(alias);
+    return;
+  }
+  if (state.disabled.has(alias)) return;
+
+  const existing = state.fields.get(alias) ?? new Map<string, FirestoreSqlSelectField>();
+  if ([...existing.values()].some((field) => isPathPrefix(field.segments, segments))) return;
+
+  for (const [key, field] of existing) {
+    if (isPathPrefix(segments, field.segments)) existing.delete(key);
+  }
+
+  existing.set(fieldKey(segments), { segments });
+  state.fields.set(alias, existing);
+}
+
+function isPathPrefix(left: readonly string[], right: readonly string[]): boolean {
+  return left.length <= right.length && left.every((segment, index) => segment === right[index]);
+}
+
+function fieldKey(segments: readonly string[]): string {
+  return JSON.stringify(segments);
 }
 
 function unsupportedDiagnostic(plan: FirestoreSqlPlan): AnalysisDiagnostic | undefined {
@@ -1262,6 +1529,25 @@ function getNested(value: unknown, path: readonly string[]): unknown {
     current = current[part];
   }
   return current;
+}
+
+function setNested(target: Record<string, unknown>, path: readonly string[], value: unknown): void {
+  let current = target;
+  for (const [index, part] of path.entries()) {
+    if (index === path.length - 1) {
+      current[part] = value;
+      return;
+    }
+
+    const existing = current[part];
+    if (isRecord(existing)) {
+      current = existing;
+    } else {
+      const next: Record<string, unknown> = {};
+      current[part] = next;
+      current = next;
+    }
+  }
 }
 
 function comparable(value: unknown): number | string {

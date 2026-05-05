@@ -20,7 +20,7 @@ import type {
   FirestoreSqlRunResult,
   FirestoreSqlStats,
 } from '@firebase-desk/repo-contracts';
-import type { QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import { FieldPath, type QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import type { AdminFirestoreProvider } from './admin-firestore-provider.ts';
 import { encodeAdminData } from './value-codec.ts';
 
@@ -137,7 +137,9 @@ class AdminFirestoreSqlRuntime implements FirestoreSqlRuntime {
     },
   ): AsyncIterable<FirestoreSqlRuntimeDocument> {
     const { db } = await this.provider.getFirestoreConnection(request.projectId);
-    const query = db.collection(request.collectionPath);
+    const query = request.select === undefined
+      ? db.collection(request.collectionPath)
+      : db.collection(request.collectionPath).select(...request.select.map(toAdminFieldPath));
     const snapshot = await (request.limit === undefined ? query : query.limit(request.limit)).get();
     for (const doc of snapshot.docs) yield documentFromSnapshot(request.projectId, doc);
   }
@@ -148,7 +150,9 @@ class AdminFirestoreSqlRuntime implements FirestoreSqlRuntime {
     },
   ): AsyncIterable<FirestoreSqlRuntimeDocument> {
     const { db } = await this.provider.getFirestoreConnection(request.projectId);
-    const query = db.collectionGroup(request.collectionGroup);
+    const query = request.select === undefined
+      ? db.collectionGroup(request.collectionGroup)
+      : db.collectionGroup(request.collectionGroup).select(...request.select.map(toAdminFieldPath));
     const snapshot = await (request.limit === undefined ? query : query.limit(request.limit)).get();
     for (const doc of snapshot.docs) yield documentFromSnapshot(request.projectId, doc);
   }
@@ -157,7 +161,10 @@ class AdminFirestoreSqlRuntime implements FirestoreSqlRuntime {
     FirestoreSqlRuntimeDocument
   > {
     const { db } = await this.provider.getFirestoreConnection(request.parent.projectId);
-    const query = db.doc(documentPath(request.parent)).collection(request.name);
+    const collection = db.doc(documentPath(request.parent)).collection(request.name);
+    const query = request.select === undefined
+      ? collection
+      : collection.select(...request.select.map(toAdminFieldPath));
     const snapshot = await (request.limit === undefined ? query : query.limit(request.limit)).get();
     for (const doc of snapshot.docs) yield documentFromSnapshot(request.parent.projectId, doc);
   }
@@ -249,6 +256,10 @@ function documentFromSnapshot(
 
 function documentPath(document: FirestoreSqlRuntimeDocument): string {
   return document.path ?? `${document.collectionPath}/${document.id}`;
+}
+
+function toAdminFieldPath(field: { readonly segments: readonly string[]; }): FieldPath {
+  return new FieldPath(...field.segments);
 }
 
 function eventToRunEvent(runId: string, event: ExecutionEvent): FirestoreSqlRunEvent | null {

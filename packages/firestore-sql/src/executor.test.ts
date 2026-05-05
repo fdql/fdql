@@ -121,6 +121,101 @@ describe('Firestore SQL read executor', () => {
     expect(limits).toEqual([1]);
   });
 
+  it('pushes selected and filtered fields into runtime reads', async () => {
+    const selectFields: string[][] = [];
+    const runtime: FirestoreSqlRuntime = {
+      async *readCollection(request) {
+        selectFields.push(...selectSegments(request.select));
+        yield {
+          collectionPath: request.collectionPath,
+          data: { slug: 'first', status: 'published' },
+          id: 'evt_1',
+          projectId: request.projectId,
+        };
+      },
+      async *readCollectionGroup() {},
+      async *readSubcollection() {},
+      async listSubcollections() {
+        return [];
+      },
+    };
+
+    const events = await execute(
+      'select e.slug from admin-events e where e.status = "published"',
+      runtime,
+    );
+
+    expect(rows(events)).toEqual([{ slug: 'first' }]);
+    expect(selectFields).toEqual([['status'], ['slug']]);
+  });
+
+  it('does not push field projection for wildcard reads', async () => {
+    const selects: Array<readonly unknown[] | undefined> = [];
+    const runtime: FirestoreSqlRuntime = {
+      async *readCollection(request) {
+        selects.push(request.select);
+        yield {
+          collectionPath: request.collectionPath,
+          data: { slug: 'first' },
+          id: 'evt_1',
+          projectId: request.projectId,
+        };
+      },
+      async *readCollectionGroup() {},
+      async *readSubcollection() {},
+      async listSubcollections() {
+        return [];
+      },
+    };
+
+    await execute('select * from admin-events', runtime);
+
+    expect(selects).toEqual([undefined]);
+  });
+
+  it('pushes joined source projections separately', async () => {
+    const requests: Record<string, string[][]> = {};
+    const runtime: FirestoreSqlRuntime = {
+      async *readCollection(request) {
+        requests[request.collectionPath] = selectSegments(request.select);
+        if (request.collectionPath === 'orders') {
+          yield {
+            collectionPath: 'orders',
+            data: { userId: 'usr_1' },
+            id: 'ord_1',
+            projectId: request.projectId,
+          };
+        }
+        if (request.collectionPath === 'users') {
+          yield {
+            collectionPath: 'users',
+            data: { email: 'ada@example.com' },
+            id: 'usr_1',
+            projectId: request.projectId,
+          };
+        }
+      },
+      async *readCollectionGroup() {},
+      async *readSubcollection() {},
+      async listSubcollections() {
+        return [];
+      },
+    };
+
+    const events = await execute(
+      `select u.email
+from orders o
+left join users u on id(u) = o.userId`,
+      runtime,
+    );
+
+    expect(rows(events)).toEqual([{ email: 'ada@example.com' }]);
+    expect(requests).toEqual({
+      orders: [['userId']],
+      users: [['email']],
+    });
+  });
+
   it('filters with comparisons, in, null checks, and boolean expressions', async () => {
     const events = await execute(`select id(o) as orderId
 from orders o
@@ -301,6 +396,12 @@ function rowEvents(events: readonly ExecutionEvent[]) {
 
 function rows(events: readonly ExecutionEvent[]): readonly Record<string, unknown>[] {
   return rowEvents(events).map((event) => event.row);
+}
+
+function selectSegments(
+  select: Parameters<FirestoreSqlRuntime['readCollection']>[0]['select'],
+): string[][] {
+  return select?.map((field) => [...field.segments]) ?? [];
 }
 
 function completed(events: readonly ExecutionEvent[]) {
