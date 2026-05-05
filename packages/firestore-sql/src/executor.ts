@@ -30,11 +30,13 @@ export interface FirestoreSqlRuntimeCollection {
 export interface FirestoreSqlReadRequest {
   readonly collectionGroup?: string;
   readonly collectionPath?: string;
+  readonly limit?: number;
   readonly pageSize: number;
   readonly projectId: string;
 }
 
 export interface FirestoreSqlSubcollectionRequest {
+  readonly limit?: number;
   readonly name: string;
   readonly pageSize: number;
   readonly parent: FirestoreSqlRuntimeDocument;
@@ -344,6 +346,7 @@ async function runSelectRows(
 ): Promise<SelectRun> {
   let rows: readonly WorkingRow[] = [];
   const readEvents: ReadExecutionEvent[] = [];
+  const baseReadLimit = sourceReadLimitFor(stages, controls.limit);
 
   for (const stage of stages) {
     if (shouldStop(stats, options, startedAt)) break;
@@ -357,6 +360,7 @@ async function runSelectRows(
           runtime,
           stats,
           controls,
+          baseReadLimit,
           options,
           startedAt,
         );
@@ -411,6 +415,7 @@ async function joinRows(
     runtime,
     stats,
     controls,
+    undefined,
     options,
     startedAt,
   );
@@ -439,6 +444,7 @@ async function joinLocalRows(
       runtime,
       stats,
       controls,
+      undefined,
       options,
       startedAt,
     );
@@ -514,6 +520,7 @@ async function readSource(
   runtime: FirestoreSqlRuntime,
   stats: MutableExecutionStats,
   controls: ExecutionControls,
+  readLimit: number | undefined,
   options: FirestoreSqlExecutionOptions,
   startedAt: number,
 ): Promise<{ readonly event: ReadExecutionEvent; readonly rows: readonly WorkingRow[]; }> {
@@ -524,6 +531,7 @@ async function readSource(
     runtime,
     stats,
     controls,
+    readLimit,
     options,
     startedAt,
   );
@@ -548,6 +556,7 @@ async function valuesForSource(
   runtime: FirestoreSqlRuntime,
   stats: MutableExecutionStats,
   controls: ExecutionControls,
+  readLimit: number | undefined,
   options: FirestoreSqlExecutionOptions,
   startedAt: number,
 ): Promise<readonly RuntimeSourceValue[]> {
@@ -580,9 +589,15 @@ async function valuesForSource(
     const name = typeof nameValue === 'string' ? nameValue : undefined;
     if (!parentDoc || !name) return [];
     return collectRuntimeDocs(
-      runtime.readSubcollection({ name, pageSize: controls.pageSize, parent: parentDoc }),
+      runtime.readSubcollection({
+        ...(readLimit === undefined ? {} : { limit: readLimit }),
+        name,
+        pageSize: controls.pageSize,
+        parent: parentDoc,
+      }),
       stats,
       controls,
+      readLimit,
       options,
       startedAt,
     );
@@ -591,11 +606,13 @@ async function valuesForSource(
     return collectRuntimeDocs(
       runtime.readCollectionGroup({
         collectionGroup: source.collectionGroup,
+        ...(readLimit === undefined ? {} : { limit: readLimit }),
         pageSize: controls.pageSize,
         projectId: source.projectId,
       }),
       stats,
       controls,
+      readLimit,
       options,
       startedAt,
     );
@@ -604,11 +621,13 @@ async function valuesForSource(
     return collectRuntimeDocs(
       runtime.readCollection({
         collectionPath: source.collectionPath,
+        ...(readLimit === undefined ? {} : { limit: readLimit }),
         pageSize: controls.pageSize,
         projectId: source.projectId,
       }),
       stats,
       controls,
+      readLimit,
       options,
       startedAt,
     );
@@ -620,6 +639,7 @@ async function collectRuntimeDocs(
   iterable: AsyncIterable<FirestoreSqlRuntimeDocument>,
   stats: MutableExecutionStats,
   controls: ExecutionControls,
+  readLimit: number | undefined,
   options: FirestoreSqlExecutionOptions,
   startedAt: number,
 ): Promise<readonly RuntimeDocumentValue[]> {
@@ -632,6 +652,7 @@ async function collectRuntimeDocs(
       kind: 'document',
       path: doc.path ?? `${doc.collectionPath}/${doc.id}`,
     });
+    if (readLimit !== undefined && docs.length >= readLimit) break;
   }
   return docs;
 }
@@ -940,7 +961,7 @@ export class InMemoryFirestoreSqlRuntimeAdapter implements FirestoreSqlRuntime {
     },
   ): AsyncIterable<FirestoreSqlRuntimeDocument> {
     const documents = this.projects[request.projectId]?.[request.collectionPath] ?? {};
-    for (const [id, data] of Object.entries(documents)) {
+    for (const [id, data] of limitedEntries(documents, request.limit)) {
       yield {
         collectionPath: request.collectionPath,
         data,
@@ -957,6 +978,7 @@ export class InMemoryFirestoreSqlRuntimeAdapter implements FirestoreSqlRuntime {
     },
   ): AsyncIterable<FirestoreSqlRuntimeDocument> {
     const project = this.projects[request.projectId] ?? {};
+    let yielded = 0;
     for (const [collectionPath, documents] of Object.entries(project)) {
       if (lastPathSegment(collectionPath) !== request.collectionGroup) continue;
       for (const [id, data] of Object.entries(documents)) {
@@ -967,6 +989,8 @@ export class InMemoryFirestoreSqlRuntimeAdapter implements FirestoreSqlRuntime {
           path: `${collectionPath}/${id}`,
           projectId: request.projectId,
         };
+        yielded += 1;
+        if (request.limit !== undefined && yielded >= request.limit) return;
       }
     }
   }
@@ -976,7 +1000,7 @@ export class InMemoryFirestoreSqlRuntimeAdapter implements FirestoreSqlRuntime {
   > {
     const collectionPath = `${documentPath(request.parent)}/${request.name}`;
     const documents = this.projects[request.parent.projectId]?.[collectionPath] ?? {};
-    for (const [id, data] of Object.entries(documents)) {
+    for (const [id, data] of limitedEntries(documents, request.limit)) {
       yield {
         collectionPath,
         data,
@@ -1004,6 +1028,15 @@ export class InMemoryFirestoreSqlRuntimeAdapter implements FirestoreSqlRuntime {
         projectId: parent.projectId,
       }));
   }
+}
+
+function limitedEntries(
+  documents: Record<string, FirestoreSqlDocumentData>,
+  limit: number | undefined,
+): ReadonlyArray<[string, FirestoreSqlDocumentData]> {
+  return limit === undefined
+    ? Object.entries(documents)
+    : Object.entries(documents).slice(0, limit);
 }
 
 async function* finishExecution(stats: MutableExecutionStats): AsyncIterable<ExecutionEvent> {
@@ -1039,6 +1072,18 @@ function controlsFor(
 
 function projectStage(stages: readonly PlanStage[]): ProjectPlanStage | undefined {
   return stages.find((stage) => stage.kind === 'project') as ProjectPlanStage | undefined;
+}
+
+function sourceReadLimitFor(
+  stages: readonly PlanStage[],
+  limit: number | undefined,
+): number | undefined {
+  if (limit === undefined) return undefined;
+  const project = projectStage(stages);
+  if (project?.orderBy?.length) return undefined;
+  return stages.some((stage) => stage.kind === 'filter' || stage.kind === 'join')
+    ? undefined
+    : limit;
 }
 
 function unsupportedDiagnostic(plan: FirestoreSqlPlan): AnalysisDiagnostic | undefined {

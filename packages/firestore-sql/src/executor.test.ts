@@ -4,6 +4,7 @@ import {
   executeFirestoreSql,
   type ExecutionEvent,
   type FirestoreSqlPlan,
+  type FirestoreSqlRuntime,
   type InMemoryFirestoreSqlRuntime,
   parseFirestoreSql,
   planFirestoreSql,
@@ -74,6 +75,50 @@ describe('Firestore SQL read executor', () => {
     });
 
     expect(rows(events)).toEqual([{ actor: 'system', type: 'login' }]);
+  });
+
+  it('stops source reads early for safe statement limits', async () => {
+    const events = await execute('select slug from admin-events limit 1', {
+      projects: {
+        local: {
+          'admin-events': {
+            evt_1: { slug: 'first' },
+            evt_2: { slug: 'second' },
+          },
+        },
+      },
+    });
+
+    expect(rows(events)).toEqual([{ slug: 'first' }]);
+    expect(completed(events)).toMatchObject({
+      reads: 1,
+      rowsOutput: 1,
+      rowsScanned: 1,
+    });
+  });
+
+  it('pushes safe statement limits into runtime reads', async () => {
+    const limits: Array<number | undefined> = [];
+    const runtime: FirestoreSqlRuntime = {
+      async *readCollection(request) {
+        limits.push(request.limit);
+        yield {
+          collectionPath: request.collectionPath,
+          data: { slug: 'first' },
+          id: 'evt_1',
+          projectId: request.projectId,
+        };
+      },
+      async *readCollectionGroup() {},
+      async *readSubcollection() {},
+      async listSubcollections() {
+        return [];
+      },
+    };
+
+    await execute('select slug from admin-events limit 1', runtime);
+
+    expect(limits).toEqual([1]);
   });
 
   it('filters with comparisons, in, null checks, and boolean expressions', async () => {
@@ -226,7 +271,7 @@ where id(o) = "ord_1024"`);
 
 async function execute(
   sql: string,
-  runtime: InMemoryFirestoreSqlRuntime = createRuntime(),
+  runtime: FirestoreSqlRuntime | InMemoryFirestoreSqlRuntime = createRuntime(),
   options: Parameters<typeof executeFirestoreSql>[2] = {},
 ): Promise<readonly ExecutionEvent[]> {
   const events: ExecutionEvent[] = [];

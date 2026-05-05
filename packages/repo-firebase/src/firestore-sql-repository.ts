@@ -137,7 +137,8 @@ class AdminFirestoreSqlRuntime implements FirestoreSqlRuntime {
     },
   ): AsyncIterable<FirestoreSqlRuntimeDocument> {
     const { db } = await this.provider.getFirestoreConnection(request.projectId);
-    const snapshot = await db.collection(request.collectionPath).get();
+    const query = db.collection(request.collectionPath);
+    const snapshot = await (request.limit === undefined ? query : query.limit(request.limit)).get();
     for (const doc of snapshot.docs) yield documentFromSnapshot(request.projectId, doc);
   }
 
@@ -147,7 +148,8 @@ class AdminFirestoreSqlRuntime implements FirestoreSqlRuntime {
     },
   ): AsyncIterable<FirestoreSqlRuntimeDocument> {
     const { db } = await this.provider.getFirestoreConnection(request.projectId);
-    const snapshot = await db.collectionGroup(request.collectionGroup).get();
+    const query = db.collectionGroup(request.collectionGroup);
+    const snapshot = await (request.limit === undefined ? query : query.limit(request.limit)).get();
     for (const doc of snapshot.docs) yield documentFromSnapshot(request.projectId, doc);
   }
 
@@ -155,7 +157,8 @@ class AdminFirestoreSqlRuntime implements FirestoreSqlRuntime {
     FirestoreSqlRuntimeDocument
   > {
     const { db } = await this.provider.getFirestoreConnection(request.parent.projectId);
-    const snapshot = await db.doc(documentPath(request.parent)).collection(request.name).get();
+    const query = db.doc(documentPath(request.parent)).collection(request.name);
+    const snapshot = await (request.limit === undefined ? query : query.limit(request.limit)).get();
     for (const doc of snapshot.docs) yield documentFromSnapshot(request.parent.projectId, doc);
   }
 
