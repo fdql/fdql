@@ -62,6 +62,20 @@ describe('Firestore SQL read executor', () => {
     });
   });
 
+  it('reads kebab-case collection ids', async () => {
+    const events = await execute('select * from admin-events', {
+      projects: {
+        local: {
+          'admin-events': {
+            evt_1: { actor: 'system', type: 'login' },
+          },
+        },
+      },
+    });
+
+    expect(rows(events)).toEqual([{ actor: 'system', type: 'login' }]);
+  });
+
   it('filters with comparisons, in, null checks, and boolean expressions', async () => {
     const events = await execute(`select id(o) as orderId
 from orders o

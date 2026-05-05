@@ -745,8 +745,9 @@ class SqlParser {
 
   private parseInsertDestination(): FirestoreSqlSource {
     if (!this.match(Project)) {
-      const nameToken = this.consumeIdentifierLike('Expected insert destination collection.');
-      return collectionSource(identifierText(nameToken), isToken(nameToken, BacktickIdentifier));
+      return this.collectionSourceFromToken(
+        this.consumeIdentifierLike('Expected insert destination collection.'),
+      );
     }
 
     this.consume(LParen, 'Expected ( after project.');
@@ -754,11 +755,12 @@ class SqlParser {
     this.consume(RParen, 'Expected ) after project.');
     this.consume(Dot, 'Expected . after project(...).');
 
-    const nameToken = this.consumeIdentifierLike('Expected insert destination collection.');
     return {
       kind: 'project',
       project,
-      source: collectionSource(identifierText(nameToken), isToken(nameToken, BacktickIdentifier)),
+      source: this.collectionSourceFromToken(
+        this.consumeIdentifierLike('Expected insert destination collection.'),
+      ),
     };
   }
 
@@ -774,7 +776,20 @@ class SqlParser {
       this.consume(RParen, 'Expected ) after source function arguments.');
       return { args, kind: 'function', name };
     }
-    return collectionSource(name, isToken(nameToken, BacktickIdentifier));
+    return this.collectionSourceFromToken(nameToken);
+  }
+
+  private collectionSourceFromToken(nameToken: IToken): CollectionSource {
+    if (isToken(nameToken, BacktickIdentifier)) {
+      return collectionSource(identifierText(nameToken), true);
+    }
+
+    let name = identifierText(nameToken);
+    while (this.match(Minus)) {
+      const next = this.consumeCollectionNamePart('Expected collection name segment after -.');
+      name = `${name}-${identifierText(next)}`;
+    }
+    return collectionSource(name, false);
   }
 
   private parseJoins(): readonly JoinClause[] {
@@ -1147,6 +1162,12 @@ class SqlParser {
   private consumeIdentifierLike(message: string): IToken {
     const token = this.current();
     if (this.canStartIdentifierLike(token)) return this.advance();
+    this.unexpected(token, message);
+  }
+
+  private consumeCollectionNamePart(message: string): IToken {
+    const token = this.current();
+    if (this.canStartIdentifierLike(token) || this.check(NumberLiteral)) return this.advance();
     this.unexpected(token, message);
   }
 

@@ -380,6 +380,18 @@ cross join subcollection(c, id(sc)) doc`,
     expect(formatFirestoreSql(parsed.ast)).toBe('select accounts.* from accounts');
   });
 
+  it('parses kebab-case collection ids in source position', () => {
+    const parsed = parseFirestoreSql('select * from admin-events');
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.ast).toMatchObject({
+      from: { kind: 'collection', name: 'admin-events' },
+      kind: 'select',
+    });
+    expect(formatFirestoreSql(parsed.ast)).toBe('select * from admin-events');
+  });
+
   it('parses typed Firestore literals and date helpers as expressions', () => {
     const ast = astOf(`select
   timestamp("2026-01-01T00:00:00Z") as createdAt,
