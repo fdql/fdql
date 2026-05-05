@@ -181,16 +181,16 @@ jobs:
             - name: Smoke packaged app with emulators (Linux)
               if: needs.prepare.outputs.should_package == 'true' && matrix.platform == 'linux'
               run: |
-                  xvfb-run --auto-servernum -- pnpm dlx firebase-tools@15.15.0 --project demo-local emulators:exec --only auth,firestore --config firebase/emulator/firebase.json "pnpm --filter @firebase-desk/emulator-tools seed && pnpm --filter @firebase-desk/e2e test:packaged"
+                  xvfb-run --auto-servernum -- pnpm dlx --allow-build=protobufjs --allow-build=re2 firebase-tools@15.15.0 --project demo-local emulators:exec --only auth,firestore --config firebase/emulator/firebase.json "pnpm --filter @firebase-desk/emulator-tools seed && pnpm --filter @firebase-desk/e2e test:packaged"
             - name: Smoke packaged app with emulators (macOS)
               if: needs.prepare.outputs.should_package == 'true' && matrix.platform == 'macos'
               run: |
-                  pnpm dlx firebase-tools@15.15.0 --project demo-local emulators:exec --only auth,firestore --config firebase/emulator/firebase.json "pnpm --filter @firebase-desk/emulator-tools seed && pnpm --filter @firebase-desk/e2e test:packaged"
+                  pnpm dlx --allow-build=protobufjs --allow-build=re2 firebase-tools@15.15.0 --project demo-local emulators:exec --only auth,firestore --config firebase/emulator/firebase.json "pnpm --filter @firebase-desk/emulator-tools seed && pnpm --filter @firebase-desk/e2e test:packaged"
             - name: Smoke packaged app with emulators (Windows)
               if: needs.prepare.outputs.should_package == 'true' && matrix.platform == 'windows'
               shell: bash
               run: |
-                  pnpm dlx firebase-tools@15.15.0 --project demo-local emulators:exec --only auth,firestore --config firebase/emulator/firebase.json "pnpm --filter @firebase-desk/emulator-tools seed && pnpm --filter @firebase-desk/e2e test:packaged"
+                  pnpm dlx --allow-build=protobufjs --allow-build=re2 firebase-tools@15.15.0 --project demo-local emulators:exec --only auth,firestore --config firebase/emulator/firebase.json "pnpm --filter @firebase-desk/emulator-tools seed && pnpm --filter @firebase-desk/e2e test:packaged"
             - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
               if: needs.prepare.outputs.should_package == 'true'
               with:

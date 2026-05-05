@@ -45,9 +45,9 @@ jobs:
               run: pnpm --filter @firebase-desk/e2e exec playwright install --with-deps
                   chromium
             - if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'automation:release-bump')
-              run: xvfb-run --auto-servernum -- pnpm dlx firebase-tools@15.15.0 --project
-                  demo-local emulators:exec --only auth,firestore --config
-                  firebase/emulator/firebase.json "pnpm --filter
+              run: xvfb-run --auto-servernum -- pnpm dlx --allow-build=protobufjs
+                  --allow-build=re2 firebase-tools@15.15.0 --project demo-local emulators:exec --only
+                  auth,firestore --config firebase/emulator/firebase.json "pnpm --filter
                   @firebase-desk/emulator-tools seed && pnpm --filter
                   @firebase-desk/e2e test:e2e"
             - if: failure()
