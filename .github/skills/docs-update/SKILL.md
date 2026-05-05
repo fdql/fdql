@@ -25,9 +25,8 @@ Use this skill when Firebase Desk docs, README content, docs screenshots, landin
 4. If screenshots need updating, capture them from the app. Do not invent screenshots.
 5. Run `pnpm build` before screenshot capture when desktop source changed.
 6. Run `pnpm docs:screenshots` to update:
-   - `apps/docs/src/assets/screenshots/first-run.png`
-   - `apps/docs/src/assets/screenshots/workspace.png`
-   - `apps/docs/src/assets/screenshots/auth.png`
+   - `apps/docs/public/screenshots/*.png`
+   - screenshots referenced in README and docs via `apps/docs/public/screenshots/` or `/firebase-desk/screenshots/`
 7. Run `pnpm docs:build` and relevant root checks.
 8. Run `pnpm docs:smoke` when landing page, Starlight docs, search, or browser demo behavior changes.
 9. Use `pnpm docs:dev` when checking the local docs site; it builds and serves the browser demo iframe path.

@@ -2,7 +2,7 @@ import { chromium, expect } from '@playwright/test';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { extname, resolve } from 'node:path';
+import { extname, isAbsolute, relative, resolve } from 'node:path';
 
 const root = resolve('apps/docs/.build/site');
 const port = 4177;
@@ -26,6 +26,8 @@ await new Promise((resolveListen) => {
 const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  const escapedResponse = await page.request.get(`${baseUrl}/%2e%2e/package.json`);
+  expect(escapedResponse.status()).toBe(404);
 
   await page.goto(`${baseUrl}/`);
   await expect(page.getByRole('heading', { name: 'Firebase Desk' })).toBeVisible();
@@ -135,18 +137,31 @@ async function resolveFile(pathname) {
   const candidates = [];
   const normalized = relativePath === '' ? '/' : relativePath;
   if (normalized.endsWith('/')) {
-    candidates.push(resolve(root, `.${normalized}index.html`));
+    candidates.push(safeResolve(`.${normalized}index.html`));
   } else {
-    candidates.push(resolve(root, `.${normalized}`));
-    candidates.push(resolve(root, `.${normalized}/index.html`));
+    candidates.push(safeResolve(`.${normalized}`));
+    candidates.push(safeResolve(`.${normalized}/index.html`));
   }
   for (const candidate of candidates) {
+    if (!candidate) continue;
     try {
       const info = await stat(candidate);
       if (info.isFile()) return candidate;
     } catch {
       // try next candidate
     }
+  }
+  return null;
+}
+
+/**
+ * @param {string} pathname
+ */
+function safeResolve(pathname) {
+  const candidate = resolve(root, pathname);
+  const relativePath = relative(root, candidate);
+  if (relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))) {
+    return candidate;
   }
   return null;
 }
