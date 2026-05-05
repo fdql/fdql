@@ -13,6 +13,7 @@ import type {
   InsertStatement,
   InsertTarget,
   JoinClause,
+  OrderByItem,
   ProjectSource,
   SelectColumn,
   SelectStatement,
@@ -27,6 +28,8 @@ export interface FirestoreSqlPlannerOptions extends FirestoreSqlAnalysisContext 
 export interface ExecutionDefaults {
   readonly limit?: number;
   readonly pageSize?: number;
+  readonly readBudget?: number;
+  readonly timeoutMs?: number;
   readonly writeBatchSize?: number;
   readonly writeMode?: 'batch' | 'bulk_writer';
 }
@@ -56,9 +59,11 @@ export type PlanStage =
 
 export interface SourcePlan {
   readonly alias?: string;
+  readonly args?: readonly FirestoreSqlExpression[];
   readonly collectionGroup?: string;
   readonly collectionPath?: string;
   readonly classification: StageClassification;
+  readonly functionName?: string;
   readonly projectId: string;
   readonly sourceKind: FirestoreSqlSource['kind'];
 }
@@ -91,6 +96,7 @@ export interface ProjectPlanStage {
   readonly columns: readonly SelectColumn[];
   readonly computed: boolean;
   readonly kind: 'project';
+  readonly orderBy?: readonly OrderByItem[];
 }
 
 export interface AggregatePlanStage {
@@ -198,6 +204,7 @@ function planSelect(
     columns: statement.columns,
     computed: statement.columns.some((column) => isComputedExpression(column.expression)),
     kind: 'project',
+    ...(statement.orderBy ? { orderBy: statement.orderBy } : {}),
   });
   return stages;
 }
@@ -349,15 +356,22 @@ function sourcePlanFromBody(
   const literal = literalArg?.valueType === 'string' ? String(literalArg.value) : undefined;
   const base: SourcePlan = {
     alias: source.alias ?? source.name,
+    args: source.args,
     classification: source.name.toLowerCase() === 'collection_group' ? 'native' : 'local',
+    functionName: source.name,
     projectId,
     sourceKind: 'function',
   };
   if (source.name.toLowerCase() === 'collection_group' && literal) {
-    return { ...base, collectionGroup: literal };
+    return { ...base, alias: source.alias ?? literal, collectionGroup: literal };
   }
   if (source.name.toLowerCase() === 'collection' && literal) {
-    return { ...base, classification: 'native', collectionPath: literal };
+    return {
+      ...base,
+      alias: source.alias ?? literal,
+      classification: 'native',
+      collectionPath: literal,
+    };
   }
   return base;
 }

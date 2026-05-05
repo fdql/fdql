@@ -20,12 +20,14 @@
   },
   "dependencies": {
     "@firebase-desk/data-format": "workspace:*",
+    "@firebase-desk/firestore-sql": "workspace:*",
     "@firebase-desk/repo-contracts": "workspace:*"
   },
   "devDependencies": {
     "@firebase-desk/config-oxlint": "workspace:*",
     "@firebase-desk/config-tsconfig": "workspace:*",
     "@firebase-desk/config-vitest": "workspace:*",
+    "@types/node": "24.12.2",
     "oxlint": "1.62.0",
     "typescript": "6.0.3",
     "vitest": "4.1.5"

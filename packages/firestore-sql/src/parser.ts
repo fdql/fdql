@@ -108,6 +108,8 @@ export interface OrderByItem {
 export interface ExecutionClauses {
   readonly limit?: number;
   readonly pageSize?: number;
+  readonly readBudget?: number;
+  readonly timeoutMs?: number;
   readonly writeBatchSize?: number;
   readonly writeMode?: 'batch' | 'bulk_writer';
 }

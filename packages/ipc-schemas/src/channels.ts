@@ -13,6 +13,12 @@ import {
   SetCustomClaimsRequestSchema,
 } from './auth.ts';
 import {
+  FirestoreSqlCompileRequestSchema,
+  FirestoreSqlCompileResultSchema,
+  FirestoreSqlRunRequestSchema,
+  FirestoreSqlRunResultSchema,
+} from './firestore-sql.ts';
+import {
   CreateDocumentRequestSchema,
   DeleteDocumentRequestSchema,
   FirestoreCollectionNodeSchema,
@@ -199,6 +205,18 @@ export const IPC_CHANNELS = {
   },
   'firestore.deleteDocument': {
     request: DeleteDocumentRequestSchema,
+    response: z.void(),
+  },
+  'firestoreSql.compile': {
+    request: FirestoreSqlCompileRequestSchema,
+    response: FirestoreSqlCompileResultSchema,
+  },
+  'firestoreSql.run': {
+    request: FirestoreSqlRunRequestSchema,
+    response: FirestoreSqlRunResultSchema,
+  },
+  'firestoreSql.cancel': {
+    request: z.object({ runId: z.string() }),
     response: z.void(),
   },
   'scriptRunner.run': {

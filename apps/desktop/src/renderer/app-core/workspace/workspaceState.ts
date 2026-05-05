@@ -35,6 +35,7 @@ export function createInitialTabsState(connectionId: string): TabsState {
       createFixedWorkspaceTab('tab-firestore', 'firestore-query', connectionId, 'orders'),
       createFixedWorkspaceTab('tab-auth', 'auth-users', connectionId, 'auth/users'),
       createFixedWorkspaceTab('tab-js', 'js-query', connectionId, 'scripts/default'),
+      createFixedWorkspaceTab('tab-sql', 'firestore-sql', connectionId, 'sql/default'),
     ],
   };
 }
@@ -90,13 +91,15 @@ export function keepActiveTab(
 export function defaultPathFor(kind: WorkspaceTabKind): string {
   if (kind === 'firestore-query') return 'orders';
   if (kind === 'auth-users') return 'auth/users';
-  return 'scripts/default';
+  if (kind === 'js-query') return 'scripts/default';
+  return 'sql/default';
 }
 
 export function titleFor(kind: WorkspaceTabKind, path: string): string {
   if (kind === 'firestore-query') return path || 'Firestore';
   if (kind === 'auth-users') return 'Auth';
-  return 'JS Query';
+  if (kind === 'js-query') return 'JS Query';
+  return 'SQL';
 }
 
 export function clampIndex(index: number, values: ReadonlyArray<unknown>): number {

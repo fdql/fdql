@@ -6,6 +6,7 @@ import {
   type FirestoreCreateDocumentRequest,
   FirestoreQuerySurface,
   type FirestoreResultView,
+  FirestoreSqlSurface,
   JsQuerySurface,
 } from '@firebase-desk/product-ui';
 import type {
@@ -16,6 +17,9 @@ import type {
   FirestoreQueryDraft,
   FirestoreSaveDocumentOptions,
   FirestoreSaveDocumentResult,
+  FirestoreSqlCompileResult,
+  FirestoreSqlContext,
+  FirestoreSqlRunResult,
   FirestoreUpdateDocumentFieldsOptions,
   FirestoreUpdateDocumentFieldsResult,
   ProjectSummary,
@@ -34,6 +38,7 @@ export interface WorkspaceTabViewProps {
   readonly density: DensityName;
   readonly firestore: FirestoreTabSurfaceModel;
   readonly script: ScriptTabSurfaceModel;
+  readonly sql: SqlTabSurfaceModel;
 }
 
 export interface AuthTabSurfaceModel {
@@ -126,6 +131,21 @@ export interface ScriptTabSurfaceModel {
   readonly source: string;
 }
 
+export interface SqlTabSurfaceModel {
+  readonly compileResult: FirestoreSqlCompileResult | undefined;
+  readonly context: FirestoreSqlContext;
+  readonly isRunning: boolean;
+  readonly onCancel: () => void;
+  readonly onCompile: () => void;
+  readonly onContextChange: (context: FirestoreSqlContext) => void;
+  readonly onRun: () => void;
+  readonly onSourceChange: (source: string) => void;
+  readonly result: FirestoreSqlRunResult | undefined;
+  readonly runId: string | null;
+  readonly runStartedAt: number | null;
+  readonly source: string;
+}
+
 export function WorkspaceTabView(props: WorkspaceTabViewProps) {
   if (props.activeTab.kind === 'auth-users') {
     return (
@@ -158,6 +178,22 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
         onCancel={props.script.onCancel}
         onRun={props.script.onRun}
         onSourceChange={props.script.onSourceChange}
+      />
+    );
+  }
+  if (props.activeTab.kind === 'firestore-sql') {
+    return (
+      <FirestoreSqlSurface
+        compileResult={props.sql.compileResult ?? null}
+        context={props.sql.context}
+        isRunning={props.sql.isRunning}
+        result={props.sql.result ?? null}
+        source={props.sql.source}
+        onCancel={props.sql.onCancel}
+        onCompile={props.sql.onCompile}
+        onContextChange={props.sql.onContextChange}
+        onRun={props.sql.onRun}
+        onSourceChange={props.sql.onSourceChange}
       />
     );
   }

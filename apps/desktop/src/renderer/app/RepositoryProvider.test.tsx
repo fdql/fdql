@@ -191,6 +191,7 @@ function stubDesktopApi(overrides: Partial<DesktopApi>): void {
     activity: desktopActivityApi(),
     auth: desktopAuthApi(),
     firestore: desktopFirestoreApi(),
+    firestoreSql: desktopFirestoreSqlApi(),
     jobs: desktopJobsApi(),
     projects: desktopProjectsApi(),
     scriptRunner: desktopScriptRunnerApi(),
@@ -229,6 +230,25 @@ function desktopFirestoreApi(): DesktopFirestoreApi {
     runQuery: vi.fn(),
     saveDocument: vi.fn(),
     updateDocumentFields: vi.fn(),
+  };
+}
+
+function desktopFirestoreSqlApi(): DesktopFirestoreSqlApi {
+  return {
+    cancel: vi.fn(async () => undefined),
+    compile: vi.fn(async () => ({
+      diagnostics: [],
+      ok: true,
+      plan: { kind: 'select', stages: [] },
+      snippet: '',
+    })),
+    run: vi.fn(async () => ({
+      diagnostics: [],
+      durationMs: 1,
+      rows: [],
+      stats: null,
+    })),
+    subscribe: vi.fn(() => () => {}),
   };
 }
 

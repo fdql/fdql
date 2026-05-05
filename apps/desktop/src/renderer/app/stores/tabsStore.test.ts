@@ -29,6 +29,7 @@ describe('tabsStore', () => {
     tabActions.closeTab('tab-firestore');
     tabActions.closeTab('tab-auth');
     tabActions.closeTab('tab-js');
+    tabActions.closeTab('tab-sql');
     expect(tabsStore.state.tabs).toHaveLength(0);
     expect(tabsStore.state.activeTabId).toBe('');
   });
@@ -110,6 +111,6 @@ describe('tabsStore', () => {
       path: 'orders',
       selectedTreeItemId: 'collection:emu:orders',
     });
-    expect(tabsStore.state.tabs).toHaveLength(4);
+    expect(tabsStore.state.tabs).toHaveLength(5);
   });
 });

@@ -2,6 +2,7 @@ import { FirestoreFilterOpSchema } from '@firebase-desk/ipc-schemas';
 import type {
   FirestoreQueryDraft,
   FirestoreQueryFilterDraft,
+  FirestoreSqlContext,
   SettingsRepository,
 } from '@firebase-desk/repo-contracts';
 import { z } from 'zod';
@@ -95,6 +96,14 @@ export const PersistedWorkspaceStateSchema = z.object({
   authFilter: z.string(),
   drafts: z.record(z.string(), FirestoreQueryDraftSchema),
   scripts: z.record(z.string(), z.string()),
+  sqlContexts: z.record(
+    z.string(),
+    z.object({
+      defaultProjectId: z.string().optional(),
+      projectAliases: z.record(z.string(), z.string()).optional(),
+    }) satisfies z.ZodType<FirestoreSqlContext>,
+  ).optional(),
+  sqlSources: z.record(z.string(), z.string()).optional(),
   tabsState: TabsStateSchema,
 }).superRefine((state, context) => {
   const tabIds = new Set(state.tabsState.tabs.map((tab) => tab.id));
@@ -103,6 +112,14 @@ export const PersistedWorkspaceStateSchema = z.object({
   }
   for (const tabId of Object.keys(state.scripts)) {
     if (!tabIds.has(tabId)) context.addIssue({ code: 'custom', message: 'Script tab is not open' });
+  }
+  for (const tabId of Object.keys(state.sqlSources ?? {})) {
+    if (!tabIds.has(tabId)) context.addIssue({ code: 'custom', message: 'SQL tab is not open' });
+  }
+  for (const tabId of Object.keys(state.sqlContexts ?? {})) {
+    if (!tabIds.has(tabId)) {
+      context.addIssue({ code: 'custom', message: 'SQL context tab is not open' });
+    }
   }
 });
 
@@ -185,6 +202,8 @@ async function persistWorkspaceState(
     authFilter: state.authFilter,
     drafts: pickTabRecord(state.drafts, tabIds),
     scripts: pickTabRecord(state.scripts, tabIds),
+    sqlContexts: pickTabRecord(state.sqlContexts ?? {}, tabIds),
+    sqlSources: pickTabRecord(state.sqlSources ?? {}, tabIds),
     tabsState: sanitizeTabsState(state.tabsState),
   });
   await settings.save({ workspaceState: payload });

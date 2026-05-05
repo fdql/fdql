@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   useAuthTabState: vi.fn(),
   useDestructiveActionController: vi.fn(),
   useDocumentDensity: vi.fn(),
+  useFirestoreSqlTabState: vi.fn(),
   useFirestoreTabState: vi.fn(),
   useFirestoreWriteController: vi.fn(),
   useJsTabState: vi.fn(),
@@ -86,6 +87,10 @@ vi.mock('./useDocumentDensity.ts', () => ({
 
 vi.mock('./useFirestoreTabState.ts', () => ({
   useFirestoreTabState: mocks.useFirestoreTabState,
+}));
+
+vi.mock('./useFirestoreSqlTabState.ts', () => ({
+  useFirestoreSqlTabState: mocks.useFirestoreSqlTabState,
 }));
 
 vi.mock('./useJsTabState.ts', () => ({
@@ -195,6 +200,8 @@ describe('useAppShellController', () => {
         authFilter: 'ada',
         drafts: scenario.firestoreTab.drafts,
         scripts: scenario.jsTab.scripts,
+        sqlContexts: scenario.sqlTab.contexts,
+        sqlSources: scenario.sqlTab.sources,
         tabsState: scenario.tabsState,
       },
       expect.objectContaining({
@@ -316,6 +323,8 @@ interface Scenario {
       readonly authFilter: string;
       readonly drafts: Record<string, unknown>;
       readonly scripts: Record<string, string>;
+      readonly sqlContexts: Record<string, unknown>;
+      readonly sqlSources: Record<string, string>;
     };
   };
   readonly project: ReturnType<typeof createProjectFixture>;
@@ -325,6 +334,7 @@ interface Scenario {
   readonly scripts: Record<string, string>;
   readonly selection: SelectionState;
   readonly settings: ReturnType<typeof createSettings>;
+  readonly sqlTab: ReturnType<typeof createSqlTab>;
   readonly tabsState: TabsState;
   readonly updates: ReturnType<typeof createUpdates>;
   readonly workspaceTree: ReturnType<typeof createWorkspaceTree>;
@@ -340,6 +350,7 @@ function setupMocks(scenario: Scenario) {
   });
   mocks.useAuthTabState.mockReturnValue(scenario.authTab);
   mocks.useDestructiveActionController.mockReturnValue(scenario.destructiveAction);
+  mocks.useFirestoreSqlTabState.mockReturnValue(scenario.sqlTab);
   mocks.useFirestoreTabState.mockReturnValue(scenario.firestoreTab);
   mocks.useFirestoreWriteController.mockReturnValue(scenario.firestoreWrite);
   mocks.useJsTabState.mockReturnValue(scenario.jsTab);
@@ -371,6 +382,8 @@ function createScenario(
     drafts = {},
     repositories = createRepositories(),
     scripts = {},
+    sqlContexts = {},
+    sqlSources = {},
     selection = {
       authUserId: 'u_ada',
       treeItemId: 'collection:emu:orders',
@@ -381,6 +394,8 @@ function createScenario(
     readonly drafts?: Record<string, unknown>;
     readonly repositories?: RepositorySet;
     readonly scripts?: Record<string, string>;
+    readonly sqlContexts?: Record<string, unknown>;
+    readonly sqlSources?: Record<string, string>;
     readonly selection?: SelectionState;
     readonly tabsState?: TabsState;
   } = {},
@@ -389,6 +404,7 @@ function createScenario(
   const activity = createActivity();
   const firestoreTabState = createFirestoreTab({ drafts });
   const jsTab = createJsTab({ scripts });
+  const sqlTab = createSqlTab({ contexts: sqlContexts, sources: sqlSources });
   return {
     activity,
     authFilter,
@@ -402,7 +418,7 @@ function createScenario(
     jobs: createJobs(),
     persistedWorkspace: {
       restored: true,
-      snapshot: { authFilter, drafts, scripts },
+      snapshot: { authFilter, drafts, scripts, sqlContexts, sqlSources },
     },
     project,
     projectCommands: createProjectCommands(),
@@ -411,6 +427,7 @@ function createScenario(
     scripts,
     selection,
     settings: createSettings(),
+    sqlTab,
     tabsState: state,
     updates: createUpdates(),
     workspaceTree: createWorkspaceTree(),
@@ -584,6 +601,35 @@ function createJsTab({ scripts = {} }: { readonly scripts?: Record<string, strin
     scriptStartedAt: null,
     scripts,
     setScriptSource: vi.fn(),
+  };
+}
+
+function createSqlTab(
+  {
+    contexts = {},
+    sources = {},
+  }: {
+    readonly contexts?: Record<string, unknown>;
+    readonly sources?: Record<string, string>;
+  } = {},
+) {
+  return {
+    cancel: vi.fn(() => false),
+    clearTab: vi.fn(),
+    compile: vi.fn(() => false),
+    compileResult: null,
+    context: {},
+    contexts,
+    isRunning: false,
+    isTabRunning: vi.fn(() => false),
+    result: null,
+    run: vi.fn(() => false),
+    runId: null,
+    runStartedAt: null,
+    setContext: vi.fn(),
+    setSource: vi.fn(),
+    source: 'select * from orders o',
+    sources,
   };
 }
 

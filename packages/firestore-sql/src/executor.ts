@@ -1,17 +1,63 @@
 import type { AnalysisDiagnostic } from './analyzer.ts';
-import type { FieldSegment, FirestoreSqlExpression, InsertTarget, SelectColumn } from './parser.ts';
+import type { FieldSegment, FirestoreSqlExpression, SelectColumn } from './parser.ts';
 import type {
-  ExecutionPlanStage,
   FirestoreSqlPlan,
   JoinPlanStage,
   PlanStage,
   ProjectPlanStage,
   ReadPlanStage,
   SourcePlan,
-  WritePlanStage,
+  UnionBranchPlanStage,
 } from './planner.ts';
 
 export type FirestoreSqlDocumentData = Record<string, unknown>;
+
+export interface FirestoreSqlRuntimeDocument {
+  readonly collectionPath: string;
+  readonly data: FirestoreSqlDocumentData;
+  readonly id: string;
+  readonly path?: string;
+  readonly projectId: string;
+}
+
+export interface FirestoreSqlRuntimeCollection {
+  readonly id: string;
+  readonly parentPath: string;
+  readonly path: string;
+  readonly projectId: string;
+}
+
+export interface FirestoreSqlReadRequest {
+  readonly collectionGroup?: string;
+  readonly collectionPath?: string;
+  readonly pageSize: number;
+  readonly projectId: string;
+}
+
+export interface FirestoreSqlSubcollectionRequest {
+  readonly name: string;
+  readonly pageSize: number;
+  readonly parent: FirestoreSqlRuntimeDocument;
+}
+
+export interface FirestoreSqlRuntime {
+  readCollection(
+    request: FirestoreSqlReadRequest & {
+      readonly collectionPath: string;
+    },
+  ): AsyncIterable<FirestoreSqlRuntimeDocument>;
+  readCollectionGroup(
+    request: FirestoreSqlReadRequest & {
+      readonly collectionGroup: string;
+    },
+  ): AsyncIterable<FirestoreSqlRuntimeDocument>;
+  readSubcollection(request: FirestoreSqlSubcollectionRequest): AsyncIterable<
+    FirestoreSqlRuntimeDocument
+  >;
+  listSubcollections(parent: FirestoreSqlRuntimeDocument): Promise<
+    ReadonlyArray<FirestoreSqlRuntimeCollection>
+  >;
+}
 
 export interface InMemoryFirestoreSqlRuntime {
   readonly projects: FirestoreSqlRuntimeProjects;
@@ -22,18 +68,35 @@ export type FirestoreSqlRuntimeProjects = Record<
   Record<string, Record<string, FirestoreSqlDocumentData>>
 >;
 
+export type FirestoreSqlStopReason = 'budget' | 'cancelled' | 'completed' | 'timeout';
+
+export interface FirestoreSqlExecutionOptions {
+  readonly readBudget?: number;
+  readonly signal?: FirestoreSqlAbortSignal;
+  readonly timeoutMs?: number;
+}
+
+export interface FirestoreSqlAbortSignal {
+  readonly aborted: boolean;
+}
+
 export interface ExecutionStats {
   readonly joinMisses: number;
   readonly perProjectReads: Readonly<Record<string, number>>;
+  readonly readBudget: number;
   readonly reads: number;
   readonly rowsOutput: number;
   readonly rowsScanned: number;
+  readonly stoppedReason?: FirestoreSqlStopReason;
   readonly writes: number;
 }
 
 export type ExecutionEvent =
+  | CancelledExecutionEvent
   | CompletedExecutionEvent
+  | DiagnosticExecutionEvent
   | FailedExecutionEvent
+  | PlanExecutionEvent
   | ReadExecutionEvent
   | RowExecutionEvent
   | StartedExecutionEvent
@@ -42,6 +105,17 @@ export type ExecutionEvent =
 export interface StartedExecutionEvent {
   readonly kind: 'started';
   readonly planKind: FirestoreSqlPlan['kind'];
+  readonly runId?: string;
+}
+
+export interface PlanExecutionEvent {
+  readonly kind: 'plan';
+  readonly plan: FirestoreSqlPlan;
+}
+
+export interface DiagnosticExecutionEvent {
+  readonly diagnostic: AnalysisDiagnostic;
+  readonly kind: 'diagnostic';
 }
 
 export interface ReadExecutionEvent {
@@ -52,8 +126,17 @@ export interface ReadExecutionEvent {
   readonly projectId: string;
 }
 
+export interface FirestoreSqlRowLineage {
+  readonly baseSource?: string;
+  readonly joinedSources: readonly string[];
+  readonly localSources: readonly string[];
+  readonly readContribution: number;
+  readonly unionBranch?: number;
+}
+
 export interface RowExecutionEvent {
   readonly kind: 'row';
+  readonly lineage: FirestoreSqlRowLineage;
   readonly row: Record<string, unknown>;
 }
 
@@ -65,6 +148,12 @@ export interface StatsExecutionEvent {
 export interface CompletedExecutionEvent {
   readonly kind: 'completed';
   readonly stats: ExecutionStats;
+  readonly stoppedReason?: FirestoreSqlStopReason;
+}
+
+export interface CancelledExecutionEvent {
+  readonly kind: 'cancelled';
+  readonly stats: ExecutionStats;
 }
 
 export interface FailedExecutionEvent {
@@ -75,238 +164,292 @@ export interface FailedExecutionEvent {
 interface MutableExecutionStats {
   joinMisses: number;
   perProjectReads: Record<string, number>;
+  readBudget: number;
   reads: number;
   rowsOutput: number;
   rowsScanned: number;
+  stoppedReason?: FirestoreSqlStopReason;
   writes: number;
 }
 
-interface DocumentRef {
-  readonly collectionPath: string;
+type RuntimeSourceValue =
+  | RuntimeDocumentValue
+  | RuntimeEntryValue
+  | RuntimeScalarValue
+  | RuntimeSubcollectionValue;
+
+interface RuntimeDocumentValue extends FirestoreSqlRuntimeDocument {
+  readonly kind: 'document';
+  readonly path: string;
+}
+
+interface RuntimeEntryValue {
   readonly data: FirestoreSqlDocumentData;
   readonly id: string;
+  readonly kind: 'entry';
+  readonly value: unknown;
+}
+
+interface RuntimeScalarValue {
+  readonly data: FirestoreSqlDocumentData;
+  readonly id: string;
+  readonly kind: 'scalar';
+  readonly value: unknown;
+}
+
+interface RuntimeSubcollectionValue {
+  readonly data: FirestoreSqlDocumentData;
+  readonly id: string;
+  readonly kind: 'subcollection';
+  readonly parentPath: string;
+  readonly path: string;
   readonly projectId: string;
 }
 
 interface WorkingRow {
-  readonly context: Record<string, DocumentRef | undefined>;
-  readonly primary: DocumentRef;
+  readonly context: Readonly<Record<string, RuntimeSourceValue | undefined>>;
+  readonly lineage: FirestoreSqlRowLineage;
+  readonly primary: RuntimeSourceValue | undefined;
 }
 
-interface RowRun {
-  readonly execution: Partial<ExecutionPlanStage['execution']>;
-  readonly projectedRows: readonly Record<string, unknown>[] | undefined;
+interface ExecutionControls {
+  readonly limit?: number;
+  readonly pageSize: number;
+  readonly readBudget: number;
+  readonly timeoutMs: number;
+}
+
+interface SelectRun {
   readonly readEvents: readonly ReadExecutionEvent[];
   readonly rows: readonly WorkingRow[];
 }
 
+const DEFAULT_READ_BUDGET = 5000;
+const DEFAULT_PAGE_SIZE = 100;
+const DEFAULT_TIMEOUT_MS = 60_000;
+
 export async function* executeFirestoreSql(
   plan: FirestoreSqlPlan,
-  runtime: InMemoryFirestoreSqlRuntime,
+  runtime: FirestoreSqlRuntime | InMemoryFirestoreSqlRuntime,
+  options: FirestoreSqlExecutionOptions = {},
 ): AsyncIterable<ExecutionEvent> {
-  const stats = createStats();
-  yield { kind: 'started', planKind: plan.kind };
+  const stats = createStats(options.readBudget ?? DEFAULT_READ_BUDGET);
+  const startedAt = Date.now();
+  const normalizedRuntime = normalizeRuntime(runtime);
 
-  const unsupported = unsupportedDiagnostic(plan.stages);
+  yield { kind: 'started', planKind: plan.kind };
+  yield { kind: 'plan', plan };
+
+  const unsupported = unsupportedDiagnostic(plan);
   if (unsupported) {
+    yield { diagnostic: unsupported, kind: 'diagnostic' };
     yield { diagnostic: unsupported, kind: 'failed' };
     return;
   }
 
   try {
     if (plan.kind === 'select') {
-      yield* executeSelect(plan.stages, runtime, stats);
+      yield* executeSelect(plan.stages, normalizedRuntime, stats, options, startedAt);
       return;
     }
 
-    if (plan.kind === 'delete' || plan.kind === 'update' || plan.kind === 'insert') {
-      yield* executeWrite(plan.stages, runtime, stats);
+    if (plan.kind === 'unionAll') {
+      yield* executeUnion(plan.stages, normalizedRuntime, stats, options, startedAt);
       return;
     }
 
-    yield {
-      diagnostic: {
-        code: 'UNSUPPORTED_EXECUTION_PLAN',
-        message: `${plan.kind} plans are not executable by the mock executor yet.`,
-        severity: 'error',
-      },
-      kind: 'failed',
-    };
+    const unsupportedReadDiagnostic = diagnostic(
+      'UNSUPPORTED_READ_COMMAND',
+      `${plan.kind} is not supported by the read-only SQL executor.`,
+    );
+    yield { diagnostic: unsupportedReadDiagnostic, kind: 'diagnostic' };
+    yield { diagnostic: unsupportedReadDiagnostic, kind: 'failed' };
   } catch (error) {
-    yield {
-      diagnostic: {
-        code: 'EXECUTION_FAILED',
-        message: error instanceof Error ? error.message : 'Execution failed.',
-        severity: 'error',
-      },
-      kind: 'failed',
-    };
+    const failure = diagnostic(
+      'EXECUTION_FAILED',
+      error instanceof Error ? error.message : 'Execution failed.',
+    );
+    yield { diagnostic: failure, kind: 'failed' };
   }
+}
+
+async function* executeUnion(
+  stages: readonly PlanStage[],
+  runtime: FirestoreSqlRuntime,
+  stats: MutableExecutionStats,
+  options: FirestoreSqlExecutionOptions,
+  startedAt: number,
+): AsyncIterable<ExecutionEvent> {
+  const branches = stages.filter((stage): stage is UnionBranchPlanStage =>
+    stage.kind === 'unionBranch'
+  );
+  const outputRows: Array<
+    { readonly row: Record<string, unknown>; readonly lineage: FirestoreSqlRowLineage; }
+  > = [];
+
+  for (const branch of branches) {
+    const controls = controlsFor(branch.stages, options, stats);
+    const run = await runSelectRows(branch.stages, runtime, stats, controls, options, startedAt);
+    for (const event of run.readEvents) yield event;
+
+    const project = projectStage(branch.stages);
+    const projected = project
+      ? projectRows(limitedSortedRows(run.rows, project, controls), project, branch.branchIndex)
+      : [];
+    outputRows.push(...projected);
+    yield { kind: 'stats', stats: snapshotStats(stats) };
+    if (isStopped(stats)) break;
+  }
+
+  for (const item of outputRows) {
+    stats.rowsOutput += 1;
+    yield { kind: 'row', lineage: item.lineage, row: item.row };
+  }
+
+  yield* finishExecution(stats);
 }
 
 async function* executeSelect(
   stages: readonly PlanStage[],
-  runtime: InMemoryFirestoreSqlRuntime,
+  runtime: FirestoreSqlRuntime,
   stats: MutableExecutionStats,
+  options: FirestoreSqlExecutionOptions,
+  startedAt: number,
 ): AsyncIterable<ExecutionEvent> {
-  const run = runRows(stages, runtime, stats);
+  const controls = controlsFor(stages, options, stats);
+  const run = await runSelectRows(stages, runtime, stats, controls, options, startedAt);
   for (const event of run.readEvents) yield event;
 
-  const outputRows = applyLimit(run.projectedRows ?? [], run.execution.limit);
-  for (const row of outputRows) {
+  const project = projectStage(stages);
+  const outputRows = project
+    ? projectRows(limitedSortedRows(run.rows, project, controls), project)
+    : [];
+
+  for (const item of outputRows) {
     stats.rowsOutput += 1;
-    yield { kind: 'row', row };
+    yield { kind: 'row', lineage: item.lineage, row: item.row };
   }
 
   yield { kind: 'stats', stats: snapshotStats(stats) };
-  yield { kind: 'completed', stats: snapshotStats(stats) };
+  yield* finishExecution(stats);
 }
 
-async function* executeWrite(
+async function runSelectRows(
   stages: readonly PlanStage[],
-  runtime: InMemoryFirestoreSqlRuntime,
+  runtime: FirestoreSqlRuntime,
   stats: MutableExecutionStats,
-): AsyncIterable<ExecutionEvent> {
-  const run = runRows(stages, runtime, stats);
-  for (const event of run.readEvents) yield event;
-
-  const write = stages.find((stage) => stage.kind === 'write') as WritePlanStage | undefined;
-  if (!write) {
-    yield {
-      diagnostic: {
-        code: 'MISSING_WRITE_STAGE',
-        message: 'Write plans must include a write stage.',
-        severity: 'error',
-      },
-      kind: 'failed',
-    };
-    return;
-  }
-
-  if (write.operation === 'delete') executeDelete(write, run.rows, runtime, stats);
-  else if (write.operation === 'update') executeUpdate(write, run.rows, stats);
-  else executeInsert(write, run, runtime, stats);
-
-  yield { kind: 'stats', stats: snapshotStats(stats) };
-  yield { kind: 'completed', stats: snapshotStats(stats) };
-}
-
-function runRows(
-  stages: readonly PlanStage[],
-  runtime: InMemoryFirestoreSqlRuntime,
-  stats: MutableExecutionStats,
-): RowRun {
+  controls: ExecutionControls,
+  options: FirestoreSqlExecutionOptions,
+  startedAt: number,
+): Promise<SelectRun> {
   let rows: readonly WorkingRow[] = [];
-  let projectedRows: readonly Record<string, unknown>[] | undefined;
-  let execution: Partial<ExecutionPlanStage['execution']> = {};
   const readEvents: ReadExecutionEvent[] = [];
 
   for (const stage of stages) {
+    if (shouldStop(stats, options, startedAt)) break;
     switch (stage.kind) {
       case 'execution':
-        execution = { ...execution, ...stage.execution };
         break;
       case 'read': {
-        const read = readSource(stage, runtime, stats);
+        const read = await readSource(
+          stage,
+          undefined,
+          runtime,
+          stats,
+          controls,
+          options,
+          startedAt,
+        );
         rows = read.rows;
         readEvents.push(read.event);
         break;
       }
       case 'join': {
-        const read = readSource({ kind: 'read', source: stage.source }, runtime, stats);
-        rows = joinRows(rows, read.rows.map((row) => row.primary), stage, stats);
-        readEvents.push(read.event);
+        rows = await joinRows(
+          rows,
+          stage,
+          runtime,
+          stats,
+          controls,
+          readEvents,
+          options,
+          startedAt,
+        );
         break;
       }
       case 'filter':
         rows = rows.filter((row) => truthy(evaluateExpression(stage.expression, row)));
         break;
       case 'project':
-        projectedRows = rows.map((row) => projectRow(stage, row));
-        break;
-      case 'write':
-        return { execution, projectedRows, readEvents, rows };
       case 'aggregate':
       case 'unionBranch':
+      case 'write':
         break;
     }
   }
 
-  return { execution, projectedRows, readEvents, rows };
+  return { readEvents, rows };
 }
 
-function readSource(
-  stage: ReadPlanStage,
-  runtime: InMemoryFirestoreSqlRuntime,
+async function joinRows(
+  leftRows: readonly WorkingRow[],
+  stage: JoinPlanStage,
+  runtime: FirestoreSqlRuntime,
   stats: MutableExecutionStats,
-): {
-  readonly event: ReadExecutionEvent;
-  readonly rows: readonly WorkingRow[];
-} {
-  const docs = documentsForSource(stage.source, runtime);
-  const alias = sourceAlias(stage.source);
-  for (const doc of docs) incrementReads(stats, doc.projectId);
-
-  return {
-    event: readEvent(stage.source, docs.length),
-    rows: docs.map((doc) => ({
-      context: { [alias]: doc },
-      primary: doc,
-    })),
-  };
-}
-
-function documentsForSource(
-  source: SourcePlan,
-  runtime: InMemoryFirestoreSqlRuntime,
-): readonly DocumentRef[] {
-  const project = runtime.projects[source.projectId] ?? {};
-  if (source.collectionGroup) {
-    return Object.entries(project).flatMap(([collectionPath, documents]) => {
-      if (lastPathSegment(collectionPath) !== source.collectionGroup) return [];
-      return documentEntries(source.projectId, collectionPath, documents);
-    });
+  controls: ExecutionControls,
+  readEvents: ReadExecutionEvent[],
+  options: FirestoreSqlExecutionOptions,
+  startedAt: number,
+): Promise<readonly WorkingRow[]> {
+  if (stage.source.classification === 'local') {
+    return joinLocalRows(leftRows, stage, runtime, stats, controls, readEvents, options, startedAt);
   }
 
-  if (!source.collectionPath) return [];
-  return documentEntries(
-    source.projectId,
-    source.collectionPath,
-    project[source.collectionPath] ?? {},
+  const read = await readSource(
+    { kind: 'read', source: stage.source },
+    undefined,
+    runtime,
+    stats,
+    controls,
+    options,
+    startedAt,
   );
+  readEvents.push(read.event);
+  return joinMaterializedRows(leftRows, read.rows, stage, stats);
 }
 
-function documentEntries(
-  projectId: string,
-  collectionPath: string,
-  documents: Record<string, FirestoreSqlDocumentData>,
-): readonly DocumentRef[] {
-  return Object.entries(documents).map(([id, data]) => ({
-    collectionPath,
-    data,
-    id,
-    projectId,
-  }));
-}
-
-function joinRows(
+async function joinLocalRows(
   leftRows: readonly WorkingRow[],
-  rightDocs: readonly DocumentRef[],
   stage: JoinPlanStage,
+  runtime: FirestoreSqlRuntime,
   stats: MutableExecutionStats,
-): readonly WorkingRow[] {
-  const alias = sourceAlias(stage.source);
+  controls: ExecutionControls,
+  readEvents: ReadExecutionEvent[],
+  options: FirestoreSqlExecutionOptions,
+  startedAt: number,
+): Promise<readonly WorkingRow[]> {
   const joined: WorkingRow[] = [];
+  const alias = sourceAlias(stage.source);
 
   for (const left of leftRows) {
+    if (shouldStop(stats, options, startedAt)) break;
+    const read = await readSource(
+      { kind: 'read', source: stage.source },
+      left,
+      runtime,
+      stats,
+      controls,
+      options,
+      startedAt,
+    );
+    readEvents.push(read.event);
+
     let matches = 0;
-    for (const right of rightDocs) {
-      const row = {
-        context: { ...left.context, [alias]: right },
-        primary: left.primary,
-      };
+    for (const right of read.rows) {
+      const row = mergeRows(left, right, alias, 'local');
       if (
-        stage.type !== 'cross' && stage.condition
+        stage.type !== 'cross'
+        && stage.condition
         && !truthy(evaluateExpression(stage.condition, row))
       ) {
         continue;
@@ -319,6 +462,7 @@ function joinRows(
       stats.joinMisses += 1;
       joined.push({
         context: { ...left.context, [alias]: undefined },
+        lineage: appendLineage(left.lineage, alias, 'local'),
         primary: left.primary,
       });
     }
@@ -327,9 +471,206 @@ function joinRows(
   return joined;
 }
 
+function joinMaterializedRows(
+  leftRows: readonly WorkingRow[],
+  rightRows: readonly WorkingRow[],
+  stage: JoinPlanStage,
+  stats: MutableExecutionStats,
+): readonly WorkingRow[] {
+  const joined: WorkingRow[] = [];
+  const alias = sourceAlias(stage.source);
+
+  for (const left of leftRows) {
+    let matches = 0;
+    for (const right of rightRows) {
+      const row = mergeRows(left, right, alias, 'join');
+      if (
+        stage.type !== 'cross'
+        && stage.condition
+        && !truthy(evaluateExpression(stage.condition, row))
+      ) {
+        continue;
+      }
+      matches += 1;
+      joined.push(row);
+    }
+
+    if (matches === 0 && stage.type === 'left') {
+      stats.joinMisses += 1;
+      joined.push({
+        context: { ...left.context, [alias]: undefined },
+        lineage: appendLineage(left.lineage, alias, 'join'),
+        primary: left.primary,
+      });
+    }
+  }
+
+  return joined;
+}
+
+async function readSource(
+  stage: ReadPlanStage,
+  parent: WorkingRow | undefined,
+  runtime: FirestoreSqlRuntime,
+  stats: MutableExecutionStats,
+  controls: ExecutionControls,
+  options: FirestoreSqlExecutionOptions,
+  startedAt: number,
+): Promise<{ readonly event: ReadExecutionEvent; readonly rows: readonly WorkingRow[]; }> {
+  const alias = sourceAlias(stage.source);
+  const values = await valuesForSource(
+    stage.source,
+    parent,
+    runtime,
+    stats,
+    controls,
+    options,
+    startedAt,
+  );
+  return {
+    event: readEvent(stage.source, values.length),
+    rows: values.map((value) => ({
+      context: { [alias]: value },
+      lineage: {
+        baseSource: alias,
+        joinedSources: [],
+        localSources: stage.source.classification === 'local' ? [alias] : [],
+        readContribution: value.kind === 'document' ? 1 : 0,
+      },
+      primary: value,
+    })),
+  };
+}
+
+async function valuesForSource(
+  source: SourcePlan,
+  parent: WorkingRow | undefined,
+  runtime: FirestoreSqlRuntime,
+  stats: MutableExecutionStats,
+  controls: ExecutionControls,
+  options: FirestoreSqlExecutionOptions,
+  startedAt: number,
+): Promise<readonly RuntimeSourceValue[]> {
+  const sourceName = sourceNameFor(source);
+  if (source.sourceKind === 'function' && sourceName === 'unnest') {
+    return unnestValues(evaluateExpression(source.args?.[0], requiredParent(parent)));
+  }
+  if (source.sourceKind === 'function' && sourceName === 'entries') {
+    return entryValues(evaluateExpression(source.args?.[0], requiredParent(parent)));
+  }
+  if (source.sourceKind === 'function' && sourceName === 'subcollections') {
+    const parentDoc = documentForValue(
+      evaluateExpression(source.args?.[0], requiredParent(parent)),
+    );
+    if (!parentDoc) return [];
+    return (await runtime.listSubcollections(parentDoc)).map((collection) => ({
+      data: { id: collection.id, parentPath: collection.parentPath, path: collection.path },
+      id: collection.id,
+      kind: 'subcollection' as const,
+      parentPath: collection.parentPath,
+      path: collection.path,
+      projectId: collection.projectId,
+    }));
+  }
+  if (source.sourceKind === 'function' && sourceName === 'subcollection') {
+    const parentDoc = documentForValue(
+      evaluateExpression(source.args?.[0], requiredParent(parent)),
+    );
+    const nameValue = evaluateExpression(source.args?.[1], requiredParent(parent));
+    const name = typeof nameValue === 'string' ? nameValue : undefined;
+    if (!parentDoc || !name) return [];
+    return collectRuntimeDocs(
+      runtime.readSubcollection({ name, pageSize: controls.pageSize, parent: parentDoc }),
+      stats,
+      controls,
+      options,
+      startedAt,
+    );
+  }
+  if (source.collectionGroup) {
+    return collectRuntimeDocs(
+      runtime.readCollectionGroup({
+        collectionGroup: source.collectionGroup,
+        pageSize: controls.pageSize,
+        projectId: source.projectId,
+      }),
+      stats,
+      controls,
+      options,
+      startedAt,
+    );
+  }
+  if (source.collectionPath) {
+    return collectRuntimeDocs(
+      runtime.readCollection({
+        collectionPath: source.collectionPath,
+        pageSize: controls.pageSize,
+        projectId: source.projectId,
+      }),
+      stats,
+      controls,
+      options,
+      startedAt,
+    );
+  }
+  return [];
+}
+
+async function collectRuntimeDocs(
+  iterable: AsyncIterable<FirestoreSqlRuntimeDocument>,
+  stats: MutableExecutionStats,
+  controls: ExecutionControls,
+  options: FirestoreSqlExecutionOptions,
+  startedAt: number,
+): Promise<readonly RuntimeDocumentValue[]> {
+  const docs: RuntimeDocumentValue[] = [];
+  for await (const doc of iterable) {
+    if (shouldStop(stats, options, startedAt)) break;
+    incrementReads(stats, doc.projectId, controls.readBudget);
+    docs.push({
+      ...doc,
+      kind: 'document',
+      path: doc.path ?? `${doc.collectionPath}/${doc.id}`,
+    });
+  }
+  return docs;
+}
+
+function unnestValues(value: unknown): readonly RuntimeScalarValue[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, index) => ({
+    data: isRecord(item) ? item : { value: item },
+    id: String(index),
+    kind: 'scalar',
+    value: item,
+  }));
+}
+
+function entryValues(value: unknown): readonly RuntimeEntryValue[] {
+  if (!isRecord(value)) return [];
+  return Object.entries(value).map(([key, entry]) => ({
+    data: isRecord(entry) ? entry : { value: entry },
+    id: key,
+    kind: 'entry',
+    value: entry,
+  }));
+}
+
+function projectRows(
+  rows: readonly WorkingRow[],
+  stage: ProjectPlanStage,
+  unionBranch?: number,
+): readonly { readonly lineage: FirestoreSqlRowLineage; readonly row: Record<string, unknown>; }[] {
+  return rows.map((row) => ({
+    lineage: unionBranch === undefined ? row.lineage : { ...row.lineage, unionBranch },
+    row: projectRow(stage, row),
+  }));
+}
+
 function projectRow(stage: ProjectPlanStage, row: WorkingRow): Record<string, unknown> {
   if (stage.columns.length === 1 && stage.columns[0]?.expression.kind === 'wildcard') {
-    return { ...row.primary.data };
+    const primary = row.primary;
+    return primary?.data ? { ...primary.data } : {};
   }
 
   const output: Record<string, unknown> = {};
@@ -339,107 +680,46 @@ function projectRow(stage: ProjectPlanStage, row: WorkingRow): Record<string, un
   return output;
 }
 
-function executeDelete(
-  write: WritePlanStage,
-  rows: readonly WorkingRow[],
-  runtime: InMemoryFirestoreSqlRuntime,
-  stats: MutableExecutionStats,
-): void {
-  const targetAlias = write.targetAlias ?? write.target.alias ?? sourceAlias(write.target);
+function sortRows(rows: readonly WorkingRow[], stage: ProjectPlanStage): readonly WorkingRow[] {
+  if (!stage.orderBy?.length) return rows;
+  const sorted: WorkingRow[] = [];
   for (const row of rows) {
-    const doc = row.context[targetAlias];
-    if (!doc) continue;
-    delete runtime.projects[doc.projectId]?.[doc.collectionPath]?.[doc.id];
-    stats.writes += 1;
+    const insertAt = sorted.findIndex((item) => compareRows(row, item, stage) < 0);
+    if (insertAt < 0) sorted.push(row);
+    else sorted.splice(insertAt, 0, row);
   }
+  return sorted;
 }
 
-function executeUpdate(
-  write: WritePlanStage,
-  rows: readonly WorkingRow[],
-  stats: MutableExecutionStats,
-): void {
-  const targetAlias = write.targetAlias ?? write.target.alias ?? sourceAlias(write.target);
-  for (const row of rows) {
-    const doc = row.context[targetAlias];
-    if (!doc) continue;
-    for (const assignment of write.assignments ?? []) {
-      const path = assignmentPath(assignment.target, targetAlias, row);
-      setNested(doc.data, path, evaluateExpression(assignment.value, row));
-    }
-    stats.writes += 1;
-  }
-}
-
-function executeInsert(
-  write: WritePlanStage,
-  run: RowRun,
-  runtime: InMemoryFirestoreSqlRuntime,
-  stats: MutableExecutionStats,
-): void {
-  const collection = collectionForWrite(write.target, runtime);
-
-  if (write.insertValues) {
-    const row = emptyWriteRow(write.target);
-    insertValues(
-      write.insertTargets ?? [],
-      write.insertValues.map((value) => evaluateExpression(value, row)),
-      collection,
-      stats,
+function compareRows(
+  left: WorkingRow,
+  right: WorkingRow,
+  stage: ProjectPlanStage,
+): number {
+  for (const item of stage.orderBy ?? []) {
+    const direction = item.direction === 'desc' ? -1 : 1;
+    const compared = compareValues(
+      evaluateExpression(item.expression, left),
+      evaluateExpression(item.expression, right),
     );
-    return;
+    if (compared !== 0) return compared * direction;
   }
-
-  for (const row of run.projectedRows ?? []) {
-    insertValues(write.insertTargets ?? [], Object.values(row), collection, stats);
-  }
+  return 0;
 }
 
-function insertValues(
-  targets: readonly InsertTarget[],
-  values: readonly unknown[],
-  collection: Record<string, FirestoreSqlDocumentData>,
-  stats: MutableExecutionStats,
-): void {
-  const documentIdIndex = targets.findIndex((target) => target.kind === 'documentId');
-  const documentId = documentIdIndex >= 0
-    ? String(values[documentIdIndex] ?? generatedDocumentId(collection))
-    : generatedDocumentId(collection);
-  const data: FirestoreSqlDocumentData = {};
-
-  for (const [index, target] of targets.entries()) {
-    if (target.kind === 'documentId') continue;
-    setNested(data, target.path.map((part) => part.text), values[index]);
-  }
-
-  collection[documentId] = data;
-  stats.writes += 1;
+function limitedSortedRows(
+  rows: readonly WorkingRow[],
+  stage: ProjectPlanStage,
+  controls: ExecutionControls,
+): readonly WorkingRow[] {
+  return applyLimit(sortRows(rows, stage), controls.limit);
 }
 
-function collectionForWrite(
-  source: SourcePlan,
-  runtime: InMemoryFirestoreSqlRuntime,
-): Record<string, FirestoreSqlDocumentData> {
-  const project = runtime.projects[source.projectId] ??= {};
-  const collectionPath = source.collectionPath ?? source.alias ?? 'documents';
-  return project[collectionPath] ??= {};
-}
-
-function emptyWriteRow(source: SourcePlan): WorkingRow {
-  const collectionPath = source.collectionPath ?? source.alias ?? 'documents';
-  const doc: DocumentRef = {
-    collectionPath,
-    data: {},
-    id: '',
-    projectId: source.projectId,
-  };
-  return {
-    context: { [sourceAlias(source)]: doc },
-    primary: doc,
-  };
-}
-
-function evaluateExpression(expression: FirestoreSqlExpression, row: WorkingRow): unknown {
+function evaluateExpression(
+  expression: FirestoreSqlExpression | undefined,
+  row: WorkingRow,
+): unknown {
+  if (!expression) return undefined;
   switch (expression.kind) {
     case 'array':
     case 'tuple':
@@ -471,7 +751,7 @@ function evaluateExpression(expression: FirestoreSqlExpression, row: WorkingRow)
       return undefined;
     }
     case 'wildcard':
-      return row.primary.data;
+      return row.primary?.data ?? {};
   }
 }
 
@@ -495,7 +775,7 @@ function evaluateBinary(
 
   switch (operator) {
     case '!=':
-      return left !== right;
+      return !sameValue(left, right);
     case '*':
       return Number(left) * Number(right);
     case '+':
@@ -509,19 +789,19 @@ function evaluateBinary(
     case '<=':
       return comparable(left) <= comparable(right);
     case '=':
-      return left === right;
+      return sameValue(left, right);
     case '>':
       return comparable(left) > comparable(right);
     case '>=':
       return comparable(left) >= comparable(right);
     case 'in':
-      return Array.isArray(right) && right.includes(left);
+      return Array.isArray(right) && right.some((item) => sameValue(item, left));
     case 'is':
-      return right === null ? left === null || left === undefined : left === right;
+      return right === null ? left === null || left === undefined : sameValue(left, right);
     case 'is not':
-      return right === null ? left !== null && left !== undefined : left !== right;
+      return right === null ? left !== null && left !== undefined : !sameValue(left, right);
     case 'not in':
-      return Array.isArray(right) && !right.includes(left);
+      return Array.isArray(right) && !right.some((item) => sameValue(item, left));
     default:
       return undefined;
   }
@@ -533,27 +813,52 @@ function evaluateCall(
   row: WorkingRow,
 ): unknown {
   const normalizedName = name.toLowerCase();
-  if (normalizedName === 'id') return documentForArg(args[0], row)?.id;
-  if (normalizedName === 'path') {
-    const doc = documentForArg(args[0], row);
-    return doc ? `${doc.collectionPath}/${doc.id}` : undefined;
+  if (normalizedName === 'array_contains') {
+    const haystack = evaluateExpression(args[0], row);
+    const needle = evaluateExpression(args[1], row);
+    return Array.isArray(haystack) && haystack.some((item) => sameValue(item, needle));
   }
-  if (normalizedName === 'project_id') return documentForArg(args[0], row)?.projectId;
-  if (normalizedName === 'now' || normalizedName === 'server_timestamp') {
-    return new Date().toISOString();
+  if (normalizedName === 'array_contains_any') {
+    const haystack = evaluateExpression(args[0], row);
+    const needles = evaluateExpression(args[1], row);
+    return Array.isArray(haystack)
+      && Array.isArray(needles)
+      && needles.some((needle) => haystack.some((item) => sameValue(item, needle)));
   }
+  if (normalizedName === 'coalesce') {
+    return args.map((arg) => evaluateExpression(arg, row)).find((value) =>
+      value !== null && value !== undefined
+    );
+  }
+  if (normalizedName === 'concat') {
+    return args.map((arg) => String(evaluateExpression(arg, row) ?? '')).join('');
+  }
+  if (normalizedName === 'exists') return evaluateExpression(args[0], row) !== undefined;
   if (normalizedName === 'field_path') {
     return args.map((arg) => evaluateExpression(arg, row)).join('.');
   }
+  if (normalizedName === 'id' || normalizedName === 'key') {
+    return sourceValueForArg(args[0], row)?.id;
+  }
+  if (normalizedName === 'int') return Math.trunc(Number(evaluateExpression(args[0], row)));
+  if (normalizedName === 'double') return Number(evaluateExpression(args[0], row));
+  if (normalizedName === 'lower') {
+    return String(evaluateExpression(args[0], row) ?? '').toLowerCase();
+  }
+  if (normalizedName === 'missing') return evaluateExpression(args[0], row) === undefined;
+  if (normalizedName === 'now') return new Date().toISOString();
+  if (normalizedName === 'parent_path') return parentPath(sourceValueForArg(args[0], row));
+  if (normalizedName === 'parent_ref') return parentPath(sourceValueForArg(args[0], row));
+  if (normalizedName === 'path' || normalizedName === 'ref') {
+    return sourceValuePath(sourceValueForArg(args[0], row));
+  }
+  if (normalizedName === 'project_id') return sourceValueProjectId(sourceValueForArg(args[0], row));
+  if (normalizedName === 'round') return Math.round(Number(evaluateExpression(args[0], row)));
+  if (normalizedName === 'upper') {
+    return String(evaluateExpression(args[0], row) ?? '').toUpperCase();
+  }
+  if (normalizedName === 'value') return sourceValueRaw(sourceValueForArg(args[0], row));
   return undefined;
-}
-
-function documentForArg(
-  arg: FirestoreSqlExpression | undefined,
-  row: WorkingRow,
-): DocumentRef | undefined {
-  if (!arg || arg.kind !== 'fieldPath' || arg.parts.length !== 1) return undefined;
-  return row.context[arg.parts[0]?.text ?? ''];
 }
 
 function evaluateFieldPath(parts: readonly FieldSegment[], row: WorkingRow): unknown {
@@ -561,73 +866,187 @@ function evaluateFieldPath(parts: readonly FieldSegment[], row: WorkingRow): unk
   if (!first) return undefined;
 
   if (first in row.context) {
-    const doc = row.context[first];
-    return doc ? getNested(doc.data, parts.slice(1).map((part) => part.text)) : undefined;
+    const source = row.context[first];
+    if (!source) return undefined;
+    if (parts.length === 1) return source;
+    return getNested(source.data, parts.slice(1).map((part) => part.text));
   }
 
-  const primaryAliases = Object.values(row.context).filter((doc) => doc === row.primary);
-  if (primaryAliases.length > 0) return getNested(row.primary.data, parts.map((part) => part.text));
-  return undefined;
+  return row.primary ? getNested(row.primary.data, parts.map((part) => part.text)) : undefined;
 }
 
-function assignmentPath(
-  expression: FirestoreSqlExpression,
-  targetAlias: string,
-  row: WorkingRow,
-): readonly string[] {
-  if (expression.kind === 'fieldPath') {
-    const parts = expression.parts.map((part) => part.text);
-    return parts[0] === targetAlias ? parts.slice(1) : parts;
-  }
-  if (expression.kind === 'call' && expression.name.toLowerCase() === 'field_path') {
-    return expression.args.map((arg) => String(evaluateExpression(arg, row)));
-  }
-  return [];
+function mergeRows(
+  left: WorkingRow,
+  right: WorkingRow,
+  alias: string,
+  kind: 'join' | 'local',
+): WorkingRow {
+  const rightValue = right.context[alias] ?? right.primary;
+  return {
+    context: { ...left.context, [alias]: rightValue },
+    lineage: {
+      ...appendLineage(left.lineage, alias, kind),
+      readContribution: left.lineage.readContribution + right.lineage.readContribution,
+    },
+    primary: left.primary,
+  };
 }
 
-function getNested(value: unknown, path: readonly string[]): unknown {
-  let current = value;
-  for (const part of path) {
-    if (!isRecord(current)) return undefined;
-    current = current[part];
-  }
-  return current;
+function appendLineage(
+  lineage: FirestoreSqlRowLineage,
+  alias: string,
+  kind: 'join' | 'local',
+): FirestoreSqlRowLineage {
+  return kind === 'join'
+    ? { ...lineage, joinedSources: [...lineage.joinedSources, alias] }
+    : { ...lineage, localSources: [...lineage.localSources, alias] };
 }
 
-function setNested(
-  target: FirestoreSqlDocumentData,
-  path: readonly string[],
-  value: unknown,
-): void {
-  if (path.length === 0) return;
-  let current: Record<string, unknown> = target;
-  for (const part of path.slice(0, -1)) {
-    const next = current[part];
-    if (!isRecord(next)) current[part] = {};
-    current = current[part] as Record<string, unknown>;
-  }
-  const last = path.at(-1);
-  if (last) current[last] = value;
+function normalizeRuntime(
+  runtime: FirestoreSqlRuntime | InMemoryFirestoreSqlRuntime,
+): FirestoreSqlRuntime {
+  if ('readCollection' in runtime) return runtime;
+  return new InMemoryFirestoreSqlRuntimeAdapter(runtime.projects);
 }
 
-function unsupportedDiagnostic(stages: readonly PlanStage[]): AnalysisDiagnostic | undefined {
-  for (const stage of stages) {
+export class InMemoryFirestoreSqlRuntimeAdapter implements FirestoreSqlRuntime {
+  constructor(private readonly projects: FirestoreSqlRuntimeProjects) {}
+
+  async *readCollection(
+    request: FirestoreSqlReadRequest & {
+      readonly collectionPath: string;
+    },
+  ): AsyncIterable<FirestoreSqlRuntimeDocument> {
+    const documents = this.projects[request.projectId]?.[request.collectionPath] ?? {};
+    for (const [id, data] of Object.entries(documents)) {
+      yield {
+        collectionPath: request.collectionPath,
+        data,
+        id,
+        path: `${request.collectionPath}/${id}`,
+        projectId: request.projectId,
+      };
+    }
+  }
+
+  async *readCollectionGroup(
+    request: FirestoreSqlReadRequest & {
+      readonly collectionGroup: string;
+    },
+  ): AsyncIterable<FirestoreSqlRuntimeDocument> {
+    const project = this.projects[request.projectId] ?? {};
+    for (const [collectionPath, documents] of Object.entries(project)) {
+      if (lastPathSegment(collectionPath) !== request.collectionGroup) continue;
+      for (const [id, data] of Object.entries(documents)) {
+        yield {
+          collectionPath,
+          data,
+          id,
+          path: `${collectionPath}/${id}`,
+          projectId: request.projectId,
+        };
+      }
+    }
+  }
+
+  async *readSubcollection(request: FirestoreSqlSubcollectionRequest): AsyncIterable<
+    FirestoreSqlRuntimeDocument
+  > {
+    const collectionPath = `${documentPath(request.parent)}/${request.name}`;
+    const documents = this.projects[request.parent.projectId]?.[collectionPath] ?? {};
+    for (const [id, data] of Object.entries(documents)) {
+      yield {
+        collectionPath,
+        data,
+        id,
+        path: `${collectionPath}/${id}`,
+        projectId: request.parent.projectId,
+      };
+    }
+  }
+
+  async listSubcollections(
+    parent: FirestoreSqlRuntimeDocument,
+  ): Promise<ReadonlyArray<FirestoreSqlRuntimeCollection>> {
+    const prefix = `${documentPath(parent)}/`;
+    const project = this.projects[parent.projectId] ?? {};
+    return Object.keys(project)
+      .filter((path) => path.startsWith(prefix))
+      .map((path) => path.slice(prefix.length).split('/')[0])
+      .filter((id): id is string => Boolean(id))
+      .filter((id, index, all) => all.indexOf(id) === index)
+      .map((id) => ({
+        id,
+        parentPath: documentPath(parent),
+        path: `${prefix}${id}`,
+        projectId: parent.projectId,
+      }));
+  }
+}
+
+async function* finishExecution(stats: MutableExecutionStats): AsyncIterable<ExecutionEvent> {
+  const snapshot = snapshotStats(stats);
+  if (stats.stoppedReason === 'cancelled') {
+    yield { kind: 'cancelled', stats: snapshot };
+    return;
+  }
+  yield {
+    kind: 'completed',
+    stats: snapshot,
+    ...(stats.stoppedReason && stats.stoppedReason !== 'completed'
+      ? { stoppedReason: stats.stoppedReason }
+      : {}),
+  };
+}
+
+function controlsFor(
+  stages: readonly PlanStage[],
+  options: FirestoreSqlExecutionOptions,
+  stats: MutableExecutionStats,
+): ExecutionControls {
+  const execution = stages.find((stage) => stage.kind === 'execution')?.execution ?? {};
+  const readBudget = options.readBudget ?? execution.readBudget ?? stats.readBudget;
+  stats.readBudget = readBudget;
+  return {
+    ...(execution.limit === undefined ? {} : { limit: execution.limit }),
+    pageSize: execution.pageSize ?? DEFAULT_PAGE_SIZE,
+    readBudget,
+    timeoutMs: options.timeoutMs ?? execution.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  };
+}
+
+function projectStage(stages: readonly PlanStage[]): ProjectPlanStage | undefined {
+  return stages.find((stage) => stage.kind === 'project') as ProjectPlanStage | undefined;
+}
+
+function unsupportedDiagnostic(plan: FirestoreSqlPlan): AnalysisDiagnostic | undefined {
+  if (plan.kind !== 'select' && plan.kind !== 'unionAll') {
+    return diagnostic(
+      'UNSUPPORTED_READ_COMMAND',
+      `${plan.kind} is not supported by the read-only SQL executor.`,
+    );
+  }
+  for (const stage of flattenStages(plan.stages)) {
     if (stage.kind === 'aggregate') {
-      return {
-        code: 'UNSUPPORTED_EXECUTION_STAGE',
-        message: 'aggregate stages are not executable by the mock executor yet.',
-        severity: 'error',
-      };
+      return diagnostic(
+        'UNSUPPORTED_AGGREGATION',
+        'Aggregation is not supported in this read release.',
+      );
     }
-    if (stage.kind === 'unionBranch') {
-      return {
-        code: 'UNSUPPORTED_EXECUTION_STAGE',
-        message: 'unionBranch stages are not executable by the mock executor yet.',
-        severity: 'error',
-      };
+    if (stage.kind === 'write') {
+      return diagnostic(
+        'UNSUPPORTED_READ_COMMAND',
+        'Writes are not supported by the read-only SQL executor.',
+      );
     }
   }
   return undefined;
+}
+
+function flattenStages(stages: readonly PlanStage[]): readonly PlanStage[] {
+  return stages.flatMap((stage) =>
+    stage.kind === 'unionBranch' ? [stage, ...flattenStages(stage.stages)] : [stage]
+  );
 }
 
 function readEvent(source: SourcePlan, count: number): ReadExecutionEvent {
@@ -641,7 +1060,14 @@ function readEvent(source: SourcePlan, count: number): ReadExecutionEvent {
 }
 
 function sourceAlias(source: SourcePlan): string {
-  return source.alias ?? source.collectionPath ?? source.collectionGroup ?? 'source';
+  return source.alias ?? source.collectionPath ?? source.collectionGroup ?? sourceNameFor(source);
+}
+
+function sourceNameFor(source: SourcePlan): string {
+  if (source.sourceKind === 'function') {
+    return (source.functionName ?? source.alias ?? 'source').toLowerCase();
+  }
+  return source.collectionPath ?? source.alias ?? 'source';
 }
 
 function columnName(column: SelectColumn, index: number): string {
@@ -657,27 +1083,57 @@ function applyLimit<T>(items: readonly T[], limit: number | undefined): readonly
   return limit === undefined ? items : items.slice(0, limit);
 }
 
-function incrementReads(stats: MutableExecutionStats, projectId: string): void {
+function incrementReads(
+  stats: MutableExecutionStats,
+  projectId: string,
+  readBudget: number,
+): void {
   stats.reads += 1;
   stats.rowsScanned += 1;
   stats.perProjectReads[projectId] = (stats.perProjectReads[projectId] ?? 0) + 1;
+  if (stats.reads >= readBudget) stats.stoppedReason = 'budget';
+}
+
+function shouldStop(
+  stats: MutableExecutionStats,
+  options: FirestoreSqlExecutionOptions,
+  startedAt: number,
+): boolean {
+  if (stats.stoppedReason) return true;
+  if (options.signal?.aborted) {
+    stats.stoppedReason = 'cancelled';
+    return true;
+  }
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (Date.now() - startedAt > timeoutMs) {
+    stats.stoppedReason = 'timeout';
+    return true;
+  }
+  return false;
+}
+
+function isStopped(stats: MutableExecutionStats): boolean {
+  return Boolean(stats.stoppedReason);
 }
 
 function snapshotStats(stats: MutableExecutionStats): ExecutionStats {
   return {
     joinMisses: stats.joinMisses,
     perProjectReads: { ...stats.perProjectReads },
+    readBudget: stats.readBudget,
     reads: stats.reads,
     rowsOutput: stats.rowsOutput,
     rowsScanned: stats.rowsScanned,
+    ...(stats.stoppedReason ? { stoppedReason: stats.stoppedReason } : {}),
     writes: stats.writes,
   };
 }
 
-function createStats(): MutableExecutionStats {
+function createStats(readBudget: number): MutableExecutionStats {
   return {
     joinMisses: 0,
     perProjectReads: {},
+    readBudget,
     reads: 0,
     rowsOutput: 0,
     rowsScanned: 0,
@@ -685,12 +1141,98 @@ function createStats(): MutableExecutionStats {
   };
 }
 
-function generatedDocumentId(collection: Record<string, FirestoreSqlDocumentData>): string {
-  return `doc_${Object.keys(collection).length + 1}`;
+function diagnostic(code: string, message: string): AnalysisDiagnostic {
+  return { code, message, severity: 'error' };
+}
+
+function sourceValueForArg(
+  arg: FirestoreSqlExpression | undefined,
+  row: WorkingRow,
+): RuntimeSourceValue | undefined {
+  if (!arg || arg.kind !== 'fieldPath' || arg.parts.length !== 1) return undefined;
+  return row.context[arg.parts[0]?.text ?? ''];
+}
+
+function documentForValue(value: unknown): RuntimeDocumentValue | undefined {
+  if (isRuntimeSourceValue(value) && value.kind === 'document') return value;
+  return undefined;
+}
+
+function documentPath(document: FirestoreSqlRuntimeDocument): string {
+  return document.path ?? `${document.collectionPath}/${document.id}`;
+}
+
+function sourceValuePath(value: RuntimeSourceValue | undefined): string | undefined {
+  if (!value) return undefined;
+  if (value.kind === 'document') return value.path;
+  if (value.kind === 'subcollection') return value.path;
+  return undefined;
+}
+
+function parentPath(value: RuntimeSourceValue | undefined): string | undefined {
+  if (!value) return undefined;
+  if (value.kind === 'subcollection') return value.parentPath;
+  if (value.kind === 'document') return value.collectionPath.split('/').slice(0, -1).join('/');
+  return undefined;
+}
+
+function sourceValueRaw(value: RuntimeSourceValue | undefined): unknown {
+  if (!value) return undefined;
+  if (value.kind === 'document' || value.kind === 'subcollection') return value.data;
+  return value.value;
+}
+
+function sourceValueProjectId(value: RuntimeSourceValue | undefined): string | undefined {
+  if (!value) return undefined;
+  if (value.kind === 'document' || value.kind === 'subcollection') return value.projectId;
+  return undefined;
+}
+
+function getNested(value: unknown, path: readonly string[]): unknown {
+  let current = value;
+  for (const part of path) {
+    if (!isRecord(current)) return undefined;
+    current = current[part];
+  }
+  return current;
 }
 
 function comparable(value: unknown): number | string {
-  return typeof value === 'number' || typeof value === 'string' ? value : String(value);
+  if (typeof value === 'number' || typeof value === 'string') return value;
+  if (value instanceof Date) return value.toISOString();
+  if (isRecord(value) && typeof value['isoString'] === 'string') return value['isoString'];
+  return String(value);
+}
+
+function compareValues(left: unknown, right: unknown): number {
+  const comparableLeft = comparable(left);
+  const comparableRight = comparable(right);
+  if (comparableLeft < comparableRight) return -1;
+  if (comparableLeft > comparableRight) return 1;
+  return 0;
+}
+
+function sameValue(left: unknown, right: unknown): boolean {
+  if (isRuntimeSourceValue(left)) return sameValue(sourceValueRaw(left), right);
+  if (isRuntimeSourceValue(right)) return sameValue(left, sourceValueRaw(right));
+  if (isRecord(left) && typeof left['path'] === 'string' && typeof right === 'string') {
+    return left['path'] === right;
+  }
+  if (isRecord(right) && typeof right['path'] === 'string' && typeof left === 'string') {
+    return right['path'] === left;
+  }
+  return left === right;
+}
+
+function requiredParent(row: WorkingRow | undefined): WorkingRow {
+  if (!row) {
+    return {
+      context: {},
+      lineage: { joinedSources: [], localSources: [], readContribution: 0 },
+      primary: undefined,
+    };
+  }
+  return row;
 }
 
 function lastPathSegment(path: string): string {
@@ -699,6 +1241,11 @@ function lastPathSegment(path: string): string {
 
 function truthy(value: unknown): boolean {
   return Boolean(value);
+}
+
+function isRuntimeSourceValue(value: unknown): value is RuntimeSourceValue {
+  return isRecord(value) && typeof value['kind'] === 'string'
+    && ['document', 'entry', 'scalar', 'subcollection'].includes(value['kind']);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

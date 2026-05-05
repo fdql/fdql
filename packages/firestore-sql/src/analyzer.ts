@@ -173,6 +173,7 @@ function analyzeSelect(statement: SelectStatement, state: AnalysisState): Map<st
   for (const join of statement.joins) {
     analyzeSource(join.source, state, aliases);
     addSourceAlias(join.source, state, aliases);
+    validateJoinSource(join, state);
     if (join.condition) analyzeExpression(join.condition, state, aliases, 'read');
   }
 
@@ -196,6 +197,7 @@ function analyzeDelete(statement: DeleteStatement, state: AnalysisState): void {
   for (const join of statement.joins) {
     analyzeSource(join.source, state, aliases);
     addSourceAlias(join.source, state, aliases);
+    validateJoinSource(join, state);
     if (join.condition) analyzeExpression(join.condition, state, aliases, 'read');
   }
 
@@ -205,6 +207,7 @@ function analyzeDelete(statement: DeleteStatement, state: AnalysisState): void {
     for (const join of statement.using.joins) {
       analyzeSource(join.source, state, aliases);
       addSourceAlias(join.source, state, aliases);
+      validateJoinSource(join, state);
       if (join.condition) analyzeExpression(join.condition, state, aliases, 'read');
     }
   }
@@ -227,6 +230,7 @@ function analyzeUpdate(statement: UpdateStatement, state: AnalysisState): void {
     for (const join of statement.from.joins) {
       analyzeSource(join.source, state, aliases);
       addSourceAlias(join.source, state, aliases);
+      validateJoinSource(join, state);
       if (join.condition) analyzeExpression(join.condition, state, aliases, 'read');
     }
   }
@@ -237,6 +241,19 @@ function analyzeUpdate(statement: UpdateStatement, state: AnalysisState): void {
 
   for (const assignment of statement.set) analyzeAssignment(assignment, state, aliases);
   if (statement.where) analyzeExpression(statement.where, state, aliases, 'read');
+}
+
+function validateJoinSource(
+  join: { readonly source: FirestoreSqlSource; readonly type: string; },
+  state: AnalysisState,
+): void {
+  if (join.type !== 'cross') return;
+  if (isLocalExpansionSource(join.source)) return;
+  addDiagnostic(
+    state,
+    'CROSS_JOIN_REQUIRES_LOCAL_SOURCE',
+    'cross join is only supported for local source expansion.',
+  );
 }
 
 function analyzeInsert(statement: InsertStatement, state: AnalysisState): void {
@@ -496,6 +513,12 @@ function isDocumentSource(source: FirestoreSqlSource): boolean {
   if (source.kind === 'project') return isDocumentSource(source.source);
   if (source.kind === 'collection') return true;
   return !['entries', 'subcollections', 'unnest'].includes(source.name.toLowerCase());
+}
+
+function isLocalExpansionSource(source: FirestoreSqlSource): boolean {
+  const inner = source.kind === 'project' ? source.source : source;
+  return inner.kind === 'function'
+    && ['entries', 'subcollection', 'subcollections', 'unnest'].includes(inner.name.toLowerCase());
 }
 
 function isCollectionPath(value: string): boolean {

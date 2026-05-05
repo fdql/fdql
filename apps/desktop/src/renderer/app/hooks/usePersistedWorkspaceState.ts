@@ -1,4 +1,4 @@
-import type { FirestoreQueryDraft } from '@firebase-desk/repo-contracts';
+import type { FirestoreQueryDraft, FirestoreSqlContext } from '@firebase-desk/repo-contracts';
 import type { SettingsRepository } from '@firebase-desk/repo-contracts';
 import { useEffect, useRef, useState } from 'react';
 import { restoreWorkspaceTabsCommand } from '../../app-core/workspace/workspaceCommands.ts';
@@ -15,6 +15,8 @@ export interface PersistedWorkspaceSnapshot {
   readonly authFilter?: string | undefined;
   readonly drafts?: Readonly<Record<string, FirestoreQueryDraft>> | undefined;
   readonly scripts?: Readonly<Record<string, string>> | undefined;
+  readonly sqlContexts?: Readonly<Record<string, FirestoreSqlContext>> | undefined;
+  readonly sqlSources?: Readonly<Record<string, string>> | undefined;
 }
 
 export interface PersistedWorkspaceStateResult {
@@ -26,6 +28,8 @@ export interface WorkspacePersistenceSnapshot {
   readonly authFilter: string;
   readonly drafts: Readonly<Record<string, FirestoreQueryDraft>>;
   readonly scripts: Readonly<Record<string, string>>;
+  readonly sqlContexts?: Readonly<Record<string, FirestoreSqlContext>> | undefined;
+  readonly sqlSources?: Readonly<Record<string, string>> | undefined;
   readonly tabsState: TabsState;
 }
 

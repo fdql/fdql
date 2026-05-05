@@ -42,6 +42,7 @@ const TREE_NODE_KIND = {
   firestore: 'firestore',
   project: 'project',
   script: 'script',
+  sql: 'sql',
   status: 'status',
 } as const;
 export const DEFAULT_FIRESTORE_DRAFT: FirestoreQueryDraft = {
@@ -132,6 +133,16 @@ export function buildTreeItems(
       secondary: 'SDK',
       selected: selectedId === scriptNodeId(project.id),
     });
+    items.push({
+      id: sqlNodeId(project.id),
+      kind: 'sql',
+      label: 'Firestore SQL',
+      depth: 1,
+      hasChildren: false,
+      expanded: false,
+      secondary: 'read-only',
+      selected: selectedId === sqlNodeId(project.id),
+    });
   }
   const filter = filterValue.trim().toLowerCase();
   if (!filter) return items;
@@ -210,6 +221,7 @@ export function resolveProject(
 export function treeItemIdForTab(tab: WorkspaceTab): string {
   if (tab.kind === 'auth-users') return authNodeId(tab.connectionId);
   if (tab.kind === 'js-query') return scriptNodeId(tab.connectionId);
+  if (tab.kind === 'firestore-sql') return sqlNodeId(tab.connectionId);
   return collectionNodeId(tab.connectionId, normalizePath(activePath(tab)));
 }
 
@@ -241,6 +253,10 @@ export function scriptNodeId(projectId: string): string {
   return treeNodeId(TREE_NODE_KIND.script, projectId);
 }
 
+export function sqlNodeId(projectId: string): string {
+  return treeNodeId(TREE_NODE_KIND.sql, projectId);
+}
+
 export function collectionNodeId(projectId: string, path: string): string {
   return treeNodeId(TREE_NODE_KIND.collection, projectId, path);
 }
@@ -264,6 +280,7 @@ export function actionLabelForTreeItem(kind: string, path?: string): string {
   if (kind === 'collection') return `Opened ${path ?? 'collection'}`;
   if (kind === 'auth') return 'Opened Authentication';
   if (kind === 'script') return 'Opened JavaScript Query';
+  if (kind === 'sql') return 'Opened Firestore SQL';
   if (kind === 'project') return 'Selected account';
   if (kind === 'firestore') return 'Selected Firestore';
   return 'Selected tree item';

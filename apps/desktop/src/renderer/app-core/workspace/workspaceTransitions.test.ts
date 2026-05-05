@@ -48,6 +48,7 @@ describe('workspace transitions', () => {
       'tab-firestore',
       'tab-auth',
       'tab-js',
+      'tab-sql',
       'tab-firestore-2',
     ]);
   });
@@ -62,7 +63,7 @@ describe('workspace transitions', () => {
     );
 
     expect(result.tabId).toBe('tab-firestore');
-    expect(result.state.tabs).toHaveLength(3);
+    expect(result.state.tabs).toHaveLength(4);
   });
 
   it('closes active and bulk tabs predictably', () => {
@@ -72,7 +73,7 @@ describe('workspace transitions', () => {
       'tab-js-query-1',
     ).state;
 
-    expect(tabClosed(opened, 'tab-js-query-1').activeTabId).toBe('tab-js');
+    expect(tabClosed(opened, 'tab-js-query-1').activeTabId).toBe('tab-sql');
     expect(tabsToLeftClosed(opened, 'tab-js-query-1').tabs.map((tab) => tab.id)).toEqual([
       'tab-js-query-1',
     ]);
@@ -92,6 +93,7 @@ describe('workspace transitions', () => {
 
     expect(tabsReordered(state, 'tab-js', 'tab-firestore').tabs[0]?.id).toBe('tab-js');
     expect(tabsSortedByProject(state).tabs.map((tab) => tab.connectionId)).toEqual([
+      'emu',
       'emu',
       'emu',
       'emu',
@@ -139,7 +141,7 @@ describe('workspace transitions', () => {
       path: 'orders',
       selectedTreeItemId: 'collection:emu:orders',
     });
-    expect(result.state.tabs).toHaveLength(3);
+    expect(result.state.tabs).toHaveLength(4);
   });
 
   it('normalizes restored tabs and interaction history', () => {

@@ -562,6 +562,9 @@ importers:
       '@firebase-desk/data-format':
         specifier: workspace:*
         version: link:../data-format
+      '@firebase-desk/firestore-sql':
+        specifier: workspace:*
+        version: link:../firestore-sql
       '@firebase-desk/repo-contracts':
         specifier: workspace:*
         version: link:../repo-contracts
@@ -578,6 +581,9 @@ importers:
       '@firebase-desk/config-vitest':
         specifier: workspace:*
         version: link:../config-vitest
+      '@types/node':
+        specifier: 24.12.2
+        version: 24.12.2
       oxlint:
         specifier: 1.62.0
         version: 1.62.0
@@ -593,6 +599,9 @@ importers:
       '@firebase-desk/data-format':
         specifier: workspace:*
         version: link:../data-format
+      '@firebase-desk/firestore-sql':
+        specifier: workspace:*
+        version: link:../firestore-sql
       '@firebase-desk/repo-contracts':
         specifier: workspace:*
         version: link:../repo-contracts
@@ -606,6 +615,9 @@ importers:
       '@firebase-desk/config-vitest':
         specifier: workspace:*
         version: link:../config-vitest
+      '@types/node':
+        specifier: 24.12.2
+        version: 24.12.2
       oxlint:
         specifier: 1.62.0
         version: 1.62.0

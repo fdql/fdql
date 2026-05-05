@@ -11,19 +11,36 @@ import {
 
 const context = {
   defaultProjectId: 'local',
+  executionDefaults: {
+    pageSize: 100,
+    readBudget: 5000,
+    timeoutMs: 60_000,
+  },
   projectAliases: {
     prod: 'prod-project',
     staging: 'staging-project',
   },
 };
 
-describe('Firestore SQL mock executor', () => {
+describe('Firestore SQL read executor', () => {
   it('streams rows for select star', async () => {
     const events = await execute('select * from orders o');
 
     expect(rows(events)).toEqual([
-      { status: 'paid', total: 125, userId: 'usr_1' },
-      { status: 'test', total: 5, userId: 'usr_2' },
+      {
+        items: [{ price: 100, sku: 'sku_keyboard' }, { price: 25, sku: 'sku_shipping' }],
+        rounds: { round_1: { description: 'Packed' }, round_2: { description: 'Shipped' } },
+        status: 'paid',
+        total: 125,
+        userId: 'usr_1',
+      },
+      {
+        items: [{ price: 5, sku: 'sku_cable' }],
+        rounds: {},
+        status: 'test',
+        total: 5,
+        userId: 'usr_2',
+      },
       { status: 'paid', total: 80, userId: 'missing' },
     ]);
     expect(completed(events)).toMatchObject({
@@ -33,19 +50,25 @@ describe('Firestore SQL mock executor', () => {
     });
   });
 
-  it('filters with comparisons and boolean expressions', async () => {
+  it('filters with comparisons, in, null checks, and boolean expressions', async () => {
     const events = await execute(`select id(o) as orderId
 from orders o
-where o.status = "paid" and (o.total > 100 or o.userId = "missing")`);
+where o.status in ("paid", "closed") and o.deletedAt is null and o.total >= 80`);
 
     expect(rows(events)).toEqual([{ orderId: 'ord_1024' }, { orderId: 'ord_1026' }]);
   });
 
-  it('honors limit clauses', async () => {
-    const events = await execute('select id(o) as orderId from orders o limit 1');
+  it('honors order and limit clauses', async () => {
+    const events = await execute(`select id(o) as orderId, o.total as total
+from orders o
+order by o.total desc
+limit 2`);
 
-    expect(rows(events)).toEqual([{ orderId: 'ord_1024' }]);
-    expect(completed(events)).toMatchObject({ rowsOutput: 1 });
+    expect(rows(events)).toEqual([
+      { orderId: 'ord_1024', total: 125 },
+      { orderId: 'ord_1026', total: 80 },
+    ]);
+    expect(completed(events)).toMatchObject({ rowsOutput: 2 });
   });
 
   it('projects metadata fields', async () => {
@@ -74,53 +97,100 @@ where o.status = "paid"`);
     expect(completed(events)).toMatchObject({ joinMisses: 1 });
   });
 
-  it('tracks cross-project reads', async () => {
-    const events = await execute('select id(o) as orderId from project($prod).orders o');
+  it('executes top-level union all with branch lineage', async () => {
+    const events = await execute(`select id(o) as orderId, "local" as source
+from orders o
+where o.status = "test"
+union all
+select id(o) as orderId, "prod" as source
+from project($prod).orders o`);
 
-    expect(rows(events)).toEqual([{ orderId: 'prod_900' }, { orderId: 'prod_901' }]);
-    expect(completed(events)).toMatchObject({
-      perProjectReads: { 'prod-project': 2 },
-      reads: 2,
+    expect(rows(events)).toEqual([
+      { orderId: 'ord_1025', source: 'local' },
+      { orderId: 'prod_900', source: 'prod' },
+      { orderId: 'prod_901', source: 'prod' },
+    ]);
+    expect(rowEvents(events).map((event) => event.lineage.unionBranch)).toEqual([0, 1, 1]);
+  });
+
+  it('expands arrays with cross join unnest', async () => {
+    const events = await execute(`select id(o) as orderId, item.sku as sku
+from orders o
+cross join unnest(o.items) item
+where id(o) = "ord_1024"`);
+
+    expect(rows(events)).toEqual([
+      { orderId: 'ord_1024', sku: 'sku_keyboard' },
+      { orderId: 'ord_1024', sku: 'sku_shipping' },
+    ]);
+  });
+
+  it('expands maps with entries', async () => {
+    const events = await execute(`select key(r) as roundId, r.description as description
+from orders o
+cross join entries(o.rounds) r
+where id(o) = "ord_1024"`);
+
+    expect(rows(events)).toEqual([
+      { description: 'Packed', roundId: 'round_1' },
+      { description: 'Shipped', roundId: 'round_2' },
+    ]);
+  });
+
+  it('reads direct subcollections and collection groups', async () => {
+    const subcollection = await execute(`select id(e) as eventId, e.type as type
+from orders o
+cross join subcollection(o, "events") e
+where id(o) = "ord_1024"`);
+    const collectionGroup = await execute(
+      'select id(e) as eventId, path(e) as eventPath from collection_group("events") e',
+    );
+
+    expect(rows(subcollection)).toEqual([
+      { eventId: 'evt_created', type: 'created' },
+      { eventId: 'evt_paid', type: 'paid' },
+    ]);
+    expect(rows(collectionGroup)).toContainEqual({
+      eventId: 'evt_paid',
+      eventPath: 'orders/ord_1024/events/evt_paid',
     });
   });
 
-  it('deletes matching in-memory fixture documents', async () => {
-    const runtime = createRuntime();
-    const events = await execute('delete from orders o where o.status = "test"', runtime);
+  it('discovers direct subcollections', async () => {
+    const events = await execute(`select id(sc) as id, path(sc) as path
+from orders o
+cross join subcollections(o) sc
+where id(o) = "ord_1024"`);
 
-    expect(runtime.projects.local?.orders).not.toHaveProperty('ord_1025');
-    expect(completed(events)).toMatchObject({ rowsScanned: 3, writes: 1 });
+    expect(rows(events)).toEqual([{ id: 'events', path: 'orders/ord_1024/events' }]);
   });
 
-  it('updates matching in-memory fixture documents', async () => {
-    const runtime = createRuntime();
-    const events = await execute(
-      'update orders o set archived = true where id(o) = "ord_1024"',
-      runtime,
-    );
+  it('stops with partial rows when read budget is reached', async () => {
+    const events = await execute('select id(o) as orderId from orders o', createRuntime(), {
+      readBudget: 2,
+    });
 
-    expect(runtime.projects.local?.orders?.ord_1024).toMatchObject({ archived: true });
-    expect(completed(events)).toMatchObject({ writes: 1 });
+    expect(rows(events)).toEqual([{ orderId: 'ord_1024' }, { orderId: 'ord_1025' }]);
+    expect(completedEvent(events)?.stoppedReason).toBe('budget');
   });
 
-  it('inserts values into in-memory fixture collections', async () => {
-    const runtime = createRuntime();
-    const events = await execute(
-      'insert into tags(@id, name, kind) on conflict fail values ("tag_vip", "VIP", "customer")',
-      runtime,
-    );
+  it('emits cancelled when the abort signal is already cancelled', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const events = await execute('select id(o) as orderId from orders o', createRuntime(), {
+      signal: controller.signal,
+    });
 
-    expect(runtime.projects.local?.tags?.tag_vip).toEqual({ kind: 'customer', name: 'VIP' });
-    expect(completed(events)).toMatchObject({ writes: 1 });
+    expect(events.map((event) => event.kind)).toContain('cancelled');
   });
 
-  it('emits failed for unsupported planned stages', async () => {
+  it('emits failed for unsupported aggregation', async () => {
     const events = await execute('select count(*) as total from orders o');
 
     expect(events).toContainEqual({
       diagnostic: {
-        code: 'UNSUPPORTED_EXECUTION_STAGE',
-        message: 'aggregate stages are not executable by the mock executor yet.',
+        code: 'UNSUPPORTED_AGGREGATION',
+        message: 'Aggregation is not supported in this read release.',
         severity: 'error',
       },
       kind: 'failed',
@@ -131,9 +201,10 @@ where o.status = "paid"`);
 async function execute(
   sql: string,
   runtime: InMemoryFirestoreSqlRuntime = createRuntime(),
+  options: Parameters<typeof executeFirestoreSql>[2] = {},
 ): Promise<readonly ExecutionEvent[]> {
   const events: ExecutionEvent[] = [];
-  for await (const event of executeFirestoreSql(plan(sql), runtime)) {
+  for await (const event of executeFirestoreSql(plan(sql), runtime, options)) {
     events.push(event);
   }
   return events;
@@ -153,15 +224,23 @@ function plan(sql: string): FirestoreSqlPlan {
   return planned.plan;
 }
 
+function rowEvents(events: readonly ExecutionEvent[]) {
+  return events.flatMap((event) => event.kind === 'row' ? [event] : []);
+}
+
 function rows(events: readonly ExecutionEvent[]): readonly Record<string, unknown>[] {
-  return events.flatMap((event) => event.kind === 'row' ? [event.row] : []);
+  return rowEvents(events).map((event) => event.row);
 }
 
 function completed(events: readonly ExecutionEvent[]) {
-  const event = events.find((item) => item.kind === 'completed');
+  const event = completedEvent(events);
   expect(event).toBeDefined();
-  if (!event || event.kind !== 'completed') throw new Error('Expected completed event.');
+  if (!event) throw new Error('Expected completed event.');
   return event.stats;
+}
+
+function completedEvent(events: readonly ExecutionEvent[]) {
+  return events.find((item) => item.kind === 'completed');
 }
 
 function createRuntime(): InMemoryFirestoreSqlRuntime {
@@ -169,11 +248,26 @@ function createRuntime(): InMemoryFirestoreSqlRuntime {
     projects: {
       local: {
         orders: {
-          ord_1024: { status: 'paid', total: 125, userId: 'usr_1' },
-          ord_1025: { status: 'test', total: 5, userId: 'usr_2' },
+          ord_1024: {
+            items: [{ price: 100, sku: 'sku_keyboard' }, { price: 25, sku: 'sku_shipping' }],
+            rounds: { round_1: { description: 'Packed' }, round_2: { description: 'Shipped' } },
+            status: 'paid',
+            total: 125,
+            userId: 'usr_1',
+          },
+          ord_1025: {
+            items: [{ price: 5, sku: 'sku_cable' }],
+            rounds: {},
+            status: 'test',
+            total: 5,
+            userId: 'usr_2',
+          },
           ord_1026: { status: 'paid', total: 80, userId: 'missing' },
         },
-        tags: {},
+        'orders/ord_1024/events': {
+          evt_created: { type: 'created' },
+          evt_paid: { type: 'paid' },
+        },
         users: {
           usr_1: { email: 'ada@example.com', tier: 'gold' },
           usr_2: { email: 'grace@example.com', tier: 'silver' },

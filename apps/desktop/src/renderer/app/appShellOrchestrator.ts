@@ -14,6 +14,9 @@ import type {
   FirestoreQueryDraft,
   FirestoreSaveDocumentOptions,
   FirestoreSaveDocumentResult,
+  FirestoreSqlCompileResult,
+  FirestoreSqlContext,
+  FirestoreSqlRunResult,
   FirestoreUpdateDocumentFieldsOptions,
   FirestoreUpdateDocumentFieldsResult,
   ProjectAddInput,
@@ -254,6 +257,7 @@ export interface AppShellOrchestratorInput {
   readonly focusAuthFilter: () => void;
   readonly focusTreeFilter: () => void;
   readonly jsTab: AppShellJsFacade;
+  readonly sqlTab?: AppShellSqlFacade | undefined;
   readonly jobs: AppShellJobsFacade;
   readonly lastAction: string;
   readonly layout: {
@@ -474,6 +478,40 @@ export interface AppShellJsFacade {
   readonly setScriptSource: (source: string) => void;
 }
 
+export interface AppShellSqlFacade {
+  readonly cancel: () => boolean;
+  readonly clearTab: (tabId: string) => void;
+  readonly compile: () => boolean;
+  readonly compileResult: FirestoreSqlCompileResult | undefined;
+  readonly context: FirestoreSqlContext;
+  readonly isRunning: boolean;
+  readonly isTabRunning: (tabId: string) => boolean;
+  readonly result: FirestoreSqlRunResult | undefined;
+  readonly run: () => boolean;
+  readonly runId: string | null;
+  readonly runStartedAt: number | null;
+  readonly setContext: (context: FirestoreSqlContext) => void;
+  readonly setSource: (source: string) => void;
+  readonly source: string;
+}
+
+const emptySqlFacade: AppShellSqlFacade = {
+  cancel: () => false,
+  clearTab: () => undefined,
+  compile: () => false,
+  compileResult: undefined,
+  context: {},
+  isRunning: false,
+  isTabRunning: () => false,
+  result: undefined,
+  run: () => false,
+  runId: null,
+  runStartedAt: null,
+  setContext: () => undefined,
+  setSource: () => undefined,
+  source: '',
+};
+
 export interface AppShellFirestoreTabFacade {
   readonly activeDraft: FirestoreQueryDraft;
   readonly clearTab: (tabId: string) => void;
@@ -531,6 +569,7 @@ export interface AppShellFirestoreWriteFacade {
 export function createAppShellController(
   input: AppShellOrchestratorInput,
 ): AppShellController {
+  const sqlTab = input.sqlTab ?? emptySqlFacade;
   const tabModels = input.tabsState.tabs.map((tab) => ({
     id: tab.id,
     kind: tab.kind,
@@ -763,6 +802,22 @@ export function createAppShellController(
     if (input.jsTab.cancelScript()) input.ui.setLastAction('Cancelled JavaScript query');
   }
 
+  function handleCompileSql() {
+    if (sqlTab.compile()) input.ui.setLastAction('Planned Firestore SQL');
+  }
+
+  function handleRunSql() {
+    if (sqlTab.isRunning) {
+      handleCancelSql();
+      return;
+    }
+    if (sqlTab.run()) input.ui.setLastAction('Ran Firestore SQL');
+  }
+
+  function handleCancelSql() {
+    if (sqlTab.cancel()) input.ui.setLastAction('Cancelled Firestore SQL');
+  }
+
   function openTab(kind: WorkspaceTabKind) {
     if (!input.activeTab || !input.activeProject) {
       input.ui.setLastAction('Choose a connection item first');
@@ -810,6 +865,7 @@ export function createAppShellController(
   function clearConnectionScopedTabState(tab: WorkspaceTab) {
     clearTabRuntimeState(tab);
     if (tab.kind === 'js-query') input.jsTab.clearTabRuntime(tab.id);
+    else if (tab.kind === 'firestore-sql') sqlTab.clearTab(tab.id);
     else input.jsTab.clearTab(tab.id);
     input.ui.clearAuthSelection();
     input.authTab.clear();
@@ -836,10 +892,12 @@ export function createAppShellController(
   function clearClosedTabRuntimeState(tab: WorkspaceTab) {
     clearTabRuntimeState(tab);
     input.jsTab.clearTab(tab.id);
+    sqlTab.clearTab(tab.id);
   }
 
   function isTabBusy(tab: WorkspaceTab): boolean {
     if (tab.kind === 'js-query') return input.jsTab.isTabRunning(tab.id);
+    if (tab.kind === 'firestore-sql') return sqlTab.isTabRunning(tab.id);
     if (tab.kind === 'firestore-query') return input.firestoreTab.isTabLoading(tab.id);
     if (tab.kind === 'auth-users') return input.authTab.isTabLoading(tab.id);
     return false;
@@ -850,6 +908,7 @@ export function createAppShellController(
     if (input.activeTab.kind === 'firestore-query') handleRunQuery();
     if (input.activeTab.kind === 'auth-users') input.authTab.refetch();
     if (input.activeTab.kind === 'js-query') handleRunScript();
+    if (input.activeTab.kind === 'firestore-sql') handleRunSql();
     input.ui.setLastAction(`Refreshed ${input.activeTab.title}`);
   }
 
@@ -892,6 +951,8 @@ export function createAppShellController(
       ? input.authTab.usersIsLoading
       : input.activeTab.kind === 'js-query'
       ? input.jsTab.isRunning
+      : input.activeTab.kind === 'firestore-sql'
+      ? sqlTab.isRunning
       : false
     : false;
 
@@ -982,6 +1043,20 @@ export function createAppShellController(
         settings: input.repositories.settings,
         source: input.jsTab.scriptSource,
       },
+      sql: {
+        compileResult: sqlTab.compileResult,
+        context: sqlTab.context,
+        isRunning: sqlTab.isRunning,
+        onCancel: handleCancelSql,
+        onCompile: handleCompileSql,
+        onRun: handleRunSql,
+        onSourceChange: sqlTab.setSource,
+        result: sqlTab.result,
+        runId: sqlTab.runId,
+        runStartedAt: sqlTab.runStartedAt,
+        onContextChange: sqlTab.setContext,
+        source: sqlTab.source,
+      },
     }
     : null;
 
@@ -992,6 +1067,7 @@ export function createAppShellController(
     onOpenTab: openTab,
     onRunQuery: handleRunQuery,
     onRunScript: handleRunScript,
+    onRunSql: handleRunSql,
     onSelectTab: input.tabs.selectTab,
     resolvedTheme: input.appearance.resolvedTheme,
     tabs: input.tabsState.tabs,

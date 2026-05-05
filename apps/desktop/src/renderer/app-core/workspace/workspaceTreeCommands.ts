@@ -60,6 +60,9 @@ export function openWorkspaceTreeItemCommand(
   if (item.kind === 'script' && item.connectionId) {
     return { target: toolTarget('js-query', item.connectionId, true) };
   }
+  if (item.kind === 'sql' && item.connectionId) {
+    return { target: toolTarget('firestore-sql', item.connectionId, true) };
+  }
   if (item.connectionId && item.path) {
     return {
       target: {
@@ -83,6 +86,9 @@ function selectTargetForTreeItem(
   }
   if (item.kind === 'script' && item.connectionId) {
     return toolTarget('js-query', item.connectionId, false);
+  }
+  if (item.kind === 'sql' && item.connectionId) {
+    return toolTarget('firestore-sql', item.connectionId, false);
   }
   if (item.kind === 'collection' && item.connectionId && item.path) {
     return {
@@ -108,7 +114,11 @@ function toolTarget(
     connectionId,
     kind,
     newTab,
-    path: kind === 'auth-users' ? 'auth/users' : 'scripts/default',
+    path: kind === 'auth-users'
+      ? 'auth/users'
+      : kind === 'js-query'
+      ? 'scripts/default'
+      : 'sql/default',
     type: 'open-tool',
   };
 }
@@ -117,6 +127,7 @@ function actionLabelForTreeItem(kind: string, path?: string): string {
   if (kind === 'collection') return `Opened ${path ?? 'collection'}`;
   if (kind === 'auth') return 'Opened Authentication';
   if (kind === 'script') return 'Opened JavaScript Query';
+  if (kind === 'sql') return 'Opened Firestore SQL';
   if (kind === 'project') return 'Selected account';
   if (kind === 'firestore') return 'Selected Firestore';
   return 'Selected tree item';
