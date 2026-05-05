@@ -29,9 +29,9 @@ try {
 
   await page.goto(`${baseUrl}/`);
   await expect(page.getByRole('heading', { name: 'Firebase Desk' })).toBeVisible();
-  const preview = page.frameLocator('iframe[title="Firebase Desk browser demo preview"]');
-  await expect(preview.getByText('browser demo')).toBeVisible({ timeout: 20_000 });
-  await expect(preview.getByText('Page not found')).toHaveCount(0);
+  await expect(page.getByAltText('Firebase Desk workspace showing a Firestore orders query'))
+    .toBeVisible();
+  await expect(page.locator('iframe[title="Firebase Desk browser demo preview"]')).toHaveCount(0);
 
   await page.goto(`${baseUrl}/demo/`);
   const demo = page.frameLocator('iframe[title="Firebase Desk browser demo"]');
@@ -59,7 +59,7 @@ try {
   });
   await mobile.goto(`${baseUrl}/`);
   await expect(mobile.getByRole('heading', { name: 'Firebase Desk' })).toBeVisible();
-  await expect(mobile.getByRole('link', { name: 'Try the demo' })).toBeVisible();
+  await expect(mobile.getByRole('link', { name: 'Open demo' })).toBeVisible();
   await expectNoHorizontalOverflow(mobile);
 
   await mobile.goto(`${baseUrl}/demo/`);
