@@ -348,7 +348,9 @@ function analyzeExpression(
       return;
     case 'literal':
     case 'parameter':
+      return;
     case 'wildcard':
+      if (expression.qualifier) validateAlias(expression.qualifier[0]?.text, aliases, state);
       return;
   }
 }

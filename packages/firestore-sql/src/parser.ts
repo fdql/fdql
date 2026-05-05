@@ -92,6 +92,7 @@ export interface UnaryExpression {
 }
 
 export interface WildcardExpression {
+  readonly qualifier?: readonly FieldSegment[];
   readonly kind: 'wildcard';
 }
 
@@ -975,6 +976,7 @@ class SqlParser {
 
     const parts: FieldSegment[] = [fieldSegment(first, false)];
     while (this.match(Dot)) {
+      if (this.match(Star)) return { kind: 'wildcard', qualifier: parts };
       const segment = this.consumeIdentifierLike('Expected field path segment after dot.');
       parts.push(fieldSegment(identifierText(segment), isToken(segment, BacktickIdentifier)));
     }
@@ -1461,7 +1463,9 @@ function formatExpressionWithContext(
       }`;
       break;
     case 'wildcard':
-      text = '*';
+      text = expression.qualifier
+        ? `${expression.qualifier.map(formatFieldSegment).join('.')}.*`
+        : '*';
       break;
   }
 

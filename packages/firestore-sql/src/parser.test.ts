@@ -360,6 +360,26 @@ cross join subcollection(c, id(sc)) doc`,
     });
   });
 
+  it('parses qualified wildcard projections', () => {
+    const parsed = parseFirestoreSql('select accounts.* from accounts');
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.ast).toMatchObject({
+      columns: [
+        {
+          expression: {
+            kind: 'wildcard',
+            qualifier: [{ text: 'accounts' }],
+          },
+        },
+      ],
+      from: { kind: 'collection', name: 'accounts' },
+      kind: 'select',
+    });
+    expect(formatFirestoreSql(parsed.ast)).toBe('select accounts.* from accounts');
+  });
+
   it('parses typed Firestore literals and date helpers as expressions', () => {
     const ast = astOf(`select
   timestamp("2026-01-01T00:00:00Z") as createdAt,

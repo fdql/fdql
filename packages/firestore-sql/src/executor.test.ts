@@ -50,6 +50,18 @@ describe('Firestore SQL read executor', () => {
     });
   });
 
+  it('expands qualified wildcard projections', async () => {
+    const events = await execute('select orders.* from orders');
+
+    expect(rows(events)[0]).toEqual({
+      items: [{ price: 100, sku: 'sku_keyboard' }, { price: 25, sku: 'sku_shipping' }],
+      rounds: { round_1: { description: 'Packed' }, round_2: { description: 'Shipped' } },
+      status: 'paid',
+      total: 125,
+      userId: 'usr_1',
+    });
+  });
+
   it('filters with comparisons, in, null checks, and boolean expressions', async () => {
     const events = await execute(`select id(o) as orderId
 from orders o

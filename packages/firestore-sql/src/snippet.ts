@@ -94,9 +94,10 @@ function projectionSnippet(
   branchIndex: number | undefined,
 ): string {
   if (project.columns.length === 1 && project.columns[0]?.expression.kind === 'wildcard') {
+    const data = wildcardDataSnippet(project.columns[0].expression, baseAlias);
     return branchIndex === undefined
-      ? `{ id: ${baseAlias}.id, ...${baseAlias}.data() }`
-      : `{ branch: ${branchIndex}, id: ${baseAlias}.id, ...${baseAlias}.data() }`;
+      ? `{ id: ${baseAlias}.id, ...${data} }`
+      : `{ branch: ${branchIndex}, id: ${baseAlias}.id, ...${data} }`;
   }
   const fields = project.columns.map((column, index) =>
     `${quote(column.alias ?? `column${index + 1}`)}: ${
@@ -105,6 +106,19 @@ function projectionSnippet(
   );
   if (branchIndex !== undefined) fields.unshift(`branch: ${branchIndex}`);
   return `{ ${fields.join(', ')} }`;
+}
+
+function wildcardDataSnippet(
+  expression: ProjectPlanStage['columns'][number]['expression'] & { readonly kind: 'wildcard'; },
+  baseAlias: string,
+): string {
+  const qualifier = expression.qualifier?.map((part) => part.text) ?? [];
+  if (qualifier.length === 0) return `${baseAlias}.data()`;
+  const [alias, ...path] = qualifier;
+  if (alias !== baseAlias) return '{} /* wildcard source needs manual review */';
+  return path.length === 0
+    ? `${baseAlias}.data()`
+    : `(field(${baseAlias}.data(), ${quote(path.join('.'))}) ?? {})`;
 }
 
 function expressionComment(

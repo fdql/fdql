@@ -17,6 +17,13 @@ describe('Firestore SQL snippet generator', () => {
     expect(result.source).toContain('yield rows;');
   });
 
+  it('generates snippets for qualified wildcard reads', () => {
+    const result = generateFirestoreDeskJsQuerySnippet(plan('select orders.* from orders'));
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.source).toContain('{ id: orders.id, ...orders.data() }');
+  });
+
   it('warns when a join needs manual review', () => {
     const result = generateFirestoreDeskJsQuerySnippet(
       plan('select id(o), u.email from orders o left join users u on id(u) = o.userId'),

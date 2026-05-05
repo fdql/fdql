@@ -669,15 +669,37 @@ function projectRows(
 
 function projectRow(stage: ProjectPlanStage, row: WorkingRow): Record<string, unknown> {
   if (stage.columns.length === 1 && stage.columns[0]?.expression.kind === 'wildcard') {
-    const primary = row.primary;
-    return primary?.data ? { ...primary.data } : {};
+    return { ...wildcardData(stage.columns[0].expression, row) };
   }
 
   const output: Record<string, unknown> = {};
   for (const [index, column] of stage.columns.entries()) {
+    if (column.expression.kind === 'wildcard') {
+      Object.assign(output, wildcardData(column.expression, row));
+      continue;
+    }
     output[columnName(column, index)] = evaluateExpression(column.expression, row);
   }
   return output;
+}
+
+function wildcardData(
+  expression: FirestoreSqlExpression & { readonly kind: 'wildcard'; },
+  row: WorkingRow,
+): Record<string, unknown> {
+  const qualifier = expression.qualifier?.map((part) => part.text) ?? [];
+  if (qualifier.length === 0) return row.primary?.data ?? {};
+
+  const [alias, ...path] = qualifier;
+  if (alias && alias in row.context) {
+    const source = row.context[alias];
+    if (!source) return {};
+    const value = path.length === 0 ? source.data : getNested(source.data, path);
+    return isRecord(value) ? value : {};
+  }
+
+  const value = row.primary ? getNested(row.primary.data, qualifier) : undefined;
+  return isRecord(value) ? value : {};
 }
 
 function sortRows(rows: readonly WorkingRow[], stage: ProjectPlanStage): readonly WorkingRow[] {
@@ -751,7 +773,7 @@ function evaluateExpression(
       return undefined;
     }
     case 'wildcard':
-      return row.primary?.data ?? {};
+      return wildcardData(expression, row);
   }
 }
 
