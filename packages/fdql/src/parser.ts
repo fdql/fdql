@@ -8,9 +8,17 @@ import type {
   FdqlProjectionItem,
   FdqlReturnStage,
   FdqlSetDeclaration,
+  FdqlSourceRange,
   FdqlStage,
   FdqlWithStage,
 } from './types.ts';
+
+interface SourceLine {
+  readonly column: number;
+  readonly line: number;
+  readonly range: FdqlSourceRange;
+  readonly text: string;
+}
 
 export function parseFdql(source: string): FdqlParseResult {
   const diagnostics: FdqlDiagnostic[] = [];
@@ -19,51 +27,61 @@ export function parseFdql(source: string): FdqlParseResult {
   const stages: FdqlStage[] = [];
   let from: FdqlFromStage | undefined;
   let seenPipeline = false;
-  const lines = source.split(/\r?\n/).map((text, index) => ({
-    line: index + 1,
-    text: stripComment(text).trim(),
-  }));
+  const lines = createSourceLines(source);
 
   for (let index = 0; index < lines.length; index += 1) {
-    const { line, text } = lines[index]!;
+    const { column, line, range, text } = lines[index]!;
     if (!text) continue;
     if (text.startsWith('set ')) {
       if (seenPipeline) {
-        diagnostics.push(error('FDQL_INVALID_SET', '`set` must appear before the pipeline.', line));
+        diagnostics.push(
+          error('FDQL_INVALID_SET', '`set` must appear before the pipeline.', line, column),
+        );
         continue;
       }
-      const declaration = parseSet(text, line, diagnostics);
+      const declaration = parseSet(text, line, column, range, diagnostics);
       if (declaration) settings.push(declaration);
       continue;
     }
     if (text.startsWith('alias ')) {
       if (seenPipeline) {
         diagnostics.push(
-          error('FDQL_INVALID_ALIAS_NAME', '`alias` must appear before the pipeline.', line),
+          error(
+            'FDQL_INVALID_ALIAS_NAME',
+            '`alias` must appear before the pipeline.',
+            line,
+            column,
+          ),
         );
         continue;
       }
-      const alias = parseAlias(text, line, diagnostics);
+      const alias = parseAlias(text, line, column, range, diagnostics);
       if (alias) aliases.push(alias);
       continue;
     }
     seenPipeline = true;
     if (text.startsWith('from ')) {
       if (from) {
-        diagnostics.push(error('FDQL_MULTIPLE_FROM', 'A pipeline can only have one `from`.', line));
+        diagnostics.push(
+          error('FDQL_MULTIPLE_FROM', 'A pipeline can only have one `from`.', line, column),
+        );
         continue;
       }
-      from = parseFrom(text, line, diagnostics);
+      from = parseFrom(text, line, column, range, diagnostics);
       continue;
     }
     if (text.startsWith('fs where ')) {
-      const parsed = parseExpression(text.slice('fs where '.length), line);
+      const expressionSource = expressionSlice(text, column, 'fs where '.length);
+      const parsed = parseExpression(expressionSource.text, line, expressionSource.column);
       diagnostics.push(...parsed.diagnostics);
-      if (parsed.expression) stages.push({ expression: parsed.expression, kind: 'fsWhere', line });
+      if (parsed.expression) {
+        stages.push({ column, expression: parsed.expression, kind: 'fsWhere', line, range });
+      }
       continue;
     }
     if (text.startsWith('fs order by ')) {
-      const body = text.slice('fs order by '.length).trim();
+      const sourceBody = expressionSlice(text, column, 'fs order by '.length);
+      const body = sourceBody.text;
       const direction = body.toLowerCase().endsWith(' desc')
         ? 'desc'
         : body.toLowerCase().endsWith(' asc')
@@ -72,42 +90,84 @@ export function parseFdql(source: string): FdqlParseResult {
       const expressionText = direction === 'asc' && !body.toLowerCase().endsWith(' asc')
         ? body
         : body.slice(0, Math.max(0, body.length - 4)).trim();
-      const parsed = parseExpression(expressionText, line);
+      const parsed = parseExpression(expressionText, line, sourceBody.column);
       diagnostics.push(...parsed.diagnostics);
       if (parsed.expression) {
-        stages.push({ direction, expression: parsed.expression, kind: 'fsOrderBy', line });
+        stages.push({
+          column,
+          direction,
+          expression: parsed.expression,
+          kind: 'fsOrderBy',
+          line,
+          range,
+        });
       }
       continue;
     }
     if (text.startsWith('fs limit ')) {
-      stages.push({ kind: 'fsLimit', line, value: Number(text.slice('fs limit '.length).trim()) });
+      stages.push({
+        column,
+        kind: 'fsLimit',
+        line,
+        range,
+        value: Number(text.slice('fs limit '.length).trim()),
+      });
       continue;
     }
     if (text.startsWith('then filter ')) {
-      const parsed = parseExpression(text.slice('then filter '.length), line);
+      const expressionSource = expressionSlice(text, column, 'then filter '.length);
+      const parsed = parseExpression(expressionSource.text, line, expressionSource.column);
       diagnostics.push(...parsed.diagnostics);
-      if (parsed.expression) stages.push({ expression: parsed.expression, kind: 'filter', line });
+      if (parsed.expression) {
+        stages.push({ column, expression: parsed.expression, kind: 'filter', line, range });
+      }
       continue;
     }
     if (text.startsWith('then take ')) {
-      stages.push({ kind: 'take', line, value: Number(text.slice('then take '.length).trim()) });
+      stages.push({
+        column,
+        kind: 'take',
+        line,
+        range,
+        value: Number(text.slice('then take '.length).trim()),
+      });
       continue;
     }
     if (text === 'then with' || text.startsWith('then with ')) {
       const block = collectProjection(lines, index, 'then with');
       index = block.nextIndex;
-      const parsed = parseProjectionItems(block.source, line, diagnostics);
-      stages.push({ items: parsed, kind: 'with', line } satisfies FdqlWithStage);
+      const parsed = parseProjectionItems(
+        block.source,
+        block.sourceLine,
+        block.sourceColumn,
+        diagnostics,
+      );
+      stages.push(
+        { column, items: parsed, kind: 'with', line, range: block.range } satisfies FdqlWithStage,
+      );
       continue;
     }
     if (text === 'return' || text.startsWith('return ')) {
       const block = collectProjection(lines, index, 'return');
       index = block.nextIndex;
-      const parsed = parseProjectionItems(block.source, line, diagnostics);
-      stages.push({ items: parsed, kind: 'return', line } satisfies FdqlReturnStage);
+      const parsed = parseProjectionItems(
+        block.source,
+        block.sourceLine,
+        block.sourceColumn,
+        diagnostics,
+      );
+      stages.push(
+        {
+          column,
+          items: parsed,
+          kind: 'return',
+          line,
+          range: block.range,
+        } satisfies FdqlReturnStage,
+      );
       continue;
     }
-    stages.push({ kind: 'unsupported', line, text });
+    stages.push({ column, kind: 'unsupported', line, range, text });
   }
 
   const ast: FdqlProgram = {
@@ -124,91 +184,172 @@ export function parseFdql(source: string): FdqlParseResult {
 function parseSet(
   text: string,
   line: number,
+  column: number,
+  range: FdqlSourceRange,
   diagnostics: FdqlDiagnostic[],
 ): FdqlSetDeclaration | null {
   const separator = text.indexOf('=');
   if (separator < 0) {
-    diagnostics.push(error('FDQL_INVALID_SET', '`set` must use `set key = value`.', line));
+    diagnostics.push(
+      error('FDQL_INVALID_SET', '`set` must use `set key = value`.', line, column),
+    );
     return null;
   }
   const key = text.slice('set '.length, separator).trim();
-  const parsed = parseExpression(text.slice(separator + 1).trim(), line);
+  const valueSource = expressionSlice(text, column, separator + 1);
+  const parsed = parseExpression(valueSource.text, line, valueSource.column);
   diagnostics.push(...parsed.diagnostics);
-  return parsed.expression ? { key, line, value: parsed.expression } : null;
+  return parsed.expression ? { column, key, line, range, value: parsed.expression } : null;
 }
 
 function parseAlias(
   text: string,
   line: number,
+  column: number,
+  range: FdqlSourceRange,
   diagnostics: FdqlDiagnostic[],
 ): FdqlAliasDeclaration | null {
   const separator = text.indexOf('=');
   if (separator < 0) {
     diagnostics.push(
-      error('FDQL_INVALID_ALIAS_NAME', '`alias` must use `alias $name = value`.', line),
+      error('FDQL_INVALID_ALIAS_NAME', '`alias` must use `alias $name = value`.', line, column),
     );
     return null;
   }
   const name = text.slice('alias '.length, separator).trim();
-  const parsed = parseExpression(text.slice(separator + 1).trim(), line);
+  const valueSource = expressionSlice(text, column, separator + 1);
+  const parsed = parseExpression(valueSource.text, line, valueSource.column);
   diagnostics.push(...parsed.diagnostics);
-  return parsed.expression ? { line, name, value: parsed.expression } : null;
+  return parsed.expression ? { column, line, name, range, value: parsed.expression } : null;
 }
 
 function parseFrom(
   text: string,
   line: number,
+  column: number,
+  range: FdqlSourceRange,
   diagnostics: FdqlDiagnostic[],
 ): FdqlFromStage | undefined {
   const match = /^from\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)$/i.exec(text);
   if (!match) {
     diagnostics.push(
-      error('FDQL_PARSE_ERROR', '`from` must use `from $source as rowAlias`.', line),
+      error('FDQL_PARSE_ERROR', '`from` must use `from $source as rowAlias`.', line, column),
     );
     return undefined;
   }
-  return { kind: 'from', line, rowAlias: match[2]!, sourceAlias: match[1]! };
+  return { column, kind: 'from', line, range, rowAlias: match[2]!, sourceAlias: match[1]! };
 }
 
 function collectProjection(
-  lines: readonly { readonly line: number; readonly text: string; }[],
+  lines: readonly SourceLine[],
   startIndex: number,
   keyword: string,
-): { readonly nextIndex: number; readonly source: string; } {
-  const current = lines[startIndex]!.text;
-  const inline = current.slice(keyword.length).trim();
+): {
+  readonly nextIndex: number;
+  readonly range: FdqlSourceRange;
+  readonly source: string;
+  readonly sourceColumn: number;
+  readonly sourceLine: number;
+} {
+  const currentLine = lines[startIndex]!;
+  const current = currentLine.text;
+  const inlineSource = expressionSlice(current, currentLine.column, keyword.length);
+  const inline = inlineSource.text;
   const parts: string[] = inline ? [inline] : [];
   let nextIndex = startIndex;
+  let endRange = currentLine.range;
   for (let index = startIndex + 1; index < lines.length; index += 1) {
-    const text = lines[index]!.text;
+    const nextLine = lines[index]!;
+    const text = nextLine.text;
     if (!text) {
       nextIndex = index;
+      endRange = nextLine.range;
       continue;
     }
     if (isStatementStart(text)) break;
     parts.push(text);
     nextIndex = index;
+    endRange = nextLine.range;
   }
-  return { nextIndex, source: parts.join('\n') };
+  return {
+    nextIndex,
+    range: span(currentLine.range, endRange),
+    source: parts.join('\n'),
+    sourceColumn: inline ? inlineSource.column : currentLine.column,
+    sourceLine: inline ? currentLine.line : lines[startIndex + 1]?.line ?? currentLine.line,
+  };
 }
 
 function parseProjectionItems(
   source: string,
   line: number,
+  column: number,
   diagnostics: FdqlDiagnostic[],
 ): readonly FdqlProjectionItem[] {
   return splitTopLevel(source.replace(/\n/g, ',')).map((item) => {
     const aliasIndex = findTopLevelAs(item);
     const expressionText = aliasIndex < 0 ? item.trim() : item.slice(0, aliasIndex).trim();
     const alias = aliasIndex < 0 ? undefined : item.slice(aliasIndex + 4).trim();
-    const parsed = parseExpression(expressionText, line);
+    const parsed = parseExpression(expressionText, line, column);
     diagnostics.push(...parsed.diagnostics);
     return {
       ...(alias ? { alias } : {}),
+      column,
       expression: parsed.expression ?? { kind: 'literal', value: null },
       label: item,
+      line,
+      range: {
+        endColumn: column + item.length,
+        endLine: line,
+        startColumn: column,
+        startLine: line,
+      },
     };
   });
+}
+
+function createSourceLines(source: string): readonly SourceLine[] {
+  return source.split(/\r?\n/).map((text, index) => {
+    const withoutComment = stripComment(text);
+    const trimmed = withoutComment.trim();
+    const indent = firstNonWhitespaceIndex(withoutComment);
+    const column = indent + 1;
+    return {
+      column,
+      line: index + 1,
+      range: {
+        endColumn: column + trimmed.length,
+        endLine: index + 1,
+        startColumn: column,
+        startLine: index + 1,
+      },
+      text: trimmed,
+    };
+  });
+}
+
+function firstNonWhitespaceIndex(text: string): number {
+  const index = text.search(/\S/);
+  return index < 0 ? 0 : index;
+}
+
+function expressionSlice(
+  text: string,
+  statementColumn: number,
+  startIndex: number,
+): { readonly column: number; readonly text: string; } {
+  const raw = text.slice(startIndex);
+  const leading = firstNonWhitespaceIndex(raw);
+  return { column: statementColumn + startIndex + leading, text: raw.trim() };
+}
+
+function span(start: FdqlSourceRange, end: FdqlSourceRange): FdqlSourceRange {
+  return {
+    endColumn: end.endColumn,
+    endLine: end.endLine,
+    startColumn: start.startColumn,
+    startLine: start.startLine,
+  };
 }
 
 function stripComment(line: string): string {
@@ -239,6 +380,6 @@ function isStatementStart(text: string): boolean {
   return /^(set|alias|from|fs |then |return|union all)\b/.test(text);
 }
 
-function error(code: string, message: string, line: number): FdqlDiagnostic {
-  return { code, line, message, severity: 'error' };
+function error(code: string, message: string, line: number, column: number): FdqlDiagnostic {
+  return { code, column, line, message, severity: 'error' };
 }

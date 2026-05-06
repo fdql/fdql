@@ -99,4 +99,47 @@ return d.profileUrl`);
 
     expect(result).toMatchObject({ diagnostics: [], ok: true });
   });
+
+  it('source-locates top-level statements', () => {
+    const result = parseFdql(`  alias $drivers = fs.collection("drivers")
+
+  from $drivers as d
+  fs limit 1
+  return d.firstName`);
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    expect(result.ast?.aliases[0]).toMatchObject({
+      column: 3,
+      line: 1,
+      range: { endColumn: 44, endLine: 1, startColumn: 3, startLine: 1 },
+    });
+    expect(result.ast?.from).toMatchObject({
+      column: 3,
+      line: 3,
+      range: { endColumn: 21, endLine: 3, startColumn: 3, startLine: 3 },
+    });
+  });
+
+  it('reports absolute expression diagnostic columns', () => {
+    const result = parseFdql(`alias $drivers = fs.collection("drivers")
+from $drivers as d
+  fs where d.active = ?
+return d.firstName`);
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_PARSE_ERROR', column: 23, line: 3 }),
+    );
+  });
+
+  it('reports statement diagnostic columns', () => {
+    const result = parseFdql(`alias $drivers = fs.collection("drivers")
+  from drivers as d
+return d.firstName`);
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_PARSE_ERROR', column: 3, line: 2 }),
+    );
+  });
 });

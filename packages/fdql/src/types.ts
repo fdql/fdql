@@ -6,6 +6,13 @@ export interface FdqlDiagnostic {
   readonly severity: 'error' | 'warning';
 }
 
+export interface FdqlSourceRange {
+  readonly endColumn: number;
+  readonly endLine: number;
+  readonly startColumn: number;
+  readonly startLine: number;
+}
+
 export type FdqlLiteralValue = boolean | null | number | string;
 
 export type FdqlValue = FdqlLiteralValue | FdqlValueArray | FdqlValueMap;
@@ -81,20 +88,26 @@ export interface FdqlBinaryExpression {
 }
 
 export interface FdqlSetDeclaration {
+  readonly column: number;
   readonly key: string;
   readonly line: number;
+  readonly range: FdqlSourceRange;
   readonly value: FdqlExpression;
 }
 
 export interface FdqlAliasDeclaration {
+  readonly column: number;
   readonly line: number;
   readonly name: string;
+  readonly range: FdqlSourceRange;
   readonly value: FdqlExpression;
 }
 
 export interface FdqlFromStage {
+  readonly column: number;
   readonly kind: 'from';
   readonly line: number;
+  readonly range: FdqlSourceRange;
   readonly rowAlias: string;
   readonly sourceAlias: string;
 }
@@ -110,57 +123,76 @@ export type FdqlStage =
   | FdqlUnsupportedStage;
 
 export interface FdqlWhereStage {
+  readonly column: number;
   readonly expression: FdqlExpression;
   readonly kind: 'fsWhere';
   readonly line: number;
+  readonly range: FdqlSourceRange;
 }
 
 export interface FdqlOrderByStage {
+  readonly column: number;
   readonly direction: 'asc' | 'desc';
   readonly expression: FdqlExpression;
   readonly kind: 'fsOrderBy';
   readonly line: number;
+  readonly range: FdqlSourceRange;
 }
 
 export interface FdqlLimitStage {
+  readonly column: number;
   readonly kind: 'fsLimit';
   readonly line: number;
+  readonly range: FdqlSourceRange;
   readonly value: number;
 }
 
 export interface FdqlFilterStage {
+  readonly column: number;
   readonly expression: FdqlExpression;
   readonly kind: 'filter';
   readonly line: number;
+  readonly range: FdqlSourceRange;
 }
 
 export interface FdqlTakeStage {
+  readonly column: number;
   readonly kind: 'take';
   readonly line: number;
+  readonly range: FdqlSourceRange;
   readonly value: number;
 }
 
 export interface FdqlProjectionItem {
   readonly alias?: string | undefined;
+  readonly column?: number | undefined;
   readonly expression: FdqlExpression;
   readonly label: string;
+  readonly line?: number | undefined;
+  readonly range?: FdqlSourceRange | undefined;
 }
 
 export interface FdqlWithStage {
+  readonly column: number;
   readonly items: readonly FdqlProjectionItem[];
   readonly kind: 'with';
   readonly line: number;
+  readonly range: FdqlSourceRange;
 }
 
 export interface FdqlReturnStage {
+  readonly column: number;
   readonly items: readonly FdqlProjectionItem[];
   readonly kind: 'return';
   readonly line: number;
+  readonly range: FdqlSourceRange;
 }
 
 export interface FdqlUnsupportedStage {
+  readonly column: number;
   readonly kind: 'unsupported';
   readonly line: number;
+  readonly range: FdqlSourceRange;
   readonly text: string;
 }
 

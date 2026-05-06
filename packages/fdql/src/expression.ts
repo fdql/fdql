@@ -64,20 +64,21 @@ const lexer = new Lexer(tokenTypes);
 export function parseExpression(
   source: string,
   line: number,
+  columnOffset = 1,
 ): { readonly diagnostics: readonly FdqlDiagnostic[]; readonly expression?: FdqlExpression; } {
   const lexed = lexer.tokenize(source);
   if (lexed.errors.length) {
     return {
       diagnostics: lexed.errors.map((error) => ({
         code: 'FDQL_PARSE_ERROR',
-        column: error.column,
+        column: shiftColumn(error.column, columnOffset),
         line,
         message: error.message,
         severity: 'error' as const,
       })),
     };
   }
-  const parser = createExpressionParser(lexed.tokens, line);
+  const parser = createExpressionParser(lexed.tokens, line, columnOffset);
   const expression = parser.parse();
   return { diagnostics: parser.diagnostics, ...(expression ? { expression } : {}) };
 }
@@ -130,7 +131,11 @@ interface ExpressionParser {
   parse(): FdqlExpression | undefined;
 }
 
-function createExpressionParser(tokens: readonly IToken[], line: number): ExpressionParser {
+function createExpressionParser(
+  tokens: readonly IToken[],
+  line: number,
+  columnOffset: number,
+): ExpressionParser {
   let index = 0;
   const diagnostics: FdqlDiagnostic[] = [];
 
@@ -337,7 +342,7 @@ function createExpressionParser(tokens: readonly IToken[], line: number): Expres
   function fail(message: string, token?: IToken): void {
     diagnostics.push({
       code: 'FDQL_PARSE_ERROR',
-      column: token?.startColumn,
+      column: shiftColumn(token?.startColumn, columnOffset),
       line,
       message,
       severity: 'error',
@@ -345,6 +350,10 @@ function createExpressionParser(tokens: readonly IToken[], line: number): Expres
   }
 
   return { diagnostics, parse };
+}
+
+function shiftColumn(column: number | undefined, columnOffset: number): number | undefined {
+  return column === undefined ? undefined : column + columnOffset - 1;
 }
 
 function binaryExpression(

@@ -146,9 +146,11 @@ export function compileFdqlRead(
 
   if (!returnStage) {
     returnStage = {
+      column: ast.from.column,
       items: [{ expression: { kind: 'wildcard' }, label: '*' }],
       kind: 'return',
       line: ast.from.line,
+      range: ast.from.range,
     };
   }
 

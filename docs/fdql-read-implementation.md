@@ -21,7 +21,7 @@ Scope: read features only. Write operations are out of this tracker.
 | IPC             | Done    | `fdql.compile`, `fdql.run`, `fdql.cancel`, event stream.                                |
 | Mock repository | Done    | Uses existing fixture collections through in-memory runtime.                            |
 | Live repository | Partial | Uses paged Admin SDK collection/collection group reads for the first read source shape. |
-| Parser          | Partial | Line-based parser for the first read slice. Not full grammar.                           |
+| Parser          | Partial | Statement grammar keeps existing syntax and now records source columns/ranges.          |
 | Compiler        | Partial | Builds one native read source plus local stages.                                        |
 | Executor        | Partial | Streams rows after runtime returns docs. Supports basic local stages.                   |
 | E2E             | Partial | Covers bounded reads, field projection, and duplicate singleton diagnostics.            |
@@ -116,8 +116,8 @@ These block the read implementation from being honest at production scale.
 
 | Area               | Status                     | Notes                                                                                                                          |
 | ------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Full grammar       | Missing                    | Current parser is line-oriented. Need a real grammar before the language grows further.                                        |
-| Source-located AST | Partial                    | Diagnostics have line numbers, but AST nodes do not consistently carry columns/ranges.                                         |
+| Full grammar       | Partial                    | Parser now uses source-located statements, but expression and pipeline grammar still need broader syntax coverage.             |
+| Source-located AST | Done                       | Top-level declarations and stages carry source columns/ranges; parser expression diagnostics use source columns.               |
 | Row-shape analysis | Missing                    | Unknown fields are mostly runtime `undefined`; compiler does not prove row shape.                                              |
 | Lineage UI         | Partial                    | Events carry basic document lineage, but UI does not expose source exploration.                                                |
 | More E2E           | Partial                    | Need coverage for tree/json views, cancel, timeout, budget stop, collection group, named DB, and future lookup/unwind/union.   |
@@ -125,11 +125,9 @@ These block the read implementation from being honest at production scale.
 
 ## Suggested Next Order
 
-1. Replace live `get()` execution with paged streaming and enforce cancel/timeout/read budget during reads.
-2. Move parser to a real grammar with source ranges.
-3. Implement `lookup one` and `lookup many`.
-4. Implement `unwind` plus `entries(map)` and `mapGet`.
-5. Implement `union all`.
-6. Implement local `sort by` and `aggregate`.
-7. Implement Firestore aggregation lookups.
-8. Add E2E per completed feature.
+1. Implement `lookup one` and `lookup many`.
+2. Implement `unwind` plus `entries(map)` and `mapGet`.
+3. Implement `union all`.
+4. Implement local `sort by` and `aggregate`.
+5. Implement Firestore aggregation lookups.
+6. Add E2E per completed feature.
