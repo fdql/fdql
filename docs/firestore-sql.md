@@ -6,6 +6,8 @@ Define a Firestore-aware SQL dialect for Firebase Desk.
 
 This is not general SQL support and not a Firestore replacement. The dialect should make Firestore data easier to inspect, join, aggregate, and mutate while keeping execution behavior explicit.
 
+The language contract lives in [firestore-sql-dialect.md](./firestore-sql-dialect.md). This document covers product behavior, execution, UX, and examples.
+
 ## Principles
 
 - Query text should look like SQL where SQL is a good fit.
@@ -899,57 +901,607 @@ Rules:
 - User can disable cache for a query.
 - Writes must invalidate or mark affected cached entries stale.
 
-## Execution Plan
+## Execution Plan Language
 
-Before running, show parsed stages.
+The execution plan shown to users is a display language, not parser output and not the internal planner AST. It must be stable enough that a user can visually recognize repeated patterns across queries.
+
+The plan must answer:
+
+- what Firestore will do
+- what Firebase Desk will do locally
+- which fields are fetched
+- which project target each source uses
+- where limits, budgets, cache, joins, and subqueries apply
+- what happens to unmatched rows, filtered rows, partial results, and writes
+
+### Display Rules
+
+- Use uppercase block headings from the vocabulary below.
+- Block headings may append an alias, name, or index, for example `FIRESTORE READ o`, `SUBQUERY users`, or `BRANCH 1`.
+- Prefix executable work with `FIRESTORE` or `LOCAL`.
+- Do not describe a local operation as Firestore-native.
+- Do not repeat SQL syntax when a consequence is clearer.
+- Do not use `type: left`, `type: inner`, or similar SQL restatement. Use `when no match: ...`.
+- Use `condition:` for filter and join predicates.
+- Use `pass:` and `fail:` when a filter consequence is not obvious.
+- Use `fields:` for Firestore document field projections.
+- Use `<all fields>` when the full document is fetched.
+- Use `<metadata only>` when only document metadata is needed, for example `id(alias)`.
+- Use `output:` for values returned by a subquery or by the final query.
+- Use `return:` only inside `RETURN`.
+- Use `read:` for direct document, collection, collection group, or subcollection reads.
+- Use `query:` for Firestore reads with Firestore filters.
+- Use `for each distinct ...` when Firebase Desk drives repeated lookup/query work.
+- Use `cache repeated ...: yes/no` for lookup and query joins.
+- `RETURN` may use output column names as labels, for example `slug: o.slug`.
+- Show resolved project context aliases.
+- Show statement clauses that override query context defaults.
+- Show warnings in `WARNING` blocks, not inline prose.
+- Keep raw technical plan data behind an `Advanced` disclosure.
+
+### Block Vocabulary
+
+Top-level blocks:
+
+- `QUERY`
+- `SETTINGS`
+- `BRANCH n`
+- `SUBQUERY name`
+- `FOR EACH alias`
+- `RETURN`
+- `STOP`
+- `WARNING`
+
+Firestore blocks:
+
+- `FIRESTORE READ`
+- `FIRESTORE FILTER`
+- `FIRESTORE ORDER`
+- `FIRESTORE LIMIT`
+- `FIRESTORE AGGREGATE`
+- `FIRESTORE WRITE BATCH`
+- `FIRESTORE BULK WRITER`
+
+Local blocks:
+
+- `LOCAL FILTER`
+- `LOCAL COMPUTE`
+- `LOCAL SORT`
+- `LOCAL LIMIT`
+- `LOCAL AGGREGATE`
+- `LOCAL ID JOIN`
+- `LOCAL REF JOIN`
+- `LOCAL QUERY JOIN`
+- `LOCAL SCAN JOIN`
+- `LOCAL EXPAND`
+- `LOCAL SUBCOLLECTION READ`
+- `LOCAL SUBCOLLECTIONS LIST`
+- `LOCAL UNION ALL`
+- `LOCAL WRITE SOURCE`
+
+Cache and stats labels:
+
+- `CACHE`
+- `STATS`
+
+No other block headings should be introduced without updating this section.
+
+### Field Vocabulary
+
+Common fields:
+
+- `command:`
+- `project:`
+- `project alias:`
+- `read budget:`
+- `write budget:`
+- `page size:`
+- `timeout:`
+- `cache:`
+- `from:`
+- `read:`
+- `query:`
+- `fields:`
+- `condition:`
+- `order:`
+- `limit:`
+- `output:`
+- `return:`
+- `pass:`
+- `fail:`
+- `when no match:`
+- `when empty:`
+- `cache repeated ...:`
+- `read risk:`
+- `reason:`
+- `documents:`
+- `target:`
+- `operation:`
+- `batch size:`
+- `when one write fails:`
+- `dedupe:`
+
+Dynamic labels:
+
+- output column labels inside `RETURN`
+- `cache repeated <expression>:`
+
+No other field labels should be introduced without updating this section.
+
+### Simple Read
+
+SQL:
+
+```sql
+select slug
+from `admin-events` e
+limit 1
+```
+
+Plan:
+
+```text
+QUERY
+  command: select
+  project: current
+
+FIRESTORE READ e
+  from: admin-events
+  fields: slug
+  limit: 1
+
+RETURN
+  slug: e.slug
+
+STOP
+  reason: 1 output row
+```
+
+### Metadata-Only Read
+
+SQL:
+
+```sql
+select id(e)
+from `admin-events` e
+limit 1
+```
+
+Plan:
+
+```text
+QUERY
+  command: select
+  project: current
+
+FIRESTORE READ e
+  from: admin-events
+  fields: <metadata only>
+  limit: 1
+
+RETURN
+  id: id(e)
+
+STOP
+  reason: 1 output row
+```
+
+### Firestore Filter
+
+SQL:
+
+```sql
+select o.slug, o.status
+from orders o
+where o.status = "paid"
+limit 20
+```
+
+Plan when the filter is pushed to Firestore:
+
+```text
+QUERY
+  command: select
+  project: current
+  read budget: 5000
+
+FIRESTORE READ o
+  from: orders
+  fields: slug, status
+
+FIRESTORE FILTER
+  condition: o.status == "paid"
+
+FIRESTORE LIMIT
+  limit: 20
+
+RETURN
+  slug: o.slug
+  status: o.status
+
+STOP
+  reason: 20 output rows or read budget
+```
+
+### Local Filter
+
+Plan when the same filter cannot be pushed to Firestore:
+
+```text
+QUERY
+  command: select
+  project: current
+  read budget: 5000
+
+FIRESTORE READ o
+  from: orders
+  fields: slug, status
+
+LOCAL FILTER
+  condition: o.status = "paid"
+  pass: row continues
+  fail: row is removed
+
+RETURN
+  slug: o.slug
+  status: o.status
+
+STOP
+  reason: 20 output rows or read budget
+
+WARNING
+  read risk: Firestore may scan more than 20 documents before 20 rows pass the local filter
+```
+
+### Local Id Join
+
+SQL:
+
+```sql
+select o.slug, u.email
+from orders o
+left join users u on id(u) = o.userId
+limit 20
+```
+
+Plan:
+
+```text
+QUERY
+  command: select
+  project: current
+  read budget: 5000
+
+FIRESTORE READ o
+  from: orders
+  fields: slug, userId
+
+LOCAL ID JOIN u
+  for each distinct o.userId
+  read: users/{o.userId}
+  fields: email
+  cache repeated o.userId: yes
+  when no match: keep order, user fields become null
+
+RETURN
+  slug: o.slug
+  email: u.email
+
+STOP
+  reason: 20 output rows or read budget
+```
+
+For an inner join, only the consequence changes:
+
+```text
+LOCAL ID JOIN u
+  for each distinct o.userId
+  read: users/{o.userId}
+  fields: email
+  cache repeated o.userId: yes
+  when no match: drop order
+```
+
+### Local Ref Join
+
+SQL:
+
+```sql
+select o.slug, u.email
+from orders o
+left join users u on ref(u) = o.userRef
+```
+
+Plan:
+
+```text
+FIRESTORE READ o
+  from: orders
+  fields: slug, userRef
+
+LOCAL REF JOIN u
+  for each distinct o.userRef
+  read: o.userRef
+  fields: email
+  cache repeated o.userRef: yes
+  when no match: keep order, user fields become null
+```
+
+### Local Query Join
+
+SQL:
+
+```sql
+select o.slug, c.name
+from orders o
+left join customers c on c.accountId = o.accountId
+```
+
+Plan:
+
+```text
+FIRESTORE READ o
+  from: orders
+  fields: slug, accountId
+
+LOCAL QUERY JOIN c
+  for each distinct o.accountId
+  query: customers where accountId == o.accountId
+  fields: name, accountId
+  cache repeated o.accountId: yes
+  when no match: keep order, customer fields become null
+```
+
+### Local Scan Join
+
+Plan when the join cannot use direct document lookup or a Firestore equality query:
+
+```text
+FIRESTORE READ o
+  from: orders
+  fields: slug, accountId
+
+FIRESTORE READ c
+  from: customers
+  fields: name, accountId
+
+LOCAL SCAN JOIN c
+  condition: c.accountId = o.accountId
+  when no match: drop order
+
+WARNING
+  read risk: customers may be fully scanned
+```
+
+### Local Expansion
+
+SQL:
+
+```sql
+select o.slug, item.sku
+from orders o
+cross join unnest(o.items) item
+```
+
+Plan:
+
+```text
+FIRESTORE READ o
+  from: orders
+  fields: slug, items
+
+LOCAL EXPAND item
+  from: o.items
+  output: one row per array item
+  when empty: drop order
+
+RETURN
+  slug: o.slug
+  sku: item.sku
+```
+
+For `left join unnest(...)`, only the empty consequence changes:
+
+```text
+LOCAL EXPAND item
+  from: o.items
+  output: one row per array item
+  when empty: keep order, item fields become null
+```
+
+### Subcollection Read
+
+SQL:
+
+```sql
+select id(c) as customerId, id(o) as orderId, o.status
+from customers c
+cross join subcollection(c, "orders") o
+where o.status = "paid"
+```
+
+Plan:
+
+```text
+FIRESTORE READ c
+  from: customers
+  fields: <metadata only>
+
+LOCAL SUBCOLLECTION READ o
+  for each customer c
+  read: customers/{id(c)}/orders
+  fields: status
+  cache repeated path(c): no
+  when empty: drop customer
+
+LOCAL FILTER
+  condition: o.status = "paid"
+  pass: row continues
+  fail: row is removed
+
+RETURN
+  customerId: id(c)
+  orderId: id(o)
+  status: o.status
+```
+
+### Subquery
+
+Uncorrelated subqueries should be shown as nested query blocks with their own Firestore/local work and a cached output.
+
+SQL:
+
+```sql
+select o.slug
+from orders o
+where o.userId in (
+  select id(u)
+  from users u
+  where u.plan = "pro"
+)
+```
+
+Plan:
+
+```text
+SUBQUERY users
+  FIRESTORE READ u
+    from: users
+    fields: plan
+  LOCAL FILTER
+    condition: u.plan = "pro"
+    pass: row contributes to subquery output
+    fail: row is removed
+  RETURN
+    output: id(u)
+  CACHE
+    cache: subquery result
+
+FIRESTORE READ o
+  from: orders
+  fields: slug, userId
+
+LOCAL FILTER
+  condition: o.userId in users output
+  pass: order continues
+  fail: order is removed
+
+RETURN
+  slug: o.slug
+```
+
+Correlated subqueries should show the outer value that drives repeated work.
+
+SQL:
+
+```sql
+select o.slug
+from orders o
+where exists (
+  select 1
+  from users u
+  where id(u) = o.userId
+)
+```
+
+Plan:
+
+```text
+FIRESTORE READ o
+  from: orders
+  fields: slug, userId
+
+SUBQUERY users
+  for each distinct o.userId
+  FIRESTORE READ u
+    read: users/{o.userId}
+    fields: <metadata only>
+  CACHE
+    cache repeated o.userId: yes
+
+LOCAL FILTER
+  condition: users subquery has a row
+  pass: order continues
+  fail: order is removed
+
+RETURN
+  slug: o.slug
+```
+
+### Union All
+
+SQL:
+
+```sql
+select id(o) as orderId, o.status, "prod" as source
+from project("prod").orders o
+where o.status = "paid"
+
+union all
+
+select id(o) as orderId, o.status, "staging" as source
+from project("staging").orders o
+where o.status = "paid"
+```
+
+Plan:
+
+```text
+QUERY
+  command: union all
+  read budget: 5000
+
+BRANCH 1
+  project: prod
+  FIRESTORE READ o
+    from: orders
+    fields: status
+  FIRESTORE FILTER
+    condition: o.status == "paid"
+  RETURN
+    orderId: id(o)
+    status: o.status
+    source: "prod"
+
+BRANCH 2
+  project: staging
+  FIRESTORE READ o
+    from: orders
+    fields: status
+  FIRESTORE FILTER
+    condition: o.status == "paid"
+  RETURN
+    orderId: id(o)
+    status: o.status
+    source: "staging"
+
+LOCAL UNION ALL
+  output: append branch rows
+  dedupe: no
+```
+
+### Writes
+
+Write plans use the same language, but the write destination must be explicit.
 
 Example:
 
 ```text
-Budget: 5,000 reads
-Cache: session
+LOCAL WRITE SOURCE
+  from: selected rows
+  documents: 250
 
-1. Stream orders
-   filter: status = "paid"
-   order: createdAt desc
-   page size: 100
-   max rows: 500
-   native filters: status
-   native order: createdAt
-
-2. Join users
-   type: left join
-   lookup: users where companyId = order.companyId and email = order.customerEmail
-   strategy: indexed equality lookup
-   cache: session key users(companyId,email)
-
-3. Compute fields
-   totalWithTax = total * 1.1
-
-4. Aggregate
-   group by: user.tier
-   metrics: count(*), sum(total)
-
-5. Output
-   stream partial groups
-   expose source rows per group
+FIRESTORE WRITE BATCH
+  project: staging
+  target: archivedOrders
+  operation: insert
+  batch size: 400
+  when one write fails: report partial failure and continue according to write mode
 ```
 
-The plan should classify stages:
+### Advanced Plan
 
-- native Firestore query
-- native Firestore aggregation
-- local filter
-- local join
-- local compute
-- local aggregation
-- local map entry expansion
-- union branch
-- cross-project read
-- cross-project write
-- subcollection query
-- subcollection discovery
-- write batch
+The advanced plan may expose immutable planner stages for debugging. The default user-facing plan must remain in the language defined above.
 
 ## Generated Scripts
 
