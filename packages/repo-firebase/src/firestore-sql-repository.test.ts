@@ -10,7 +10,7 @@ describe('FirebaseFirestoreSqlRepository', () => {
 
     const result = await repository.compile({
       connectionId: 'local',
-      source: 'select slug from admin-events limit 1',
+      source: 'select slug from `admin-events` limit 1',
     });
 
     expect(result).toMatchObject({ diagnostics: [], ok: true });
@@ -31,7 +31,7 @@ describe('FirebaseFirestoreSqlRepository', () => {
     const result = await repository.run({
       connectionId: 'local',
       runId: 'run_1',
-      source: 'select slug from admin-events limit 1',
+      source: 'select slug from `admin-events` limit 1',
     });
 
     expect(db.collection).toHaveBeenCalledWith('admin-events');
@@ -55,7 +55,7 @@ describe('FirebaseFirestoreSqlRepository', () => {
     const result = await repository.run({
       connectionId: 'local',
       runId: 'run_1',
-      source: 'select id(e) from admin-events e limit 1',
+      source: 'select id(e) from `admin-events` e limit 1',
     });
 
     expect(query.select).toHaveBeenCalledWith();
@@ -75,7 +75,7 @@ describe('FirebaseFirestoreSqlRepository', () => {
     const result = await repository.run({
       connectionId: 'local',
       runId: 'run_1',
-      source: 'select * from admin-events limit 1',
+      source: 'select * from `admin-events` limit 1',
     });
 
     expect(query.select).not.toHaveBeenCalled();
@@ -91,7 +91,7 @@ describe('FirebaseFirestoreSqlRepository', () => {
     const result = await repository.run({
       connectionId: 'local',
       runId: 'run_1',
-      source: 'delete from admin-events',
+      source: 'delete from `admin-events`',
     });
 
     expect(result.rows).toEqual([]);

@@ -784,12 +784,7 @@ class SqlParser {
       return collectionSource(identifierText(nameToken), true);
     }
 
-    let name = identifierText(nameToken);
-    while (this.match(Minus)) {
-      const next = this.consumeCollectionNamePart('Expected collection name segment after -.');
-      name = `${name}-${identifierText(next)}`;
-    }
-    return collectionSource(name, false);
+    return collectionSource(identifierText(nameToken), false);
   }
 
   private parseJoins(): readonly JoinClause[] {
@@ -1162,12 +1157,6 @@ class SqlParser {
   private consumeIdentifierLike(message: string): IToken {
     const token = this.current();
     if (this.canStartIdentifierLike(token)) return this.advance();
-    this.unexpected(token, message);
-  }
-
-  private consumeCollectionNamePart(message: string): IToken {
-    const token = this.current();
-    if (this.canStartIdentifierLike(token) || this.check(NumberLiteral)) return this.advance();
     this.unexpected(token, message);
   }
 

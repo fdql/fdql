@@ -380,16 +380,23 @@ cross join subcollection(c, id(sc)) doc`,
     expect(formatFirestoreSql(parsed.ast)).toBe('select accounts.* from accounts');
   });
 
-  it('parses kebab-case collection ids in source position', () => {
-    const parsed = parseFirestoreSql('select * from admin-events');
+  it('requires backticks for collection ids outside normal identifier rules', () => {
+    const invalid = parseFirestoreSql('select * from admin-events');
+
+    expect(invalid.ok).toBe(false);
+    expect(invalid.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'UNEXPECTED_TOKEN',
+    }));
+
+    const parsed = parseFirestoreSql('select * from `admin-events`');
 
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.ast).toMatchObject({
-      from: { kind: 'collection', name: 'admin-events' },
+      from: { kind: 'collection', name: 'admin-events', quoted: true },
       kind: 'select',
     });
-    expect(formatFirestoreSql(parsed.ast)).toBe('select * from admin-events');
+    expect(formatFirestoreSql(parsed.ast)).toBe('select * from `admin-events`');
   });
 
   it('parses typed Firestore literals and date helpers as expressions', () => {

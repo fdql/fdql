@@ -63,8 +63,8 @@ describe('Firestore SQL read executor', () => {
     });
   });
 
-  it('reads kebab-case collection ids', async () => {
-    const events = await execute('select * from admin-events', {
+  it('reads backticked collection ids outside normal identifier rules', async () => {
+    const events = await execute('select * from `admin-events`', {
       projects: {
         local: {
           'admin-events': {
@@ -78,7 +78,7 @@ describe('Firestore SQL read executor', () => {
   });
 
   it('stops source reads early for safe statement limits', async () => {
-    const events = await execute('select slug from admin-events limit 1', {
+    const events = await execute('select slug from `admin-events` limit 1', {
       projects: {
         local: {
           'admin-events': {
@@ -116,7 +116,7 @@ describe('Firestore SQL read executor', () => {
       },
     };
 
-    await execute('select slug from admin-events limit 1', runtime);
+    await execute('select slug from `admin-events` limit 1', runtime);
 
     expect(limits).toEqual([1]);
   });
@@ -141,7 +141,7 @@ describe('Firestore SQL read executor', () => {
     };
 
     const events = await execute(
-      'select e.slug from admin-events e where e.status = "published"',
+      'select e.slug from `admin-events` e where e.status = "published"',
       runtime,
     );
 
@@ -168,7 +168,7 @@ describe('Firestore SQL read executor', () => {
       },
     };
 
-    await execute('select * from admin-events', runtime);
+    await execute('select * from `admin-events`', runtime);
 
     expect(selects).toEqual([undefined]);
   });
