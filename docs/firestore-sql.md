@@ -8,6 +8,8 @@ This is not general SQL support and not a Firestore replacement. The dialect sho
 
 The language contract lives in [firestore-sql-dialect.md](./firestore-sql-dialect.md). This document covers product behavior, execution, UX, and examples.
 
+Current shipped/partial/deferred work is tracked in [firestore-sql-implementation-status.md](./firestore-sql-implementation-status.md).
+
 ## Principles
 
 - Query text should look like SQL where SQL is a good fit.

@@ -4,6 +4,8 @@ This document defines the Firestore SQL language surface for Firebase Desk.
 
 It is the source of truth for parsing, formatting, syntax diagnostics, and semantic validation. Product behavior, execution strategy, UI, and execution-plan display language live in `docs/firestore-sql.md`.
 
+Implementation status is tracked in `docs/firestore-sql-implementation-status.md`.
+
 ## Design Rules
 
 - Keywords are case-insensitive.
