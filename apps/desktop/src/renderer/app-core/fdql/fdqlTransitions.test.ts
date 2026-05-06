@@ -62,12 +62,17 @@ function result(rows: readonly Record<string, unknown>[]): FdqlRunResult {
     durationMs: 1,
     rows,
     stats: {
+      aggregateSourceRows: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      lookupReads: 0,
       perProjectReads: { emu: rows.length },
       readBudget: 5000,
       reads: rows.length,
       rowsOutput: rows.length,
       rowsScanned: rows.length,
       stoppedReason: 'completed',
+      unionBranches: 0,
     },
   };
 }

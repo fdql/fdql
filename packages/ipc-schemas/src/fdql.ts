@@ -11,12 +11,17 @@ export const FdqlDiagnosticSchema = z.object({
 });
 
 export const FdqlStatsSchema = z.object({
+  aggregateSourceRows: z.number(),
+  cacheHits: z.number(),
+  cacheMisses: z.number(),
+  lookupReads: z.number(),
   perProjectReads: z.record(z.string(), z.number()),
   readBudget: z.number(),
   reads: z.number(),
   rowsOutput: z.number(),
   rowsScanned: z.number(),
   stoppedReason: z.enum(['budget', 'cancelled', 'completed', 'timeout']).optional(),
+  unionBranches: z.number(),
 });
 
 export const FdqlRowLineageSchema = z.object({

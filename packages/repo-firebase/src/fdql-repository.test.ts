@@ -67,6 +67,37 @@ return fs.id(o) as id`,
     });
   });
 
+  it('runs correlated lookup reads', async () => {
+    const driversQuery = fakeQuery([
+      fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' }),
+    ]);
+    const teamsQuery = fakeQuery([fakeSnapshot('team_1', 'teams/team_1', { name: 'Orange' })]);
+    const db = {
+      collection: vi.fn((path: string) => path === 'drivers' ? driversQuery : teamsQuery),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    const result = await repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source: `alias $drivers = fs.collection("drivers", ["firstName", "teamId"])
+alias $teams = fs.collection("teams", ["name"])
+from $drivers as d
+fs where fs.id(d) = "drv_1"
+then lookup one $teams as team
+  fs where fs.id(team) = d.teamId
+return fs.id(d) as id, team.name as teamName`,
+    });
+
+    expect(db.collection).toHaveBeenCalledWith('drivers');
+    expect(db.collection).toHaveBeenCalledWith('teams');
+    expect(result).toMatchObject({
+      diagnostics: [],
+      rows: [{ id: 'drv_1', teamName: 'Orange' }],
+      stats: { lookupReads: 1, reads: 2, rowsOutput: 1, rowsScanned: 2 },
+    });
+  });
+
   it('returns compile diagnostics without touching Firestore', async () => {
     const db = {
       collection: vi.fn(),

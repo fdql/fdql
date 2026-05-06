@@ -58,16 +58,28 @@ describe('FDQL parser', () => {
     expect(parseFdql(source)).toMatchObject({ diagnostics: [], ok: true });
   });
 
-  it('keeps unsupported stages as AST stages for compiler diagnostics', () => {
+  it('parses lookup stages with native clauses', () => {
     const result = parseFdql(`alias $drivers = fs.collection("drivers")
+alias $teams = fs.collection("teams")
 
 from $drivers as d
 then lookup one $teams as team
+  fs where fs.id(team) = d.teamId
+  fs limit 1
 return *`);
 
     expect(result).toMatchObject({ ok: true });
     expect(result.ast?.stages).toContainEqual(
-      expect.objectContaining({ kind: 'unsupported', text: 'then lookup one $teams as team' }),
+      expect.objectContaining({
+        clauses: [
+          expect.objectContaining({ kind: 'fsWhere' }),
+          expect.objectContaining({ kind: 'fsLimit', value: 1 }),
+        ],
+        kind: 'lookup',
+        mode: 'one',
+        rowAlias: 'team',
+        sourceAlias: '$teams',
+      }),
     );
   });
 

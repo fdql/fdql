@@ -163,6 +163,53 @@ return team.name`,
     );
   });
 
+  it('plans lookup one with correlated provider filters', () => {
+    const result = compileFdqlRead(
+      `alias $drivers = fs.collection("drivers")
+alias $teams = fs.collection("teams", ["name"])
+from $drivers as d
+fs limit 10
+then lookup one $teams as team
+  fs where fs.id(team) = d.teamId
+return d.firstName, team.name as teamName`,
+      options,
+    );
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    if (!result.ok) throw new Error('expected compile success');
+    expect(result.plan.localStages[0]).toMatchObject({
+      kind: 'lookup',
+      mode: 'one',
+      rowAlias: 'team',
+      sourceAlias: '$teams',
+    });
+    const lookup = result.plan.localStages[0];
+    if (!lookup || lookup.kind !== 'lookup') throw new Error('expected lookup stage');
+    expect(lookup.native).toMatchObject({
+      fieldMask: [{ path: 'name' }],
+      predicate: expect.objectContaining({ kind: 'binary' }),
+      source: expect.objectContaining({ collectionPath: 'teams' }),
+    });
+  });
+
+  it('rejects lookup predicates with unknown row bindings', () => {
+    const result = compileFdqlRead(
+      `alias $drivers = fs.collection("drivers")
+alias $teams = fs.collection("teams")
+from $drivers as d
+fs limit 10
+then lookup one $teams as team
+  fs where fs.id(team) = missing.teamId
+return team.name`,
+      options,
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNKNOWN_BINDING', line: 6 }),
+    );
+  });
+
   it('rejects duplicate singleton provider stages', () => {
     const result = compileFdqlRead(
       `alias $drivers = fs.collection("drivers")

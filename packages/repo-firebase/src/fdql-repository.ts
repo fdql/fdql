@@ -6,7 +6,6 @@ import {
   type FdqlReadRequest,
   type FdqlRuntime,
   type FdqlRuntimeDocument,
-  type FdqlValue,
 } from '@firebase-desk/fdql';
 import type {
   FdqlCompileRequest,
@@ -198,14 +197,14 @@ function filterFromExpression(
     return Filter.where(
       fieldPathFromExpression(expression.left, request.rowAlias),
       operatorFor(expression.operator),
-      valueFor(expression.right, request.aliases ?? {}),
+      valueFor(expression.right, request),
     );
   }
   if (expression.kind === 'call' && expression.name === 'fs.arrayContains') {
     return Filter.where(
       fieldPathFromExpression(expression.args[0]!, request.rowAlias),
       'array-contains',
-      valueFor(expression.args[1]!, request.aliases ?? {}),
+      valueFor(expression.args[1]!, request),
     );
   }
   return null;
@@ -233,21 +232,54 @@ function operatorFor(
 
 function valueFor(
   expression: FdqlExpression,
-  aliases: Readonly<Record<string, FdqlValue>>,
+  request: FdqlReadRequest,
 ): unknown {
   if (expression.kind === 'literal') return expression.value;
-  if (expression.kind === 'alias') return aliases[expression.name];
-  if (expression.kind === 'array') return expression.items.map((item) => valueFor(item, aliases));
+  if (expression.kind === 'alias') return request.aliases?.[expression.name];
+  if (expression.kind === 'array') return expression.items.map((item) => valueFor(item, request));
   if (expression.kind === 'map') {
     return Object.fromEntries(
-      expression.entries.map((entry) => [entry.key, valueFor(entry.value, aliases)]),
+      expression.entries.map((entry) => [entry.key, valueFor(entry.value, request)]),
     );
   }
+  if (expression.kind === 'field') return rowFieldValue(expression, request);
+  if (expression.kind === 'call' && expression.name === 'fs.id') {
+    const row = rowFromExpression(expression.args[0], request);
+    return row && isRuntimeDocument(row) ? row.id : undefined;
+  }
   if (expression.kind === 'call' && expression.name === 'fs.timestamp') {
-    const value = valueFor(expression.args[0]!, aliases);
+    const value = valueFor(expression.args[0]!, request);
     return typeof value === 'string' ? Timestamp.fromDate(new Date(value)) : value;
   }
   return undefined;
+}
+
+function rowFieldValue(expression: FdqlExpression, request: FdqlReadRequest): unknown {
+  if (expression.kind !== 'field') return undefined;
+  const row = request.rows?.[expression.path[0] ?? ''];
+  if (!row) return undefined;
+  const data = isRuntimeDocument(row) ? row.data : row;
+  return expression.path.slice(1).reduce<unknown>((current, segment) => {
+    if (!current || typeof current !== 'object') return undefined;
+    return (current as Record<string, unknown>)[segment];
+  }, data);
+}
+
+function rowFromExpression(
+  expression: FdqlExpression | undefined,
+  request: FdqlReadRequest,
+): FdqlRuntimeDocument | Record<string, unknown> | null | undefined {
+  if (!expression || expression.kind !== 'field' || expression.path.length !== 1) return undefined;
+  return request.rows?.[expression.path[0] ?? ''];
+}
+
+function isRuntimeDocument(value: unknown): value is FdqlRuntimeDocument {
+  return value !== null
+    && value !== undefined
+    && typeof value === 'object'
+    && 'id' in value
+    && 'data' in value
+    && 'projectId' in value;
 }
 
 function compileOptions(request: FdqlCompileRequest) {

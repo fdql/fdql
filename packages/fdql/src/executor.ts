@@ -1,8 +1,11 @@
 import { type EvalContext, evaluateExpression, truthy } from './evaluator.ts';
 import type {
+  EvalRows,
   FdqlExecutionEvent,
   FdqlExecutionOptions,
   FdqlExpression,
+  FdqlLookupPlanStage,
+  FdqlNativeReadPlan,
   FdqlProjectionItem,
   FdqlReadPlan,
   FdqlReadRequest,
@@ -23,19 +26,9 @@ export async function* executeFdql(
   yield { kind: 'started' };
 
   try {
-    const request = createReadRequest(plan);
+    const request = createReadRequest(plan.native, plan, plan.rowAlias);
     for await (const document of runtime.read(request)) {
-      stats.reads += 1;
-      stats.rowsScanned += 1;
-      stats.perProjectReads[document.projectId] = (stats.perProjectReads[document.projectId] ?? 0)
-        + 1;
-      yield {
-        collectionGroup: request.collectionGroup,
-        collectionPath: request.collectionPath,
-        count: 1,
-        kind: 'read',
-        projectId: document.projectId,
-      };
+      yield recordRead(document, request, stats, false);
 
       const stopReason = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
       if (stopReason) {
@@ -45,9 +38,23 @@ export async function* executeFdql(
       }
 
       let row: Record<string, unknown> | null = { [plan.rowAlias]: document };
+      // oxlint-disable no-await-in-loop -- Each local stage depends on the current row shape.
       for (const stage of plan.localStages) {
         if (stage.kind === 'filter') {
           row = truthy(evaluateExpression(stage.expression, contextFor(plan, row))) ? row : null;
+        } else if (stage.kind === 'lookup') {
+          const lookup = await executeLookup(stage, plan, row, runtime, stats, startedAt, options);
+          for (const event of lookup.events) yield event;
+          if (lookup.diagnostic) {
+            yield { diagnostic: lookup.diagnostic, kind: 'failed' };
+            return;
+          }
+          if (lookup.stopReason) {
+            stats.stoppedReason = lookup.stopReason;
+            for (const event of stopEvents(stats, lookup.stopReason)) yield event;
+            return;
+          }
+          row = lookup.row;
         } else if (stage.kind === 'with') {
           row = projectItems(stage.items, plan, row);
         } else if (stage.kind === 'take' && outputCount >= stage.value) {
@@ -55,6 +62,7 @@ export async function* executeFdql(
         }
         if (!row) break;
       }
+      // oxlint-enable no-await-in-loop
       if (!row) {
         const filteredStopReason = stopReasonFor(plan, stats, startedAt, options, 'afterRow');
         if (filteredStopReason) {
@@ -108,7 +116,7 @@ export function createInMemoryFdqlRuntime(input: InMemoryFdqlRuntimeInput): Fdql
         !request.predicate
         || truthy(evaluateExpression(request.predicate, {
           aliases: request.aliases,
-          rows: { [request.rowAlias]: document },
+          rows: { ...request.rows, [request.rowAlias]: document },
         }))
       );
       const ordered = orderDocuments(filtered, request);
@@ -120,35 +128,68 @@ export function createInMemoryFdqlRuntime(input: InMemoryFdqlRuntimeInput): Fdql
   };
 }
 
-function createReadRequest(plan: FdqlReadPlan): FdqlReadRequest {
-  const source = plan.native.source;
+function createReadRequest(
+  native: FdqlNativeReadPlan,
+  plan: FdqlReadPlan,
+  rowAlias: string,
+  rows?: EvalRows,
+  maxOverride?: number,
+): FdqlReadRequest {
+  const source = native.source;
+  const remainingBudget = Math.max(0, plan.settings.readBudget);
   const maxDocuments = Math.min(
-    plan.native.limit ?? plan.settings.readBudget,
-    plan.settings.readBudget,
+    native.limit ?? remainingBudget,
+    remainingBudget,
+    maxOverride ?? remainingBudget,
   );
   return {
     aliases: plan.aliases,
     ...(source.collectionGroup ? { collectionGroup: source.collectionGroup } : {}),
     ...(source.collectionPath ? { collectionPath: source.collectionPath } : {}),
     ...(source.databaseId ? { databaseId: source.databaseId } : {}),
-    ...(plan.native.fieldMask ? { fieldMask: plan.native.fieldMask } : {}),
-    ...(plan.native.limit === undefined ? {} : { limit: plan.native.limit }),
+    ...(native.fieldMask ? { fieldMask: native.fieldMask } : {}),
+    ...(native.limit === undefined ? {} : { limit: native.limit }),
     maxDocuments,
-    ...(plan.native.orderBy ? { orderBy: plan.native.orderBy } : {}),
+    ...(native.orderBy ? { orderBy: native.orderBy } : {}),
     pageSize: Math.min(plan.settings.pageSize, maxDocuments),
-    ...(plan.native.predicate ? { predicate: plan.native.predicate } : {}),
+    ...(native.predicate ? { predicate: native.predicate } : {}),
     projectId: source.projectId,
-    rowAlias: plan.rowAlias,
+    rowAlias,
+    ...(rows ? { rows } : {}),
+  };
+}
+
+function recordRead(
+  document: FdqlRuntimeDocument,
+  request: FdqlReadRequest,
+  stats: MutableStats,
+  lookup: boolean,
+): Extract<FdqlExecutionEvent, { readonly kind: 'read'; }> {
+  stats.reads += 1;
+  if (lookup) stats.lookupReads += 1;
+  stats.rowsScanned += 1;
+  stats.perProjectReads[document.projectId] = (stats.perProjectReads[document.projectId] ?? 0) + 1;
+  return {
+    collectionGroup: request.collectionGroup,
+    collectionPath: request.collectionPath,
+    count: 1,
+    kind: 'read',
+    projectId: document.projectId,
   };
 }
 
 function createStats(readBudget: number): MutableStats {
   return {
+    aggregateSourceRows: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+    lookupReads: 0,
     perProjectReads: {},
     readBudget,
     reads: 0,
     rowsOutput: 0,
     rowsScanned: 0,
+    unionBranches: 0,
   };
 }
 
@@ -182,7 +223,60 @@ function stopEvents(
 function contextFor(plan: FdqlReadPlan, row: Record<string, unknown>): EvalContext {
   return {
     aliases: plan.aliases,
-    rows: row as EvalContext['rows'],
+    rows: row as EvalRows,
+  };
+}
+
+async function executeLookup(
+  stage: FdqlLookupPlanStage,
+  plan: FdqlReadPlan,
+  row: Record<string, unknown>,
+  runtime: FdqlRuntime,
+  stats: MutableStats,
+  startedAt: number,
+  options: FdqlExecutionOptions,
+): Promise<{
+  readonly diagnostic?: Extract<FdqlExecutionEvent, { readonly kind: 'failed'; }>['diagnostic'];
+  readonly events: readonly FdqlExecutionEvent[];
+  readonly row: Record<string, unknown> | null;
+  readonly stopReason?: NonNullable<FdqlStats['stoppedReason']> | undefined;
+}> {
+  const remainingBudget = Math.max(0, plan.settings.readBudget - stats.reads);
+  const lookupOneCap = stage.mode === 'one' && stage.native.limit === undefined ? 2 : undefined;
+  const request = createReadRequest(
+    stage.native,
+    plan,
+    stage.rowAlias,
+    row as EvalRows,
+    Math.min(remainingBudget, lookupOneCap ?? remainingBudget),
+  );
+  const documents: FdqlRuntimeDocument[] = [];
+  const events: FdqlExecutionEvent[] = [];
+  for await (const document of runtime.read(request)) {
+    events.push(recordRead(document, request, stats, true));
+    documents.push(document);
+    const stopReason = stopReasonFor(plan, stats, startedAt, options, 'afterRow');
+    if (stopReason) return { events, row, stopReason };
+  }
+  if (stage.mode === 'one' && documents.length > 1) {
+    return {
+      diagnostic: {
+        code: 'FDQL_LOOKUP_ONE_TOO_MANY',
+        line: stage.line,
+        message:
+          `lookup one ${stage.sourceAlias} as ${stage.rowAlias} returned more than one document.`,
+        severity: 'error',
+      },
+      events,
+      row,
+    };
+  }
+  return {
+    events,
+    row: {
+      ...row,
+      [stage.rowAlias]: stage.mode === 'one' ? documents[0] ?? null : documents,
+    },
   };
 }
 
@@ -264,11 +358,11 @@ function compareDocuments(
   if (!request.orderBy) return 0;
   const leftValue = evaluateExpression(request.orderBy.expression, {
     aliases: request.aliases,
-    rows: { [request.rowAlias]: left },
+    rows: { ...request.rows, [request.rowAlias]: left },
   });
   const rightValue = evaluateExpression(request.orderBy.expression, {
     aliases: request.aliases,
-    rows: { [request.rowAlias]: right },
+    rows: { ...request.rows, [request.rowAlias]: right },
   });
   if (leftValue === rightValue) return 0;
   return String(leftValue).localeCompare(String(rightValue)) * direction;
@@ -313,12 +407,17 @@ function writePath(target: Record<string, unknown>, path: string, value: unknown
 
 function freezeStats(stats: MutableStats): FdqlStats {
   return {
+    aggregateSourceRows: stats.aggregateSourceRows,
+    cacheHits: stats.cacheHits,
+    cacheMisses: stats.cacheMisses,
+    lookupReads: stats.lookupReads,
     perProjectReads: { ...stats.perProjectReads },
     readBudget: stats.readBudget,
     reads: stats.reads,
     rowsOutput: stats.rowsOutput,
     rowsScanned: stats.rowsScanned,
     ...(stats.stoppedReason ? { stoppedReason: stats.stoppedReason } : {}),
+    unionBranches: stats.unionBranches,
   };
 }
 

@@ -1,10 +1,8 @@
-import type { FdqlExpression, FdqlRuntimeDocument, FdqlValue } from './types.ts';
+import type { EvalRows, FdqlExpression, FdqlRuntimeDocument, FdqlValue } from './types.ts';
 
 export interface EvalContext {
   readonly aliases?: Readonly<Record<string, FdqlValue>> | undefined;
-  readonly rows?:
-    | Readonly<Record<string, FdqlRuntimeDocument | Record<string, unknown>>>
-    | undefined;
+  readonly rows?: EvalRows | undefined;
 }
 
 export function evaluateExpression(expression: FdqlExpression, context: EvalContext = {}): unknown {
@@ -121,7 +119,7 @@ function compare(left: unknown, right: unknown): number {
 function rowArg(
   expression: FdqlExpression | undefined,
   context: EvalContext,
-): FdqlRuntimeDocument | Record<string, unknown> | undefined {
+): FdqlRuntimeDocument | Record<string, unknown> | null | undefined {
   if (!expression || expression.kind !== 'field' || expression.path.length !== 1) return undefined;
   return context.rows?.[expression.path[0] ?? ''];
 }

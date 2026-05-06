@@ -8,6 +8,8 @@ import type {
   FdqlExpression,
   FdqlFieldMaskField,
   FdqlLocalPlanStage,
+  FdqlLookupPlanStage,
+  FdqlLookupStage,
   FdqlNativeOrderBy,
   FdqlReadCompileResult,
   FdqlReturnStage,
@@ -76,6 +78,7 @@ export function compileFdqlRead(
   }
 
   const rowAlias = ast.from.rowAlias;
+  const availableRowAliases = new Set([rowAlias]);
   const localStages: FdqlLocalPlanStage[] = [];
   let nativePredicate: FdqlExpression | undefined;
   let nativeOrderBy: FdqlNativeOrderBy | undefined;
@@ -127,6 +130,20 @@ export function compileFdqlRead(
         validateAliases(stage, scalarAliases, diagnostics);
         localStages.push(stage);
         break;
+      case 'lookup': {
+        const lookupStage = compileLookupStage(
+          stage,
+          aliases,
+          availableRowAliases,
+          scalarAliases,
+          diagnostics,
+        );
+        if (lookupStage) {
+          localStages.push(lookupStage);
+          availableRowAliases.add(stage.rowAlias);
+        }
+        break;
+      }
       case 'return':
         if (returnLine !== undefined) {
           diagnostics.push(duplicateStage('return', returnLine, stage.line));
@@ -189,6 +206,96 @@ export function compileFdqlRead(
       rowAlias,
       settings,
     },
+  };
+}
+
+function compileLookupStage(
+  stage: FdqlLookupStage,
+  aliases: Readonly<Record<string, ResolvedAliasValue>>,
+  availableRowAliases: ReadonlySet<string>,
+  scalarAliases: Readonly<Record<string, FdqlValue>>,
+  diagnostics: FdqlDiagnostic[],
+): FdqlLookupPlanStage | null {
+  const sourceAlias = aliases[stage.sourceAlias];
+  if (!sourceAlias) {
+    diagnostics.push(
+      error(
+        'FDQL_UNDECLARED_ALIAS',
+        `Source alias ${stage.sourceAlias} is not declared.`,
+        stage.line,
+      ),
+    );
+    return null;
+  }
+  if (sourceAlias.kind !== 'source') {
+    diagnostics.push(
+      error(
+        'FDQL_UNDECLARED_ALIAS',
+        `Alias ${stage.sourceAlias} is not a Firestore source.`,
+        stage.line,
+      ),
+    );
+    return null;
+  }
+
+  let nativePredicate: FdqlExpression | undefined;
+  let nativeOrderBy: FdqlNativeOrderBy | undefined;
+  let nativeOrderByLine: number | undefined;
+  let nativeLimit: number | undefined;
+  let nativeLimitLine: number | undefined;
+  const rowsForLookup = new Set([...availableRowAliases, stage.rowAlias]);
+
+  for (const clause of stage.clauses) {
+    if (clause.kind === 'fsWhere') {
+      validateLookupNativeExpression(
+        clause.expression,
+        stage.rowAlias,
+        rowsForLookup,
+        scalarAliases,
+        diagnostics,
+        clause.line,
+      );
+      nativePredicate = nativePredicate
+        ? { kind: 'binary', left: nativePredicate, operator: 'and', right: clause.expression }
+        : clause.expression;
+    } else if (clause.kind === 'fsOrderBy') {
+      if (nativeOrderByLine !== undefined) {
+        diagnostics.push(duplicateStage('lookup fs order by', nativeOrderByLine, clause.line));
+        continue;
+      }
+      validateNativeOrderBy(clause.expression, stage.rowAlias, diagnostics, clause.line);
+      nativeOrderBy = { direction: clause.direction, expression: clause.expression };
+      nativeOrderByLine = clause.line;
+    } else if (clause.kind === 'fsLimit') {
+      if (nativeLimitLine !== undefined) {
+        diagnostics.push(duplicateStage('lookup fs limit', nativeLimitLine, clause.line));
+        continue;
+      }
+      if (!Number.isInteger(clause.value) || clause.value <= 0) {
+        diagnostics.push(
+          error('FDQL_PARSE_ERROR', '`fs limit` must be a positive integer.', clause.line),
+        );
+      }
+      nativeLimit = clause.value;
+      nativeLimitLine = clause.line;
+    }
+  }
+
+  return {
+    column: stage.column,
+    kind: 'lookup',
+    line: stage.line,
+    mode: stage.mode,
+    native: {
+      ...(sourceAlias.fieldMask ? { fieldMask: sourceAlias.fieldMask } : {}),
+      ...(nativeLimit === undefined ? {} : { limit: nativeLimit }),
+      ...(nativeOrderBy ? { orderBy: nativeOrderBy } : {}),
+      ...(nativePredicate ? { predicate: nativePredicate } : {}),
+      source: sourceAlias.source,
+    },
+    range: stage.range,
+    rowAlias: stage.rowAlias,
+    sourceAlias: stage.sourceAlias,
   };
 }
 
@@ -479,6 +586,38 @@ function validateNativeExpression(
   });
 }
 
+function validateLookupNativeExpression(
+  expression: FdqlExpression,
+  lookupRowAlias: string,
+  availableRowAliases: ReadonlySet<string>,
+  aliases: Readonly<Record<string, FdqlValue>>,
+  diagnostics: FdqlDiagnostic[],
+  line: number,
+): void {
+  validateExpressionAliases(expression, aliases, diagnostics, line);
+  validateLookupNativePredicate(expression, lookupRowAlias, diagnostics, line);
+  walkExpression(expression, (node, parent) => {
+    if (
+      node.kind === 'call'
+      && !['fs.id', 'fs.timestamp', 'fs.arrayContains'].includes(node.name)
+    ) {
+      diagnostics.push(
+        error(
+          'FDQL_LOCAL_EXPRESSION_IN_FS_CLAUSE',
+          `${node.name} is not valid in lookup fs where.`,
+          line,
+        ),
+      );
+    }
+    if (node.kind === 'field' && !isMetadataArgument(node, parent)) {
+      const binding = node.path[0];
+      if (!binding || !availableRowAliases.has(binding)) {
+        diagnostics.push(error('FDQL_UNKNOWN_BINDING', `Unknown row binding ${binding}.`, line));
+      }
+    }
+  });
+}
+
 function validateNativePredicate(
   expression: FdqlExpression,
   rowAlias: string,
@@ -530,6 +669,48 @@ function validateNativePredicate(
   }
   diagnostics.push(
     error('FDQL_UNSUPPORTED_FS_WHERE', '`fs where` needs provider comparison predicates.', line),
+  );
+}
+
+function validateLookupNativePredicate(
+  expression: FdqlExpression,
+  lookupRowAlias: string,
+  diagnostics: FdqlDiagnostic[],
+  line: number,
+): void {
+  if (
+    expression.kind === 'binary' && (expression.operator === 'and' || expression.operator === 'or')
+  ) {
+    validateLookupNativePredicate(expression.left, lookupRowAlias, diagnostics, line);
+    validateLookupNativePredicate(expression.right, lookupRowAlias, diagnostics, line);
+    return;
+  }
+  if (expression.kind === 'binary') {
+    if (!isProviderOperand(expression.left, lookupRowAlias)) {
+      diagnostics.push(
+        error(
+          'FDQL_UNSUPPORTED_FS_WHERE',
+          '`lookup` fs where comparisons need the lookup provider field on the left.',
+          line,
+        ),
+      );
+    }
+    return;
+  }
+  if (expression.kind === 'call' && expression.name === 'fs.arrayContains') {
+    if (!isProviderOperand(expression.args[0], lookupRowAlias)) {
+      diagnostics.push(
+        error(
+          'FDQL_UNSUPPORTED_FS_WHERE',
+          '`fs.arrayContains` needs a lookup provider field.',
+          line,
+        ),
+      );
+    }
+    return;
+  }
+  diagnostics.push(
+    error('FDQL_UNSUPPORTED_FS_WHERE', '`lookup` fs where needs provider predicates.', line),
   );
 }
 
@@ -620,6 +801,16 @@ function isMetadataRowArgument(
     && parent.args[0] === expression
     && expression.path.length === 1
     && expression.path[0] === rowAlias;
+}
+
+function isMetadataArgument(
+  expression: Extract<FdqlExpression, { readonly kind: 'field'; }>,
+  parent: FdqlExpression | undefined,
+): boolean {
+  return parent?.kind === 'call'
+    && ['fs.id', 'fs.path', 'fs.projectId'].includes(parent.name)
+    && parent.args[0] === expression
+    && expression.path.length === 1;
 }
 
 function isCollectionPath(path: string): boolean {

@@ -14,6 +14,7 @@ const runtime = createInMemoryFdqlRuntime({
           lastName: 'Carneiro',
           metadata: { fraudScore: 0.02 },
           tags: ['admin'],
+          teamId: 'team_1',
         },
         drv_2: {
           active: true,
@@ -21,6 +22,7 @@ const runtime = createInMemoryFdqlRuntime({
           firstName: 'Alex',
           lastName: 'Smith',
           tags: [],
+          teamId: 'team_2',
         },
         drv_3: {
           active: false,
@@ -29,6 +31,15 @@ const runtime = createInMemoryFdqlRuntime({
           lastName: 'Other',
           tags: ['admin'],
         },
+      },
+      rounds: {
+        round_1: { createdAt: '2025-10-05T00:00:00.000Z', driverId: 'drv_1', status: 'done' },
+        round_2: { createdAt: '2025-10-06T00:00:00.000Z', driverId: 'drv_1', status: 'draft' },
+        round_3: { createdAt: '2025-10-07T00:00:00.000Z', driverId: 'drv_2', status: 'done' },
+      },
+      teams: {
+        team_1: { name: 'Orange' },
+        team_2: { name: 'Blue' },
       },
       'events/evt_1/orders': {
         ord_1: { status: 'paid' },
@@ -157,6 +168,53 @@ return d.firstName`,
         limit: 1,
       }),
     ]);
+  });
+
+  it('attaches lookup one results and counts lookup reads', async () => {
+    const events = await run(`alias $drivers = fs.collection("drivers", ["firstName", "teamId"])
+alias $teams = fs.collection("teams", ["name"])
+
+from $drivers as d
+fs where fs.id(d) = "drv_1"
+
+then lookup one $teams as team
+  fs where fs.id(team) = d.teamId
+
+return fs.id(d) as id, d.firstName, team.name as teamName`);
+
+    expect(rows(events)).toEqual([{ firstName: 'Vini', id: 'drv_1', teamName: 'Orange' }]);
+    expect(completed(events)).toMatchObject({
+      lookupReads: 1,
+      reads: 2,
+      rowsOutput: 1,
+      rowsScanned: 2,
+    });
+  });
+
+  it('attaches lookup many arrays', async () => {
+    const events = await run(`alias $drivers = fs.collection("drivers", ["firstName"])
+alias $rounds = fs.collection("rounds", ["driverId", "status"])
+
+from $drivers as d
+fs where fs.id(d) = "drv_1"
+
+then lookup many $rounds as rounds
+  fs where rounds.driverId = fs.id(d)
+  fs order by rounds.createdAt desc
+  fs limit 2
+
+return fs.id(d) as id, rounds`);
+
+    expect(rows(events)).toEqual([
+      {
+        id: 'drv_1',
+        rounds: [
+          expect.objectContaining({ data: { driverId: 'drv_1', status: 'draft' }, id: 'round_2' }),
+          expect.objectContaining({ data: { driverId: 'drv_1', status: 'done' }, id: 'round_1' }),
+        ],
+      },
+    ]);
+    expect(completed(events)).toMatchObject({ lookupReads: 2, reads: 3, rowsOutput: 1 });
   });
 });
 

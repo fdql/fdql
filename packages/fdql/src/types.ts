@@ -115,6 +115,7 @@ export interface FdqlFromStage {
 export type FdqlStage =
   | FdqlFilterStage
   | FdqlLimitStage
+  | FdqlLookupStage
   | FdqlOrderByStage
   | FdqlReturnStage
   | FdqlTakeStage
@@ -161,6 +162,21 @@ export interface FdqlTakeStage {
   readonly line: number;
   readonly range: FdqlSourceRange;
   readonly value: number;
+}
+
+export type FdqlLookupMode = 'many' | 'one';
+
+export type FdqlLookupClause = FdqlWhereStage | FdqlOrderByStage | FdqlLimitStage;
+
+export interface FdqlLookupStage {
+  readonly clauses: readonly FdqlLookupClause[];
+  readonly column: number;
+  readonly kind: 'lookup';
+  readonly line: number;
+  readonly mode: FdqlLookupMode;
+  readonly range: FdqlSourceRange;
+  readonly rowAlias: string;
+  readonly sourceAlias: string;
 }
 
 export interface FdqlProjectionItem {
@@ -259,7 +275,22 @@ export interface FdqlNativeOrderBy {
   readonly expression: FdqlExpression;
 }
 
-export type FdqlLocalPlanStage = FdqlFilterStage | FdqlTakeStage | FdqlWithStage;
+export type FdqlLocalPlanStage =
+  | FdqlFilterStage
+  | FdqlLookupPlanStage
+  | FdqlTakeStage
+  | FdqlWithStage;
+
+export interface FdqlLookupPlanStage {
+  readonly column: number;
+  readonly kind: 'lookup';
+  readonly line: number;
+  readonly mode: FdqlLookupMode;
+  readonly native: FdqlNativeReadPlan;
+  readonly range: FdqlSourceRange;
+  readonly rowAlias: string;
+  readonly sourceAlias: string;
+}
 
 export type FdqlReadCompileResult =
   | {
@@ -302,6 +333,7 @@ export interface FdqlReadRequest {
   readonly predicate?: FdqlExpression | undefined;
   readonly projectId: string;
   readonly rowAlias: string;
+  readonly rows?: EvalRows | undefined;
 }
 
 export interface FdqlRuntime {
@@ -320,12 +352,17 @@ export interface FdqlAbortSignal {
 export type FdqlStopReason = 'budget' | 'cancelled' | 'completed' | 'timeout';
 
 export interface FdqlStats {
+  readonly aggregateSourceRows: number;
+  readonly cacheHits: number;
+  readonly cacheMisses: number;
+  readonly lookupReads: number;
   readonly perProjectReads: Readonly<Record<string, number>>;
   readonly readBudget: number;
   readonly reads: number;
   readonly rowsOutput: number;
   readonly rowsScanned: number;
   readonly stoppedReason?: FdqlStopReason | undefined;
+  readonly unionBranches: number;
 }
 
 export interface FdqlRowLineage {
@@ -360,4 +397,8 @@ export interface InMemoryFdqlRuntimeInput {
 
 export type InMemoryFdqlProject = Readonly<
   Record<string, Readonly<Record<string, Record<string, unknown>>>>
+>;
+
+export type EvalRows = Readonly<
+  Record<string, FdqlRuntimeDocument | Record<string, unknown> | null>
 >;

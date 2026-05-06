@@ -47,6 +47,14 @@ then filter lower(d.firstName) = "vini"
 then take 10
 then with fs.id(d) as id, d.firstName
 
+then lookup one $teams as team
+  fs where fs.id(team) = d.teamId
+
+then lookup many $rounds as rounds
+  fs where rounds.driverId = fs.id(d)
+  fs order by rounds.createdAt desc
+  fs limit 20
+
 return id, d.firstName
 ```
 
@@ -81,20 +89,20 @@ These block the read implementation from being honest at production scale.
 
 ## P1 Spec Features Not Implemented
 
-| Feature                                   | Status  | Notes                                                               |
-| ----------------------------------------- | ------- | ------------------------------------------------------------------- |
-| `lookup one`                              | Missing | Needs parser, planner, runtime, lineage, stats.                     |
-| `lookup many`                             | Missing | Needs array attachment and per-parent read stats.                   |
-| `lookup expand`                           | Missing | Needs row multiplication and lineage.                               |
-| `lookup aggregate`                        | Missing | Needs provider aggregate execution.                                 |
-| `fs.subcollection(parent, name, fields?)` | Missing | Needed for document-relative reads.                                 |
-| `fs.subcollections(parent)`               | Missing | Needed for subcollection discovery.                                 |
-| `unwind array`                            | Missing | Needed for local array expansion.                                   |
-| `unwind entries(map)`                     | Missing | Needed for keyed-map workflows.                                     |
-| `union all`                               | Missing | Parser has no branch AST or executor support.                       |
-| `sort by`                                 | Missing | Local sort stage is in the spec but not parser/executor.            |
-| `aggregate`                               | Missing | Local grouping/aggregation not implemented.                         |
-| Firestore aggregations                    | Missing | `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max` not implemented. |
+| Feature                                   | Status  | Notes                                                                        |
+| ----------------------------------------- | ------- | ---------------------------------------------------------------------------- |
+| `lookup one`                              | Done    | Attaches one document or `null`; reports an error if multiple docs are read. |
+| `lookup many`                             | Done    | Attaches an array and counts lookup reads separately.                        |
+| `lookup expand`                           | Missing | Needs row multiplication and lineage.                                        |
+| `lookup aggregate`                        | Missing | Needs provider aggregate execution.                                          |
+| `fs.subcollection(parent, name, fields?)` | Missing | Needed for document-relative reads.                                          |
+| `fs.subcollections(parent)`               | Missing | Needed for subcollection discovery.                                          |
+| `unwind array`                            | Missing | Needed for local array expansion.                                            |
+| `unwind entries(map)`                     | Missing | Needed for keyed-map workflows.                                              |
+| `union all`                               | Missing | Parser has no branch AST or executor support.                                |
+| `sort by`                                 | Missing | Local sort stage is in the spec but not parser/executor.                     |
+| `aggregate`                               | Missing | Local grouping/aggregation not implemented.                                  |
+| Firestore aggregations                    | Missing | `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max` not implemented.          |
 
 ## P2 Expression Gaps
 
@@ -125,9 +133,8 @@ These block the read implementation from being honest at production scale.
 
 ## Suggested Next Order
 
-1. Implement `lookup one` and `lookup many`.
-2. Implement `unwind` plus `entries(map)` and `mapGet`.
-3. Implement `union all`.
-4. Implement local `sort by` and `aggregate`.
-5. Implement Firestore aggregation lookups.
-6. Add E2E per completed feature.
+1. Implement `unwind` plus `entries(map)` and `mapGet`.
+2. Implement `union all`.
+3. Implement local `sort by` and `aggregate`.
+4. Implement Firestore aggregation lookups.
+5. Add E2E per completed feature.

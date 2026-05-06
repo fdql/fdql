@@ -3,6 +3,7 @@ import type {
   FdqlAliasDeclaration,
   FdqlDiagnostic,
   FdqlFromStage,
+  FdqlLookupClause,
   FdqlParseResult,
   FdqlProgram,
   FdqlProjectionItem,
@@ -133,6 +134,12 @@ export function parseFdql(source: string): FdqlParseResult {
       });
       continue;
     }
+    if (text.startsWith('then lookup ')) {
+      const lookup = parseLookup(lines, index, diagnostics);
+      index = lookup.nextIndex;
+      if (lookup.stage) stages.push(lookup.stage);
+      continue;
+    }
     if (text === 'then with' || text.startsWith('then with ')) {
       const block = collectProjection(lines, index, 'then with');
       index = block.nextIndex;
@@ -179,6 +186,112 @@ export function parseFdql(source: string): FdqlParseResult {
   return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
     ? { ast, diagnostics, ok: false }
     : { ast, diagnostics, ok: true };
+}
+
+function parseLookup(
+  lines: readonly SourceLine[],
+  startIndex: number,
+  diagnostics: FdqlDiagnostic[],
+): { readonly nextIndex: number; readonly stage?: FdqlStage | undefined; } {
+  const start = lines[startIndex]!;
+  const match =
+    /^then\s+lookup\s+(one|many)\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)$/i
+      .exec(start.text);
+  const clauses: FdqlLookupClause[] = [];
+  let nextIndex = startIndex;
+  let endRange = start.range;
+
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (!line.text) {
+      nextIndex = index;
+      endRange = line.range;
+      continue;
+    }
+    if (!line.text.startsWith('fs ')) break;
+    const clause = parseLookupClause(line, diagnostics);
+    if (clause) clauses.push(clause);
+    nextIndex = index;
+    endRange = line.range;
+  }
+
+  if (!match) {
+    diagnostics.push(
+      error(
+        'FDQL_UNKNOWN_STAGE',
+        '`lookup` must use `then lookup one|many $source as rowAlias`.',
+        start.line,
+        start.column,
+      ),
+    );
+    return { nextIndex };
+  }
+
+  return {
+    nextIndex,
+    stage: {
+      clauses,
+      column: start.column,
+      kind: 'lookup',
+      line: start.line,
+      mode: match[1]!.toLowerCase() as 'many' | 'one',
+      range: span(start.range, endRange),
+      rowAlias: match[3]!,
+      sourceAlias: match[2]!,
+    },
+  };
+}
+
+function parseLookupClause(
+  line: SourceLine,
+  diagnostics: FdqlDiagnostic[],
+): FdqlLookupClause | null {
+  const { column, range, text } = line;
+  if (text.startsWith('fs where ')) {
+    const expressionSource = expressionSlice(text, column, 'fs where '.length);
+    const parsed = parseExpression(expressionSource.text, line.line, expressionSource.column);
+    diagnostics.push(...parsed.diagnostics);
+    return parsed.expression
+      ? { column, expression: parsed.expression, kind: 'fsWhere', line: line.line, range }
+      : null;
+  }
+  if (text.startsWith('fs order by ')) {
+    const sourceBody = expressionSlice(text, column, 'fs order by '.length);
+    const body = sourceBody.text;
+    const direction = body.toLowerCase().endsWith(' desc')
+      ? 'desc'
+      : body.toLowerCase().endsWith(' asc')
+      ? 'asc'
+      : 'asc';
+    const expressionText = direction === 'asc' && !body.toLowerCase().endsWith(' asc')
+      ? body
+      : body.slice(0, Math.max(0, body.length - 4)).trim();
+    const parsed = parseExpression(expressionText, line.line, sourceBody.column);
+    diagnostics.push(...parsed.diagnostics);
+    return parsed.expression
+      ? {
+        column,
+        direction,
+        expression: parsed.expression,
+        kind: 'fsOrderBy',
+        line: line.line,
+        range,
+      }
+      : null;
+  }
+  if (text.startsWith('fs limit ')) {
+    return {
+      column,
+      kind: 'fsLimit',
+      line: line.line,
+      range,
+      value: Number(text.slice('fs limit '.length).trim()),
+    };
+  }
+  diagnostics.push(
+    error('FDQL_UNKNOWN_STAGE', `Unsupported lookup clause: ${text}.`, line.line, column),
+  );
+  return null;
 }
 
 function parseSet(

@@ -46,12 +46,17 @@ const result: FdqlRunResult = {
   durationMs: 1_234,
   rows: [{ id: 'version', metadata: { channel: 'stable' }, version: 3166 }],
   stats: {
+    aggregateSourceRows: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+    lookupReads: 0,
     perProjectReads: { local: 1 },
     readBudget: 5000,
     reads: 1,
     rowsOutput: 1,
     rowsScanned: 1,
     stoppedReason: 'completed',
+    unionBranches: 0,
   },
 };
 

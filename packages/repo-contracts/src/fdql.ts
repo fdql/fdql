@@ -7,12 +7,17 @@ export interface FdqlDiagnostic {
 }
 
 export interface FdqlStats {
+  readonly aggregateSourceRows: number;
+  readonly cacheHits: number;
+  readonly cacheMisses: number;
+  readonly lookupReads: number;
   readonly perProjectReads: Readonly<Record<string, number>>;
   readonly readBudget: number;
   readonly reads: number;
   readonly rowsOutput: number;
   readonly rowsScanned: number;
   readonly stoppedReason?: 'budget' | 'cancelled' | 'completed' | 'timeout' | undefined;
+  readonly unionBranches: number;
 }
 
 export interface FdqlRowLineage {
