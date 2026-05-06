@@ -14,17 +14,17 @@ Scope: read features only. Write operations are out of this tracker.
 
 ## Current Read Slice
 
-| Area            | Status  | Notes                                                                                   |
-| --------------- | ------- | --------------------------------------------------------------------------------------- |
-| FDQL tab        | Done    | Dedicated tab, Run/Cancel, source persistence, Results/Issues.                          |
-| Result views    | Done    | Table, Tree, lazy JSON, rows/reads/scanned/elapsed stats.                               |
-| IPC             | Done    | `fdql.compile`, `fdql.run`, `fdql.cancel`, event stream.                                |
-| Mock repository | Done    | Uses existing fixture collections through in-memory runtime.                            |
-| Live repository | Partial | Uses paged Admin SDK collection/collection group reads for the first read source shape. |
-| Parser          | Partial | Statement grammar keeps existing syntax and now records source columns/ranges.          |
-| Compiler        | Partial | Builds one native read source plus local stages.                                        |
-| Executor        | Partial | Streams rows after runtime returns docs. Supports basic local stages.                   |
-| E2E             | Partial | Covers bounded reads, field projection, and duplicate singleton diagnostics.            |
+| Area            | Status  | Notes                                                                                                                                                       |
+| --------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FDQL tab        | Done    | Dedicated tab, Run/Cancel, source persistence, Results/Issues.                                                                                              |
+| Result views    | Done    | Table, Tree, lazy JSON, rows/reads/scanned/elapsed stats.                                                                                                   |
+| IPC             | Done    | `fdql.compile`, `fdql.run`, `fdql.cancel`, event stream.                                                                                                    |
+| Mock repository | Done    | Uses existing fixture collections through in-memory runtime.                                                                                                |
+| Live repository | Partial | Uses paged Admin SDK collection/collection group reads for the first read source shape.                                                                     |
+| Parser          | Partial | Statement grammar keeps existing syntax and now records source columns/ranges.                                                                              |
+| Compiler        | Partial | Builds one native read source plus local stages.                                                                                                            |
+| Executor        | Partial | Streams rows after runtime returns docs. Supports basic local stages.                                                                                       |
+| E2E             | Partial | Covers bounded reads, field projection, result views, budget stop, lookup, unwind, aggregate, union, collection group, and duplicate singleton diagnostics. |
 
 ## Implemented Read Syntax
 
@@ -159,7 +159,7 @@ These block the read implementation from being honest at production scale.
 | Source-located AST | Done                       | Top-level declarations and stages carry source columns/ranges; parser expression diagnostics use source columns.               |
 | Row-shape analysis | Missing                    | Unknown fields are mostly runtime `undefined`; compiler does not prove row shape.                                              |
 | Lineage UI         | Partial                    | Events carry basic document lineage, but UI does not expose source exploration.                                                |
-| More E2E           | Partial                    | Need coverage for tree/json views, cancel, timeout, budget stop, collection group, named DB, and future lookup/unwind/union.   |
+| More E2E           | Partial                    | Covers main read paths. Still needs deterministic cancel/timeout and named DB coverage.                                        |
 | Generated scripts  | Not planned for current UI | Spec mentions generated scripts, but current product slice intentionally has no JS snippet panel. Revisit before implementing. |
 
 ## Suggested Next Order
