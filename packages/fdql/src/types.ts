@@ -186,6 +186,7 @@ export type FdqlParseResult =
 export interface FdqlExecutionSettings {
   readonly allowUnboundedReads: boolean;
   readonly cache: 'off' | 'run' | 'session';
+  readonly pageSize: number;
   readonly readBudget: number;
   readonly timeoutMs: number;
 }
@@ -263,7 +264,9 @@ export interface FdqlReadRequest {
   readonly databaseId?: string | undefined;
   readonly fieldMask?: readonly FdqlFieldMaskField[] | undefined;
   readonly limit?: number | undefined;
+  readonly maxDocuments: number;
   readonly orderBy?: FdqlNativeOrderBy | undefined;
+  readonly pageSize: number;
   readonly predicate?: FdqlExpression | undefined;
   readonly projectId: string;
   readonly rowAlias: string;

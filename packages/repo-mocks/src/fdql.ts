@@ -116,6 +116,7 @@ function compileOptions(request: FdqlCompileRequest) {
     executionDefaults: {
       allowUnboundedReads: request.execution?.allowUnboundedReads ?? false,
       cache: request.execution?.cache ?? 'off',
+      pageSize: request.execution?.pageSize ?? 100,
       readBudget: request.execution?.readBudget ?? 5000,
       timeoutMs: request.execution?.timeoutMs ?? 60_000,
     },

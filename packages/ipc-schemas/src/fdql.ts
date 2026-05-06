@@ -28,6 +28,7 @@ export const FdqlRowLineageSchema = z.object({
 export const FdqlExecutionDefaultsSchema = z.object({
   allowUnboundedReads: z.boolean().optional(),
   cache: z.enum(['off', 'run', 'session']).optional(),
+  pageSize: z.number().int().positive().optional(),
   readBudget: z.number().int().positive().optional(),
   timeoutMs: z.number().int().positive().optional(),
 });

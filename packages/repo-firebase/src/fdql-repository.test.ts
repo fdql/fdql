@@ -35,6 +35,38 @@ return fs.id(o) as id`,
     });
   });
 
+  it('pages live reads and caps pages by read budget', async () => {
+    const query = fakeQuery([
+      [fakeSnapshot('ord_1', 'orders/ord_1', {})],
+      [fakeSnapshot('ord_2', 'orders/ord_2', {})],
+      [fakeSnapshot('ord_3', 'orders/ord_3', {})],
+    ]);
+    const db = {
+      collection: vi.fn(() => query),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    const result = await repository.run({
+      connectionId: 'local',
+      execution: { pageSize: 1, readBudget: 2 },
+      runId: 'run_1',
+      source: `alias $orders = fs.collection("orders", [])
+from $orders as o
+fs limit 10
+return fs.id(o) as id`,
+    });
+
+    expect(query.get).toHaveBeenCalledTimes(2);
+    expect(query.limit).toHaveBeenNthCalledWith(1, 1);
+    expect(query.limit).toHaveBeenNthCalledWith(2, 1);
+    expect(query.startAfter).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      diagnostics: [],
+      rows: [{ id: 'ord_1' }, { id: 'ord_2' }],
+      stats: { reads: 2, rowsOutput: 2, rowsScanned: 2, stoppedReason: 'budget' },
+    });
+  });
+
   it('returns compile diagnostics without touching Firestore', async () => {
     const db = {
       collection: vi.fn(),
@@ -59,12 +91,17 @@ return fs.id(o) as id`,
   });
 });
 
-function fakeQuery(docs: readonly unknown[]) {
+function fakeQuery(docsOrPages: readonly unknown[] | readonly (readonly unknown[])[]) {
+  const pages = Array.isArray(docsOrPages[0])
+    ? docsOrPages as readonly (readonly unknown[])[]
+    : [docsOrPages as readonly unknown[]];
+  let pageIndex = 0;
   const query = {
-    get: vi.fn(async () => ({ docs })),
+    get: vi.fn(async () => ({ docs: pages[pageIndex++] ?? [] })),
     limit: vi.fn((_limit: number) => query),
     orderBy: vi.fn((_field: FieldPath | string, _direction: 'asc' | 'desc') => query),
     select: vi.fn((..._fields: FieldPath[]) => query),
+    startAfter: vi.fn((_document: unknown) => query),
     where: vi.fn((_filter: unknown) => query),
   };
   return query;

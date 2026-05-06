@@ -130,10 +130,25 @@ function createAdminFdqlRuntime(provider: AdminFirestoreProvider): FdqlRuntime {
       const base = request.collectionPath
         ? db.collection(request.collectionPath)
         : db.collectionGroup(request.collectionGroup ?? '');
-      const snapshot = await applyNativeQuery(base, request).get();
-      for (const doc of snapshot.docs) {
-        yield documentFromSnapshot(request.projectId, request.databaseId, doc);
+      const query = applyNativeQuery(base, request);
+      let readCount = 0;
+      let lastDocument: QueryDocumentSnapshot | null = null;
+      // oxlint-disable no-await-in-loop -- Each page depends on the previous cursor.
+      while (readCount < request.maxDocuments) {
+        const pageLimit = Math.min(request.pageSize, request.maxDocuments - readCount);
+        let pageQuery = query.limit(pageLimit);
+        if (lastDocument) pageQuery = pageQuery.startAfter(lastDocument);
+        const snapshot = await pageQuery.get();
+        if (!snapshot.docs.length) break;
+        for (const doc of snapshot.docs) {
+          readCount += 1;
+          lastDocument = doc;
+          yield documentFromSnapshot(request.projectId, request.databaseId, doc);
+          if (readCount >= request.maxDocuments) break;
+        }
+        if (snapshot.docs.length < pageLimit) break;
       }
+      // oxlint-enable no-await-in-loop
     },
   };
 }
@@ -154,7 +169,6 @@ function applyNativeQuery(
   if (request.fieldMask) {
     next = next.select(...request.fieldMask.map((field) => toAdminFieldPath(field.path)));
   }
-  if (request.limit !== undefined) next = next.limit(request.limit);
   return next;
 }
 
@@ -242,6 +256,7 @@ function compileOptions(request: FdqlCompileRequest) {
     executionDefaults: {
       allowUnboundedReads: request.execution?.allowUnboundedReads ?? false,
       cache: request.execution?.cache ?? 'off',
+      pageSize: request.execution?.pageSize ?? 100,
       readBudget: request.execution?.readBudget ?? 5000,
       timeoutMs: request.execution?.timeoutMs ?? 60_000,
     },

@@ -24,6 +24,7 @@ export interface FdqlRowLineage {
 export interface FdqlExecutionDefaults {
   readonly allowUnboundedReads?: boolean | undefined;
   readonly cache?: 'off' | 'run' | 'session' | undefined;
+  readonly pageSize?: number | undefined;
   readonly readBudget?: number | undefined;
   readonly timeoutMs?: number | undefined;
 }

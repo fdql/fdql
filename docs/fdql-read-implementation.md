@@ -14,17 +14,17 @@ Scope: read features only. Write operations are out of this tracker.
 
 ## Current Read Slice
 
-| Area            | Status  | Notes                                                                                        |
-| --------------- | ------- | -------------------------------------------------------------------------------------------- |
-| FDQL tab        | Done    | Dedicated tab, Run/Cancel, source persistence, Results/Issues.                               |
-| Result views    | Done    | Table, Tree, lazy JSON, rows/reads/scanned/elapsed stats.                                    |
-| IPC             | Done    | `fdql.compile`, `fdql.run`, `fdql.cancel`, event stream.                                     |
-| Mock repository | Done    | Uses existing fixture collections through in-memory runtime.                                 |
-| Live repository | Partial | Uses Admin SDK collection/collection group queries, but fetches each query with one `get()`. |
-| Parser          | Partial | Line-based parser for the first read slice. Not full grammar.                                |
-| Compiler        | Partial | Builds one native read source plus local stages.                                             |
-| Executor        | Partial | Streams rows after runtime returns docs. Supports basic local stages.                        |
-| E2E             | Partial | Covers bounded reads, field projection, and duplicate singleton diagnostics.                 |
+| Area            | Status  | Notes                                                                                   |
+| --------------- | ------- | --------------------------------------------------------------------------------------- |
+| FDQL tab        | Done    | Dedicated tab, Run/Cancel, source persistence, Results/Issues.                          |
+| Result views    | Done    | Table, Tree, lazy JSON, rows/reads/scanned/elapsed stats.                               |
+| IPC             | Done    | `fdql.compile`, `fdql.run`, `fdql.cancel`, event stream.                                |
+| Mock repository | Done    | Uses existing fixture collections through in-memory runtime.                            |
+| Live repository | Partial | Uses paged Admin SDK collection/collection group reads for the first read source shape. |
+| Parser          | Partial | Line-based parser for the first read slice. Not full grammar.                           |
+| Compiler        | Partial | Builds one native read source plus local stages.                                        |
+| Executor        | Partial | Streams rows after runtime returns docs. Supports basic local stages.                   |
+| E2E             | Partial | Covers bounded reads, field projection, and duplicate singleton diagnostics.            |
 
 ## Implemented Read Syntax
 
@@ -71,9 +71,9 @@ These block the read implementation from being honest at production scale.
 
 | Feature                          | Status  | Notes                                                                                                                            |
 | -------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Live streaming/pages             | Missing | Live repo uses `query.get()`. Need cursor/page streaming so reads, cancel, timeout, and budgets are enforced during execution.   |
-| Read budget in live repo         | Partial | Core executor stops after yielded docs, but Admin SDK already fetched the query batch.                                           |
-| Cancel in live repo              | Partial | Cancel is observed between yielded docs, not while the Firestore `get()` is in flight.                                           |
+| Live streaming/pages             | Done    | Live repo uses cursor pages and caps each page by configured page size and remaining read budget/native limit.                   |
+| Read budget in live repo         | Done    | Runtime read requests cap Firestore page reads before docs are fetched.                                                          |
+| Cancel in live repo              | Partial | Cancel is observed between pages/rows, but not while a Firestore page request is already in flight.                              |
 | Timeout in live repo             | Partial | Same issue as cancel.                                                                                                            |
 | Cache modes                      | Missing | `set cache = ...` parses/compiles, but runtime does not dedupe or cache reads.                                                   |
 | Provider query validation parity | Partial | Compiler validates simple native shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.                        |

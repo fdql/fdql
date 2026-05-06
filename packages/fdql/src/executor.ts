@@ -112,7 +112,7 @@ export function createInMemoryFdqlRuntime(input: InMemoryFdqlRuntimeInput): Fdql
         }))
       );
       const ordered = orderDocuments(filtered, request);
-      const limited = request.limit === undefined ? ordered : ordered.slice(0, request.limit);
+      const limited = ordered.slice(0, request.maxDocuments);
       for (const document of limited) {
         yield applyFieldMask(document, request);
       }
@@ -122,6 +122,10 @@ export function createInMemoryFdqlRuntime(input: InMemoryFdqlRuntimeInput): Fdql
 
 function createReadRequest(plan: FdqlReadPlan): FdqlReadRequest {
   const source = plan.native.source;
+  const maxDocuments = Math.min(
+    plan.native.limit ?? plan.settings.readBudget,
+    plan.settings.readBudget,
+  );
   return {
     aliases: plan.aliases,
     ...(source.collectionGroup ? { collectionGroup: source.collectionGroup } : {}),
@@ -129,7 +133,9 @@ function createReadRequest(plan: FdqlReadPlan): FdqlReadRequest {
     ...(source.databaseId ? { databaseId: source.databaseId } : {}),
     ...(plan.native.fieldMask ? { fieldMask: plan.native.fieldMask } : {}),
     ...(plan.native.limit === undefined ? {} : { limit: plan.native.limit }),
+    maxDocuments,
     ...(plan.native.orderBy ? { orderBy: plan.native.orderBy } : {}),
+    pageSize: Math.min(plan.settings.pageSize, maxDocuments),
     ...(plan.native.predicate ? { predicate: plan.native.predicate } : {}),
     projectId: source.projectId,
     rowAlias: plan.rowAlias,

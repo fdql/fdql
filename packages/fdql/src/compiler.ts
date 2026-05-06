@@ -20,6 +20,7 @@ import type {
 const defaultSettings: FdqlExecutionSettings = {
   allowUnboundedReads: false,
   cache: 'off',
+  pageSize: 100,
   readBudget: 5000,
   timeoutMs: 60_000,
 };
