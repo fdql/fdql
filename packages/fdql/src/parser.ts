@@ -1,6 +1,8 @@
 import { findTopLevelAs, parseExpression, splitTopLevel } from './expression.ts';
 import type {
+  FdqlAggregateStage,
   FdqlAliasDeclaration,
+  FdqlAst,
   FdqlDiagnostic,
   FdqlFromStage,
   FdqlLookupClause,
@@ -11,6 +13,7 @@ import type {
   FdqlSetDeclaration,
   FdqlSourceRange,
   FdqlStage,
+  FdqlUnionProgram,
   FdqlWithStage,
 } from './types.ts';
 
@@ -22,6 +25,26 @@ interface SourceLine {
 }
 
 export function parseFdql(source: string): FdqlParseResult {
+  const unionParts = splitUnionAll(source);
+  if (unionParts.length > 1) {
+    const preamble = sharedPreamble(unionParts[0]!);
+    const branches = unionParts.map((part, index) =>
+      index === 0 ? part : `${preamble}${preamble ? '\n' : ''}${part}`
+    );
+    const parsedBranches = branches.map(parseFdqlPipeline);
+    const diagnostics = parsedBranches.flatMap((branch) => branch.diagnostics);
+    const programs: FdqlProgram[] = parsedBranches.flatMap((branch) =>
+      branch.ast && !isUnionAst(branch.ast) ? [branch.ast] : []
+    );
+    const ast: FdqlUnionProgram = { branches: programs, kind: 'union' };
+    return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+      ? { ast, diagnostics, ok: false }
+      : { ast, diagnostics, ok: true };
+  }
+  return parseFdqlPipeline(source);
+}
+
+function parseFdqlPipeline(source: string): FdqlParseResult {
   const diagnostics: FdqlDiagnostic[] = [];
   const aliases: FdqlAliasDeclaration[] = [];
   const settings: FdqlSetDeclaration[] = [];
@@ -132,6 +155,26 @@ export function parseFdql(source: string): FdqlParseResult {
         range,
         value: Number(text.slice('then take '.length).trim()),
       });
+      continue;
+    }
+    if (text.startsWith('then sort by ')) {
+      const parsed = parseSortBy(text, line, column, range, diagnostics);
+      if (parsed) stages.push(parsed);
+      continue;
+    }
+    if (text === 'then aggregate' || text.startsWith('then aggregate ')) {
+      const block = collectProjection(lines, index, 'then aggregate');
+      index = block.nextIndex;
+      const aggregate = parseAggregate(
+        block.source,
+        block.sourceLine,
+        block.sourceColumn,
+        column,
+        line,
+        block.range,
+        diagnostics,
+      );
+      stages.push(aggregate);
       continue;
     }
     if (text.startsWith('then lookup ')) {
@@ -297,6 +340,74 @@ function parseLookupClause(
     error('FDQL_UNKNOWN_STAGE', `Unsupported lookup clause: ${text}.`, line.line, column),
   );
   return null;
+}
+
+function parseSortBy(
+  text: string,
+  line: number,
+  column: number,
+  range: FdqlSourceRange,
+  diagnostics: FdqlDiagnostic[],
+): FdqlStage | null {
+  const sourceBody = expressionSlice(text, column, 'then sort by '.length);
+  const body = sourceBody.text;
+  const direction = body.toLowerCase().endsWith(' desc')
+    ? 'desc'
+    : body.toLowerCase().endsWith(' asc')
+    ? 'asc'
+    : 'asc';
+  const expressionText = direction === 'asc' && !body.toLowerCase().endsWith(' asc')
+    ? body
+    : body.slice(0, Math.max(0, body.length - 4)).trim();
+  const parsed = parseExpression(expressionText, line, sourceBody.column);
+  diagnostics.push(...parsed.diagnostics);
+  return parsed.expression
+    ? { column, direction, expression: parsed.expression, kind: 'sortBy', line, range }
+    : null;
+}
+
+function parseAggregate(
+  source: string,
+  sourceLine: number,
+  sourceColumn: number,
+  column: number,
+  line: number,
+  range: FdqlSourceRange,
+  diagnostics: FdqlDiagnostic[],
+): FdqlAggregateStage {
+  const normalized = source.replace(/\n/g, ',');
+  const groupParts: string[] = [];
+  const itemParts: string[] = [];
+  let readingGroups = false;
+  for (const rawPart of splitTopLevel(normalized)) {
+    const part = rawPart.startsWith('by ') ? rawPart.slice(3).trim() : rawPart;
+    if (rawPart.startsWith('by ')) readingGroups = true;
+    if (readingGroups && !isAggregateProjection(part)) {
+      groupParts.push(part);
+      continue;
+    }
+    readingGroups = false;
+    itemParts.push(part);
+  }
+  const groups = parseProjectionItems(groupParts.join(', '), sourceLine, sourceColumn, diagnostics);
+  const items = parseProjectionItems(itemParts.join(', '), sourceLine, sourceColumn, diagnostics);
+  for (const group of groups) {
+    if (!group.alias) {
+      diagnostics.push(
+        error('FDQL_PARSE_ERROR', 'Aggregate `by` expressions need `as`.', line, column),
+      );
+    }
+  }
+  for (const item of items) {
+    if (!item.alias) {
+      diagnostics.push(error('FDQL_PARSE_ERROR', 'Aggregate expressions need `as`.', line, column));
+    }
+  }
+  return { column, groups, items, kind: 'aggregate', line, range };
+}
+
+function isAggregateProjection(source: string): boolean {
+  return /^(count|sum|avg|min|max)\s*\(/i.test(source.trim());
 }
 
 function parseUnwind(
@@ -482,6 +593,37 @@ function createSourceLines(source: string): readonly SourceLine[] {
   });
 }
 
+function splitUnionAll(source: string): readonly string[] {
+  const parts: string[] = [];
+  const lines = source.split(/\r?\n/);
+  let current: string[] = [];
+  for (const line of lines) {
+    if (line.trim().toLowerCase() === 'union all') {
+      parts.push(current.join('\n').trim());
+      current = [];
+      continue;
+    }
+    current.push(line);
+  }
+  parts.push(current.join('\n').trim());
+  return parts.filter(Boolean);
+}
+
+function sharedPreamble(source: string): string {
+  const lines = source.split(/\r?\n/);
+  const preamble: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      preamble.push(line);
+      continue;
+    }
+    if (trimmed.startsWith('from ')) break;
+    preamble.push(line);
+  }
+  return preamble.join('\n').trim();
+}
+
 function firstNonWhitespaceIndex(text: string): number {
   const index = text.search(/\S/);
   return index < 0 ? 0 : index;
@@ -532,6 +674,10 @@ function isEscaped(source: string, index: number): boolean {
 
 function isStatementStart(text: string): boolean {
   return /^(set|alias|from|fs |then |return|union all)\b/.test(text);
+}
+
+function isUnionAst(ast: FdqlAst): ast is FdqlUnionProgram {
+  return 'kind' in ast && ast.kind === 'union';
 }
 
 function error(code: string, message: string, line: number, column: number): FdqlDiagnostic {

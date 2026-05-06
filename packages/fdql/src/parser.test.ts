@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseFdql } from './parser.ts';
+import type { FdqlAst, FdqlProgram, FdqlUnionProgram } from './types.ts';
 
 const validFixtures: readonly { readonly name: string; readonly source: string; }[] = [
   {
@@ -69,7 +70,7 @@ then lookup one $teams as team
 return *`);
 
     expect(result).toMatchObject({ ok: true });
-    expect(result.ast?.stages).toContainEqual(
+    expect(pipelineAst(result).stages).toContainEqual(
       expect.objectContaining({
         clauses: [
           expect.objectContaining({ kind: 'fsWhere' }),
@@ -91,7 +92,7 @@ then unwind entries(g.roundsById) as round
 return round.key`);
 
     expect(result).toMatchObject({ diagnostics: [], ok: true });
-    expect(result.ast?.stages).toContainEqual(
+    expect(pipelineAst(result).stages).toContainEqual(
       expect.objectContaining({
         kind: 'unwind',
         rowAlias: 'round',
@@ -106,7 +107,7 @@ fs limit 1
 return 'paid, active' as statusLabel, 'keep as text' as note`);
 
     expect(result).toMatchObject({ diagnostics: [], ok: true });
-    expect(result.ast?.stages).toContainEqual(
+    expect(pipelineAst(result).stages).toContainEqual(
       expect.objectContaining({
         items: [
           expect.objectContaining({ alias: 'statusLabel' }),
@@ -136,12 +137,12 @@ return d.profileUrl`);
   return d.firstName`);
 
     expect(result).toMatchObject({ diagnostics: [], ok: true });
-    expect(result.ast?.aliases[0]).toMatchObject({
+    expect(pipelineAst(result).aliases[0]).toMatchObject({
       column: 3,
       line: 1,
       range: { endColumn: 44, endLine: 1, startColumn: 3, startLine: 1 },
     });
-    expect(result.ast?.from).toMatchObject({
+    expect(pipelineAst(result).from).toMatchObject({
       column: 3,
       line: 3,
       range: { endColumn: 21, endLine: 3, startColumn: 3, startLine: 3 },
@@ -170,4 +171,37 @@ return d.firstName`);
       expect.objectContaining({ code: 'FDQL_PARSE_ERROR', column: 3, line: 2 }),
     );
   });
+
+  it('parses top-level union all branches', () => {
+    const result = parseFdql(`alias $drivers = fs.collection("drivers")
+alias $teams = fs.collection("teams")
+
+from $drivers as d
+fs limit 1
+return fs.id(d) as id
+
+union all
+
+from $teams as t
+fs limit 1
+return fs.id(t) as id`);
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    if (!result.ast || !('kind' in result.ast) || result.ast.kind !== 'union') {
+      throw new Error('expected union AST');
+    }
+    expect(result.ast.branches).toHaveLength(2);
+    expect(result.ast.branches[1]?.aliases).toHaveLength(2);
+  });
 });
+
+function pipelineAst(result: ReturnType<typeof parseFdql>): FdqlProgram {
+  if (!result.ast || isUnionAst(result.ast)) {
+    throw new Error('expected pipeline AST');
+  }
+  return result.ast;
+}
+
+function isUnionAst(ast: FdqlAst): ast is FdqlUnionProgram {
+  return 'kind' in ast && ast.kind === 'union';
+}

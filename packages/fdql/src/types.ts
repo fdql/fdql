@@ -113,11 +113,13 @@ export interface FdqlFromStage {
 }
 
 export type FdqlStage =
+  | FdqlAggregateStage
   | FdqlFilterStage
   | FdqlLimitStage
   | FdqlLookupStage
   | FdqlOrderByStage
   | FdqlReturnStage
+  | FdqlSortByStage
   | FdqlTakeStage
   | FdqlUnwindStage
   | FdqlWhereStage
@@ -163,6 +165,24 @@ export interface FdqlTakeStage {
   readonly line: number;
   readonly range: FdqlSourceRange;
   readonly value: number;
+}
+
+export interface FdqlSortByStage {
+  readonly column: number;
+  readonly direction: 'asc' | 'desc';
+  readonly expression: FdqlExpression;
+  readonly kind: 'sortBy';
+  readonly line: number;
+  readonly range: FdqlSourceRange;
+}
+
+export interface FdqlAggregateStage {
+  readonly column: number;
+  readonly groups: readonly FdqlProjectionItem[];
+  readonly items: readonly FdqlProjectionItem[];
+  readonly kind: 'aggregate';
+  readonly line: number;
+  readonly range: FdqlSourceRange;
 }
 
 export type FdqlLookupMode = 'many' | 'one';
@@ -229,14 +249,21 @@ export interface FdqlProgram {
   readonly stages: readonly FdqlStage[];
 }
 
+export type FdqlAst = FdqlProgram | FdqlUnionProgram;
+
+export interface FdqlUnionProgram {
+  readonly branches: readonly FdqlProgram[];
+  readonly kind: 'union';
+}
+
 export type FdqlParseResult =
   | {
-    readonly ast: FdqlProgram;
+    readonly ast: FdqlAst;
     readonly diagnostics: readonly FdqlDiagnostic[];
     readonly ok: true;
   }
   | {
-    readonly ast?: FdqlProgram | undefined;
+    readonly ast?: FdqlAst | undefined;
     readonly diagnostics: readonly FdqlDiagnostic[];
     readonly ok: false;
   };
@@ -249,13 +276,21 @@ export interface FdqlExecutionSettings {
   readonly timeoutMs: number;
 }
 
-export interface FdqlReadPlan {
+export type FdqlReadPlan = FdqlSingleReadPlan | FdqlUnionReadPlan;
+
+export interface FdqlSingleReadPlan {
   readonly aliases: Readonly<Record<string, FdqlValue>>;
   readonly kind: 'read';
   readonly localStages: readonly FdqlLocalPlanStage[];
   readonly native: FdqlNativeReadPlan;
   readonly returnStage: FdqlReturnStage;
   readonly rowAlias: string;
+  readonly settings: FdqlExecutionSettings;
+}
+
+export interface FdqlUnionReadPlan {
+  readonly branches: readonly FdqlSingleReadPlan[];
+  readonly kind: 'union';
   readonly settings: FdqlExecutionSettings;
 }
 
@@ -286,8 +321,10 @@ export interface FdqlNativeOrderBy {
 }
 
 export type FdqlLocalPlanStage =
+  | FdqlAggregateStage
   | FdqlFilterStage
   | FdqlLookupPlanStage
+  | FdqlSortByStage
   | FdqlTakeStage
   | FdqlUnwindStage
   | FdqlWithStage;
@@ -305,13 +342,13 @@ export interface FdqlLookupPlanStage {
 
 export type FdqlReadCompileResult =
   | {
-    readonly ast: FdqlProgram;
+    readonly ast: FdqlAst;
     readonly diagnostics: readonly FdqlDiagnostic[];
     readonly ok: true;
     readonly plan: FdqlReadPlan;
   }
   | {
-    readonly ast?: FdqlProgram | undefined;
+    readonly ast?: FdqlAst | undefined;
     readonly diagnostics: readonly FdqlDiagnostic[];
     readonly ok: false;
     readonly plan?: FdqlReadPlan | undefined;

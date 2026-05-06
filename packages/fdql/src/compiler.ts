@@ -2,6 +2,7 @@ import { evaluateExpression } from './evaluator.ts';
 import { parseFdql } from './parser.ts';
 import type {
   FdqlAliasDeclaration,
+  FdqlAst,
   FdqlCompileOptions,
   FdqlDiagnostic,
   FdqlExecutionSettings,
@@ -11,11 +12,14 @@ import type {
   FdqlLookupPlanStage,
   FdqlLookupStage,
   FdqlNativeOrderBy,
+  FdqlProgram,
   FdqlReadCompileResult,
   FdqlReturnStage,
   FdqlSetDeclaration,
+  FdqlSingleReadPlan,
   FdqlSourcePlan,
   FdqlStage,
+  FdqlUnionProgram,
   FdqlValue,
 } from './types.ts';
 
@@ -44,10 +48,58 @@ export function compileFdqlRead(
   source: string,
   options: FdqlCompileOptions,
 ): FdqlReadCompileResult {
+  const unionParts = splitUnionAll(source);
+  if (unionParts.length > 1) return compileUnionRead(unionParts, options);
+  return compileSingleFdqlRead(source, options);
+}
+
+function compileUnionRead(
+  unionParts: readonly string[],
+  options: FdqlCompileOptions,
+): FdqlReadCompileResult {
+  const preamble = sharedPreamble(unionParts[0]!);
+  const branches = unionParts.map((part, index) =>
+    index === 0 ? part : `${preamble}${preamble ? '\n' : ''}${part}`
+  );
+  const compiledBranches = branches.map((branch) => compileSingleFdqlRead(branch, options));
+  const diagnostics = compiledBranches.flatMap((branch) => branch.diagnostics);
+  const plans: FdqlSingleReadPlan[] = compiledBranches.flatMap((branch) =>
+    branch.ok && branch.plan.kind === 'read' ? [branch.plan] : []
+  );
+  const astBranches: FdqlProgram[] = compiledBranches.flatMap((branch) =>
+    branch.ast && !isUnionAst(branch.ast) ? [branch.ast] : []
+  );
+  const ast: FdqlUnionProgram = { branches: astBranches, kind: 'union' };
+  if (
+    diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+    || plans.length !== branches.length
+  ) {
+    return { ast, diagnostics, ok: false };
+  }
+  return {
+    ast,
+    diagnostics,
+    ok: true,
+    plan: {
+      branches: plans,
+      kind: 'union',
+      settings: plans[0]?.settings ?? defaultSettings,
+    },
+  };
+}
+
+function compileSingleFdqlRead(
+  source: string,
+  options: FdqlCompileOptions,
+): FdqlReadCompileResult {
   const parsed = parseFdql(source);
   const diagnostics: FdqlDiagnostic[] = [...parsed.diagnostics];
   const ast = parsed.ast;
   if (!ast || !parsed.ok) return { ast, diagnostics, ok: false };
+  if (isUnionAst(ast)) {
+    diagnostics.push(error('FDQL_PARSE_ERROR', 'Nested `union all` is not supported.'));
+    return { ast, diagnostics, ok: false };
+  }
 
   const settings = resolveSettings(ast.settings, options, diagnostics);
   const aliases = resolveAliases(ast.aliases, options, diagnostics);
@@ -125,12 +177,17 @@ export function compileFdqlRead(
         nativeLimitLine = stage.line;
         break;
       case 'filter':
+      case 'sortBy':
       case 'take':
       case 'unwind':
       case 'with':
         validateAliases(stage, scalarAliases, diagnostics);
         localStages.push(stage);
         if (stage.kind === 'unwind') availableRowAliases.add(stage.rowAlias);
+        break;
+      case 'aggregate':
+        validateAggregateStage(stage, scalarAliases, diagnostics);
+        localStages.push(stage);
         break;
       case 'lookup': {
         const lookupStage = compileLookupStage(
@@ -533,12 +590,40 @@ function validateAliases(
   if (stage.kind === 'filter') {
     validateExpressionAliases(stage.expression, aliases, diagnostics, stage.line);
   }
+  if (stage.kind === 'sortBy') {
+    validateExpressionAliases(stage.expression, aliases, diagnostics, stage.line);
+  }
   if (stage.kind === 'unwind') {
     validateExpressionAliases(stage.expression, aliases, diagnostics, stage.line);
   }
   if (stage.kind === 'with' || stage.kind === 'return') {
     for (const item of stage.items) {
       validateExpressionAliases(item.expression, aliases, diagnostics, stage.line);
+    }
+  }
+}
+
+function validateAggregateStage(
+  stage: Extract<FdqlStage, { readonly kind: 'aggregate'; }>,
+  aliases: Readonly<Record<string, FdqlValue>>,
+  diagnostics: FdqlDiagnostic[],
+): void {
+  for (const group of stage.groups) {
+    validateExpressionAliases(group.expression, aliases, diagnostics, stage.line);
+  }
+  for (const item of stage.items) {
+    if (item.expression.kind !== 'call' || !localAggregateCalls.has(item.expression.name)) {
+      diagnostics.push(
+        error(
+          'FDQL_UNSUPPORTED_AGGREGATE',
+          'Aggregate expressions must use count(), sum(...), avg(...), min(...), or max(...).',
+          stage.line,
+        ),
+      );
+      continue;
+    }
+    for (const arg of item.expression.args) {
+      validateExpressionAliases(arg, aliases, diagnostics, stage.line);
     }
   }
 }
@@ -873,3 +958,40 @@ const supportedExpressionCalls = new Set([
   'lower',
   'mapGet',
 ]);
+
+const localAggregateCalls = new Set(['avg', 'count', 'max', 'min', 'sum']);
+
+function isUnionAst(ast: FdqlAst): ast is FdqlUnionProgram {
+  return 'kind' in ast && ast.kind === 'union';
+}
+
+function splitUnionAll(source: string): readonly string[] {
+  const parts: string[] = [];
+  const lines = source.split(/\r?\n/);
+  let current: string[] = [];
+  for (const line of lines) {
+    if (line.trim().toLowerCase() === 'union all') {
+      parts.push(current.join('\n').trim());
+      current = [];
+      continue;
+    }
+    current.push(line);
+  }
+  parts.push(current.join('\n').trim());
+  return parts.filter(Boolean);
+}
+
+function sharedPreamble(source: string): string {
+  const lines = source.split(/\r?\n/);
+  const preamble: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      preamble.push(line);
+      continue;
+    }
+    if (trimmed.startsWith('from ')) break;
+    preamble.push(line);
+  }
+  return preamble.join('\n').trim();
+}

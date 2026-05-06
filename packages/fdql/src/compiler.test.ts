@@ -152,10 +152,9 @@ return d.firstName`,
       `alias $drivers = fs.collection("drivers")
 from $drivers as d
 fs limit 1
-then aggregate
-  by d.teamId as teamId
-  count() as total
-return teamId, total`,
+then lookup expand $drivers as other
+  fs where other.teamId = d.teamId
+return other.teamId`,
       options,
     );
 
@@ -177,6 +176,7 @@ return entry.key, mapGet(d.metadata, entry.key) as value`,
 
     expect(result).toMatchObject({ diagnostics: [], ok: true });
     if (!result.ok) throw new Error('expected compile success');
+    if (result.plan.kind !== 'read') throw new Error('expected read plan');
     expect(result.plan.localStages).toContainEqual(
       expect.objectContaining({
         kind: 'unwind',
@@ -199,6 +199,7 @@ return d.firstName, team.name as teamName`,
 
     expect(result).toMatchObject({ diagnostics: [], ok: true });
     if (!result.ok) throw new Error('expected compile success');
+    if (result.plan.kind !== 'read') throw new Error('expected read plan');
     expect(result.plan.localStages[0]).toMatchObject({
       kind: 'lookup',
       mode: 'one',
@@ -212,6 +213,53 @@ return d.firstName, team.name as teamName`,
       predicate: expect.objectContaining({ kind: 'binary' }),
       source: expect.objectContaining({ collectionPath: 'teams' }),
     });
+  });
+
+  it('plans local sort and aggregate stages', () => {
+    const result = compileFdqlRead(
+      `alias $rounds = fs.collection("rounds")
+from $rounds as r
+fs limit 100
+then sort by r.createdAt desc
+then aggregate
+  by r.driverId as driverId
+  count() as total,
+  max(r.createdAt) as lastRoundAt
+return driverId, total, lastRoundAt`,
+      options,
+    );
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    if (!result.ok) throw new Error('expected compile success');
+    if (result.plan.kind !== 'read') throw new Error('expected read plan');
+    expect(result.plan.localStages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'sortBy' }),
+        expect.objectContaining({ kind: 'aggregate' }),
+      ]),
+    );
+  });
+
+  it('plans top-level union all branches', () => {
+    const result = compileFdqlRead(
+      `alias $drivers = fs.collection("drivers")
+alias $teams = fs.collection("teams")
+
+from $drivers as d
+fs limit 1
+return fs.id(d) as id
+
+union all
+
+from $teams as t
+fs limit 1
+return fs.id(t) as id`,
+      options,
+    );
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    if (!result.ok) throw new Error('expected compile success');
+    expect(result.plan).toMatchObject({ branches: expect.any(Array), kind: 'union' });
   });
 
   it('rejects lookup predicates with unknown row bindings', () => {

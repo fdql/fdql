@@ -250,6 +250,64 @@ return entry.key, entry.value, mapGet(d.metadata, entry.key) as dynamicValue`);
     ]);
     expect(completed(events)).toMatchObject({ reads: 1, rowsOutput: 2 });
   });
+
+  it('sorts local rows before returning them', async () => {
+    const events = await run(`alias $drivers = fs.collection("drivers", ["firstName"])
+
+from $drivers as d
+fs limit 3
+
+then sort by d.firstName asc
+
+return fs.id(d) as id, d.firstName`);
+
+    expect(rows(events)).toEqual([
+      { firstName: 'Alex', id: 'drv_2' },
+      { firstName: 'Vini', id: 'drv_1' },
+      { firstName: 'Vini', id: 'drv_3' },
+    ]);
+  });
+
+  it('aggregates bounded local rows', async () => {
+    const events = await run(`alias $rounds = fs.collection("rounds", ["driverId", "createdAt"])
+
+from $rounds as r
+fs limit 10
+
+then aggregate
+  by r.driverId as driverId
+  count() as total,
+  max(r.createdAt) as lastRoundAt
+
+return driverId, total, lastRoundAt`);
+
+    expect(rows(events)).toEqual([
+      { driverId: 'drv_1', lastRoundAt: '2025-10-06T00:00:00.000Z', total: 2 },
+      { driverId: 'drv_2', lastRoundAt: '2025-10-07T00:00:00.000Z', total: 1 },
+    ]);
+    expect(completed(events)).toMatchObject({ aggregateSourceRows: 3, reads: 3, rowsOutput: 2 });
+  });
+
+  it('executes top-level union all branches with shared aliases', async () => {
+    const events = await run(`alias $drivers = fs.collection("drivers")
+alias $teams = fs.collection("teams")
+
+from $drivers as d
+fs where fs.id(d) = "drv_1"
+return fs.id(d) as id, "driver" as type
+
+union all
+
+from $teams as t
+fs where fs.id(t) = "team_1"
+return fs.id(t) as id, "team" as type`);
+
+    expect(rows(events)).toEqual([
+      { id: 'drv_1', type: 'driver' },
+      { id: 'team_1', type: 'team' },
+    ]);
+    expect(completed(events)).toMatchObject({ reads: 2, rowsOutput: 2, unionBranches: 2 });
+  });
 });
 
 async function run(

@@ -56,8 +56,34 @@ then lookup many $rounds as rounds
   fs limit 20
 
 then unwind entries(d.metadata) as entry
+then sort by d.firstName asc
 
 return id, d.firstName, entry.key
+```
+
+```fdql
+from $drivers as d
+fs limit 100
+
+then aggregate
+  by d.teamId as teamId
+  count() as total
+
+then sort by total desc
+
+return teamId, total
+```
+
+```fdql
+from $drivers as d
+fs limit 10
+return fs.id(d) as id, d.firstName
+
+union all
+
+from $orders as o
+fs limit 10
+return fs.id(o) as id, o.status
 ```
 
 Implemented expression/runtime basics:
@@ -73,6 +99,7 @@ Implemented expression/runtime basics:
 - `lower(value)`
 - `entries(map)`
 - `mapGet(map, key)`
+- `count()`, `sum(...)`, `avg(...)`, `min(...)`, `max(...)` inside local aggregate stages
 - `return *`
 - field masks, including `[]` metadata-only reads
 - collection paths, collection groups, explicit project, named database
@@ -103,9 +130,9 @@ These block the read implementation from being honest at production scale.
 | `fs.subcollections(parent)`               | Missing | Needed for subcollection discovery.                                          |
 | `unwind array`                            | Done    | Expands arrays into one row per item.                                        |
 | `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.          |
-| `union all`                               | Missing | Parser has no branch AST or executor support.                                |
-| `sort by`                                 | Missing | Local sort stage is in the spec but not parser/executor.                     |
-| `aggregate`                               | Missing | Local grouping/aggregation not implemented.                                  |
+| `union all`                               | Done    | Executes top-level branches with shared preamble aliases/settings.           |
+| `sort by`                                 | Done    | Local row sort before later local stages or return.                          |
+| `aggregate`                               | Done    | Local grouping with count/sum/avg/min/max.                                   |
 | Firestore aggregations                    | Missing | `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max` not implemented.          |
 
 ## P2 Expression Gaps
@@ -137,7 +164,5 @@ These block the read implementation from being honest at production scale.
 
 ## Suggested Next Order
 
-1. Implement `union all`.
-2. Implement local `sort by` and `aggregate`.
-3. Implement Firestore aggregation lookups.
-4. Add E2E per completed feature.
+1. Implement Firestore aggregation lookups.
+2. Add E2E per completed feature.
