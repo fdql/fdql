@@ -119,6 +119,7 @@ export type FdqlStage =
   | FdqlOrderByStage
   | FdqlReturnStage
   | FdqlTakeStage
+  | FdqlUnwindStage
   | FdqlWhereStage
   | FdqlWithStage
   | FdqlUnsupportedStage;
@@ -177,6 +178,15 @@ export interface FdqlLookupStage {
   readonly range: FdqlSourceRange;
   readonly rowAlias: string;
   readonly sourceAlias: string;
+}
+
+export interface FdqlUnwindStage {
+  readonly column: number;
+  readonly expression: FdqlExpression;
+  readonly kind: 'unwind';
+  readonly line: number;
+  readonly range: FdqlSourceRange;
+  readonly rowAlias: string;
 }
 
 export interface FdqlProjectionItem {
@@ -279,6 +289,7 @@ export type FdqlLocalPlanStage =
   | FdqlFilterStage
   | FdqlLookupPlanStage
   | FdqlTakeStage
+  | FdqlUnwindStage
   | FdqlWithStage;
 
 export interface FdqlLookupPlanStage {

@@ -83,6 +83,22 @@ return *`);
     );
   });
 
+  it('parses unwind stages', () => {
+    const result = parseFdql(`alias $games = fs.collection("games")
+from $games as g
+fs limit 10
+then unwind entries(g.roundsById) as round
+return round.key`);
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    expect(result.ast?.stages).toContainEqual(
+      expect.objectContaining({
+        kind: 'unwind',
+        rowAlias: 'round',
+      }),
+    );
+  });
+
   it('keeps separators inside single quoted projection strings', () => {
     const result = parseFdql(`alias $drivers = fs.collection("drivers")
 from $drivers as d

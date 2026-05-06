@@ -55,7 +55,9 @@ then lookup many $rounds as rounds
   fs order by rounds.createdAt desc
   fs limit 20
 
-return id, d.firstName
+then unwind entries(d.metadata) as entry
+
+return id, d.firstName, entry.key
 ```
 
 Implemented expression/runtime basics:
@@ -69,6 +71,8 @@ Implemented expression/runtime basics:
 - `fs.timestamp(value)`
 - `fs.arrayContains(field, value)`
 - `lower(value)`
+- `entries(map)`
+- `mapGet(map, key)`
 - `return *`
 - field masks, including `[]` metadata-only reads
 - collection paths, collection groups, explicit project, named database
@@ -97,8 +101,8 @@ These block the read implementation from being honest at production scale.
 | `lookup aggregate`                        | Missing | Needs provider aggregate execution.                                          |
 | `fs.subcollection(parent, name, fields?)` | Missing | Needed for document-relative reads.                                          |
 | `fs.subcollections(parent)`               | Missing | Needed for subcollection discovery.                                          |
-| `unwind array`                            | Missing | Needed for local array expansion.                                            |
-| `unwind entries(map)`                     | Missing | Needed for keyed-map workflows.                                              |
+| `unwind array`                            | Done    | Expands arrays into one row per item.                                        |
+| `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.          |
 | `union all`                               | Missing | Parser has no branch AST or executor support.                                |
 | `sort by`                                 | Missing | Local sort stage is in the spec but not parser/executor.                     |
 | `aggregate`                               | Missing | Local grouping/aggregation not implemented.                                  |
@@ -114,8 +118,8 @@ These block the read implementation from being honest at production scale.
 | `fs.arrayContainsAny`     | Missing | Firestore-native operator.                                 |
 | `case`                    | Missing | Local expression only.                                     |
 | math expressions          | Missing | `+`, `-`, `*`, `/`, `%` not parsed.                        |
-| `mapGet(map, key)`        | Missing | Spec exists, evaluator does not implement it.              |
-| `entries(map)`            | Missing | Needed by `unwind entries(...)`.                           |
+| `mapGet(map, key)`        | Done    | Local dynamic map lookup; missing keys return `null`.      |
+| `entries(map)`            | Done    | Local helper for map-entry unwind.                         |
 | `fs.ref(row)`             | Missing | Metadata function from spec.                               |
 | `fs.parentPath(row)`      | Missing | Metadata function from spec.                               |
 | `fs.databaseId(row)`      | Missing | Useful with named database reads.                          |
@@ -133,8 +137,7 @@ These block the read implementation from being honest at production scale.
 
 ## Suggested Next Order
 
-1. Implement `unwind` plus `entries(map)` and `mapGet`.
-2. Implement `union all`.
-3. Implement local `sort by` and `aggregate`.
-4. Implement Firestore aggregation lookups.
-5. Add E2E per completed feature.
+1. Implement `union all`.
+2. Implement local `sort by` and `aggregate`.
+3. Implement Firestore aggregation lookups.
+4. Add E2E per completed feature.

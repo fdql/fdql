@@ -39,10 +39,10 @@ function evaluateField(
   context: EvalContext,
 ): unknown {
   const root = context.rows?.[path[0] ?? ''];
-  if (!root) return undefined;
+  if (root === null || root === undefined) return undefined;
   const data = isDocument(root) ? root.data : root;
   return path.slice(1).reduce<unknown>((current, segment) => {
-    if (!current || typeof current !== 'object') return undefined;
+    if (current === null || current === undefined || typeof current !== 'object') return undefined;
     return (current as Record<string, unknown>)[segment];
   }, data);
 }
@@ -73,6 +73,17 @@ function evaluateCall(
   if (name === 'lower') {
     const value = evaluateExpression(args[0]!, context);
     return typeof value === 'string' ? value.toLowerCase() : value;
+  }
+  if (name === 'entries') {
+    const value = evaluateExpression(args[0]!, context);
+    if (!isPlainRecord(value)) return [];
+    return Object.entries(value).map(([key, entryValue]) => ({ key, value: entryValue }));
+  }
+  if (name === 'mapGet') {
+    const map = evaluateExpression(args[0]!, context);
+    const key = evaluateExpression(args[1]!, context);
+    if (!isPlainRecord(map) || (typeof key !== 'string' && typeof key !== 'number')) return null;
+    return map[String(key)] ?? null;
   }
   return undefined;
 }
@@ -131,4 +142,12 @@ function isDocument(value: unknown): value is FdqlRuntimeDocument {
     && 'id' in value
     && 'data' in value
     && 'projectId' in value;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null
+    && value !== undefined
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && !isDocument(value);
 }

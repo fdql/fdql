@@ -12,7 +12,7 @@ const runtime = createInMemoryFdqlRuntime({
           createdAt: '2025-10-01T00:00:00.000Z',
           firstName: 'Vini',
           lastName: 'Carneiro',
-          metadata: { fraudScore: 0.02 },
+          metadata: { fraudScore: 0.02, tier: 'gold' },
           tags: ['admin'],
           teamId: 'team_1',
         },
@@ -215,6 +215,40 @@ return fs.id(d) as id, rounds`);
       },
     ]);
     expect(completed(events)).toMatchObject({ lookupReads: 2, reads: 3, rowsOutput: 1 });
+  });
+
+  it('unwinds array fields into separate rows', async () => {
+    const events = await run(`alias $drivers = fs.collection("drivers", ["tags"])
+
+from $drivers as d
+fs limit 3
+
+then unwind d.tags as tag
+
+return fs.id(d) as id, tag`);
+
+    expect(rows(events)).toEqual([
+      { id: 'drv_1', tag: 'admin' },
+      { id: 'drv_3', tag: 'admin' },
+    ]);
+    expect(completed(events)).toMatchObject({ reads: 3, rowsOutput: 2, rowsScanned: 3 });
+  });
+
+  it('unwinds map entries and reads dynamic map values', async () => {
+    const events = await run(`alias $drivers = fs.collection("drivers", ["metadata"])
+
+from $drivers as d
+fs where fs.id(d) = "drv_1"
+
+then unwind entries(d.metadata) as entry
+
+return entry.key, entry.value, mapGet(d.metadata, entry.key) as dynamicValue`);
+
+    expect(rows(events)).toEqual([
+      { dynamicValue: 0.02, key: 'fraudScore', value: 0.02 },
+      { dynamicValue: 'gold', key: 'tier', value: 'gold' },
+    ]);
+    expect(completed(events)).toMatchObject({ reads: 1, rowsOutput: 2 });
   });
 });
 

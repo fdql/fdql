@@ -4,6 +4,7 @@ import type {
   FdqlExecutionEvent,
   FdqlExecutionOptions,
   FdqlExpression,
+  FdqlFilterStage,
   FdqlLookupPlanStage,
   FdqlNativeReadPlan,
   FdqlProjectionItem,
@@ -12,6 +13,8 @@ import type {
   FdqlRuntime,
   FdqlRuntimeDocument,
   FdqlStats,
+  FdqlTakeStage,
+  FdqlUnwindStage,
   InMemoryFdqlRuntimeInput,
 } from './types.ts';
 
@@ -22,7 +25,7 @@ export async function* executeFdql(
 ): AsyncIterable<FdqlExecutionEvent> {
   const startedAt = options.now?.() ?? Date.now();
   const stats = createStats(plan.settings.readBudget);
-  let outputCount = 0;
+  const takeCounts = new Map<number, number>();
   yield { kind: 'started' };
 
   try {
@@ -37,33 +40,47 @@ export async function* executeFdql(
         return;
       }
 
-      let row: Record<string, unknown> | null = { [plan.rowAlias]: document };
+      let rows: RowRecord[] = [{ [plan.rowAlias]: document }];
       // oxlint-disable no-await-in-loop -- Each local stage depends on the current row shape.
       for (const stage of plan.localStages) {
         if (stage.kind === 'filter') {
-          row = truthy(evaluateExpression(stage.expression, contextFor(plan, row))) ? row : null;
+          rows = filterRows(stage, plan, rows);
         } else if (stage.kind === 'lookup') {
-          const lookup = await executeLookup(stage, plan, row, runtime, stats, startedAt, options);
-          for (const event of lookup.events) yield event;
-          if (lookup.diagnostic) {
-            yield { diagnostic: lookup.diagnostic, kind: 'failed' };
-            return;
+          const nextRows: RowRecord[] = [];
+          for (const row of rows) {
+            const lookup = await executeLookup(
+              stage,
+              plan,
+              row,
+              runtime,
+              stats,
+              startedAt,
+              options,
+            );
+            for (const event of lookup.events) yield event;
+            if (lookup.diagnostic) {
+              yield { diagnostic: lookup.diagnostic, kind: 'failed' };
+              return;
+            }
+            if (lookup.stopReason) {
+              stats.stoppedReason = lookup.stopReason;
+              for (const event of stopEvents(stats, lookup.stopReason)) yield event;
+              return;
+            }
+            if (lookup.row) nextRows.push(lookup.row);
           }
-          if (lookup.stopReason) {
-            stats.stoppedReason = lookup.stopReason;
-            for (const event of stopEvents(stats, lookup.stopReason)) yield event;
-            return;
-          }
-          row = lookup.row;
+          rows = nextRows;
+        } else if (stage.kind === 'unwind') {
+          rows = rows.flatMap((row) => unwindRow(stage, plan, row));
         } else if (stage.kind === 'with') {
-          row = projectItems(stage.items, plan, row);
-        } else if (stage.kind === 'take' && outputCount >= stage.value) {
-          row = null;
+          rows = rows.map((row) => projectItems(stage.items, plan, row));
+        } else if (stage.kind === 'take') {
+          rows = takeRows(stage, rows, takeCounts);
         }
-        if (!row) break;
+        if (rows.length === 0) break;
       }
       // oxlint-enable no-await-in-loop
-      if (!row) {
+      if (rows.length === 0) {
         const filteredStopReason = stopReasonFor(plan, stats, startedAt, options, 'afterRow');
         if (filteredStopReason) {
           stats.stoppedReason = filteredStopReason;
@@ -73,24 +90,25 @@ export async function* executeFdql(
         continue;
       }
 
-      const projected = projectItems(plan.returnStage.items, plan, row);
-      outputCount += 1;
-      stats.rowsOutput += 1;
-      yield {
-        kind: 'row',
-        lineage: {
-          documentPath: document.path,
-          readContribution: 1,
-          source: plan.native.source.sourceAlias,
-        },
-        row: projected,
-      };
-      yield { kind: 'stats', stats: freezeStats(stats) };
-      const rowStopReason = stopReasonFor(plan, stats, startedAt, options, 'afterRow');
-      if (rowStopReason) {
-        stats.stoppedReason = rowStopReason;
-        for (const event of stopEvents(stats, rowStopReason)) yield event;
-        return;
+      for (const row of rows) {
+        const projected = projectItems(plan.returnStage.items, plan, row);
+        stats.rowsOutput += 1;
+        yield {
+          kind: 'row',
+          lineage: {
+            documentPath: document.path,
+            readContribution: 1,
+            source: plan.native.source.sourceAlias,
+          },
+          row: projected,
+        };
+        yield { kind: 'stats', stats: freezeStats(stats) };
+        const rowStopReason = stopReasonFor(plan, stats, startedAt, options, 'afterRow');
+        if (rowStopReason) {
+          stats.stoppedReason = rowStopReason;
+          for (const event of stopEvents(stats, rowStopReason)) yield event;
+          return;
+        }
       }
     }
     stats.stoppedReason = 'completed';
@@ -220,17 +238,52 @@ function stopEvents(
   ];
 }
 
-function contextFor(plan: FdqlReadPlan, row: Record<string, unknown>): EvalContext {
+function contextFor(plan: FdqlReadPlan, row: RowRecord): EvalContext {
   return {
     aliases: plan.aliases,
     rows: row as EvalRows,
   };
 }
 
+function filterRows(
+  stage: FdqlFilterStage,
+  plan: FdqlReadPlan,
+  rows: readonly RowRecord[],
+): RowRecord[] {
+  return rows.filter((row) => truthy(evaluateExpression(stage.expression, contextFor(plan, row))));
+}
+
+function takeRows(
+  stage: FdqlTakeStage,
+  rows: readonly RowRecord[],
+  takeCounts: Map<number, number>,
+): RowRecord[] {
+  const taken = takeCounts.get(stage.line) ?? 0;
+  const remaining = Math.max(0, stage.value - taken);
+  const selected = rows.slice(0, remaining);
+  takeCounts.set(stage.line, taken + selected.length);
+  return selected;
+}
+
+function unwindRow(
+  stage: FdqlUnwindStage,
+  plan: FdqlReadPlan,
+  row: RowRecord,
+): RowRecord[] {
+  const value = evaluateExpression(stage.expression, contextFor(plan, row));
+  return unwindItems(value).map((item) => ({ ...row, [stage.rowAlias]: item }));
+}
+
+function unwindItems(value: unknown): readonly unknown[] {
+  if (Array.isArray(value)) return value;
+  if (isPlainRecord(value)) return Object.values(value);
+  return [];
+}
+
 async function executeLookup(
   stage: FdqlLookupPlanStage,
   plan: FdqlReadPlan,
-  row: Record<string, unknown>,
+  row: RowRecord,
   runtime: FdqlRuntime,
   stats: MutableStats,
   startedAt: number,
@@ -238,7 +291,7 @@ async function executeLookup(
 ): Promise<{
   readonly diagnostic?: Extract<FdqlExecutionEvent, { readonly kind: 'failed'; }>['diagnostic'];
   readonly events: readonly FdqlExecutionEvent[];
-  readonly row: Record<string, unknown> | null;
+  readonly row: RowRecord | null;
   readonly stopReason?: NonNullable<FdqlStats['stoppedReason']> | undefined;
 }> {
   const remainingBudget = Math.max(0, plan.settings.readBudget - stats.reads);
@@ -283,9 +336,9 @@ async function executeLookup(
 function projectItems(
   items: readonly FdqlProjectionItem[],
   plan: FdqlReadPlan,
-  row: Record<string, unknown>,
-): Record<string, unknown> {
-  const projected: Record<string, unknown> = {};
+  row: RowRecord,
+): RowRecord {
+  const projected: RowRecord = {};
   for (const item of items) {
     if (item.expression.kind === 'wildcard') {
       Object.assign(projected, expandWildcard(row));
@@ -430,6 +483,16 @@ function isDocument(value: unknown): value is FdqlRuntimeDocument {
     && 'id' in value
     && 'projectId' in value;
 }
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null
+    && value !== undefined
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && !isDocument(value);
+}
+
+type RowRecord = Record<string, unknown>;
 
 type MutableStats = {
   -readonly [Key in keyof FdqlStats]: Key extends 'perProjectReads' ? Record<string, number>

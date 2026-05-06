@@ -152,14 +152,36 @@ return d.firstName`,
       `alias $drivers = fs.collection("drivers")
 from $drivers as d
 fs limit 1
-then unwind d.teams as team
-return team.name`,
+then aggregate
+  by d.teamId as teamId
+  count() as total
+return teamId, total`,
       options,
     );
 
     expect(result).toMatchObject({ ok: false });
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({ code: 'FDQL_UNKNOWN_STAGE' }),
+    );
+  });
+
+  it('plans unwind stages and local map helpers', () => {
+    const result = compileFdqlRead(
+      `alias $drivers = fs.collection("drivers")
+from $drivers as d
+fs limit 10
+then unwind entries(d.metadata) as entry
+return entry.key, mapGet(d.metadata, entry.key) as value`,
+      options,
+    );
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    if (!result.ok) throw new Error('expected compile success');
+    expect(result.plan.localStages).toContainEqual(
+      expect.objectContaining({
+        kind: 'unwind',
+        rowAlias: 'entry',
+      }),
     );
   });
 

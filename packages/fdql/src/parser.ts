@@ -140,6 +140,11 @@ export function parseFdql(source: string): FdqlParseResult {
       if (lookup.stage) stages.push(lookup.stage);
       continue;
     }
+    if (text.startsWith('then unwind ')) {
+      const unwind = parseUnwind(text, line, column, range, diagnostics);
+      if (unwind) stages.push(unwind);
+      continue;
+    }
     if (text === 'then with' || text.startsWith('then with ')) {
       const block = collectProjection(lines, index, 'then with');
       index = block.nextIndex;
@@ -292,6 +297,42 @@ function parseLookupClause(
     error('FDQL_UNKNOWN_STAGE', `Unsupported lookup clause: ${text}.`, line.line, column),
   );
   return null;
+}
+
+function parseUnwind(
+  text: string,
+  line: number,
+  column: number,
+  range: FdqlSourceRange,
+  diagnostics: FdqlDiagnostic[],
+): FdqlStage | null {
+  const body = text.slice('then unwind '.length).trim();
+  const aliasIndex = findTopLevelAs(body);
+  if (aliasIndex < 0) {
+    diagnostics.push(
+      error(
+        'FDQL_PARSE_ERROR',
+        '`unwind` must use `then unwind expression as rowAlias`.',
+        line,
+        column,
+      ),
+    );
+    return null;
+  }
+  const expressionText = body.slice(0, aliasIndex).trim();
+  const rowAlias = body.slice(aliasIndex + 4).trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(rowAlias)) {
+    diagnostics.push(
+      error('FDQL_PARSE_ERROR', `Invalid unwind row alias ${rowAlias}.`, line, column),
+    );
+    return null;
+  }
+  const expressionSource = expressionSlice(text, column, 'then unwind '.length);
+  const parsed = parseExpression(expressionText, line, expressionSource.column);
+  diagnostics.push(...parsed.diagnostics);
+  return parsed.expression
+    ? { column, expression: parsed.expression, kind: 'unwind', line, range, rowAlias }
+    : null;
 }
 
 function parseSet(

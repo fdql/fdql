@@ -126,9 +126,11 @@ export function compileFdqlRead(
         break;
       case 'filter':
       case 'take':
+      case 'unwind':
       case 'with':
         validateAliases(stage, scalarAliases, diagnostics);
         localStages.push(stage);
+        if (stage.kind === 'unwind') availableRowAliases.add(stage.rowAlias);
         break;
       case 'lookup': {
         const lookupStage = compileLookupStage(
@@ -531,6 +533,9 @@ function validateAliases(
   if (stage.kind === 'filter') {
     validateExpressionAliases(stage.expression, aliases, diagnostics, stage.line);
   }
+  if (stage.kind === 'unwind') {
+    validateExpressionAliases(stage.expression, aliases, diagnostics, stage.line);
+  }
   if (stage.kind === 'with' || stage.kind === 'return') {
     for (const item of stage.items) {
       validateExpressionAliases(item.expression, aliases, diagnostics, stage.line);
@@ -859,10 +864,12 @@ function duplicateStage(stage: string, firstLine: number, duplicateLine: number)
 }
 
 const supportedExpressionCalls = new Set([
+  'entries',
   'fs.arrayContains',
   'fs.id',
   'fs.path',
   'fs.projectId',
   'fs.timestamp',
   'lower',
+  'mapGet',
 ]);
