@@ -342,6 +342,34 @@ importers:
         specifier: 4.1.5
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@24.12.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.10(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/fdql:
+    dependencies:
+      chevrotain:
+        specifier: 12.0.0
+        version: 12.0.0
+    devDependencies:
+      '@firebase-desk/config-oxlint':
+        specifier: workspace:*
+        version: link:../config-oxlint
+      '@firebase-desk/config-tsconfig':
+        specifier: workspace:*
+        version: link:../config-tsconfig
+      '@firebase-desk/config-vitest':
+        specifier: workspace:*
+        version: link:../config-vitest
+      '@types/node':
+        specifier: 24.12.2
+        version: 24.12.2
+      oxlint:
+        specifier: 1.62.0
+        version: 1.62.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.5
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@24.12.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.10(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/firestore-sql:
     dependencies:
       chevrotain:
@@ -562,6 +590,9 @@ importers:
       '@firebase-desk/data-format':
         specifier: workspace:*
         version: link:../data-format
+      '@firebase-desk/fdql':
+        specifier: workspace:*
+        version: link:../fdql
       '@firebase-desk/firestore-sql':
         specifier: workspace:*
         version: link:../firestore-sql
@@ -599,6 +630,9 @@ importers:
       '@firebase-desk/data-format':
         specifier: workspace:*
         version: link:../data-format
+      '@firebase-desk/fdql':
+        specifier: workspace:*
+        version: link:../fdql
       '@firebase-desk/firestore-sql':
         specifier: workspace:*
         version: link:../firestore-sql

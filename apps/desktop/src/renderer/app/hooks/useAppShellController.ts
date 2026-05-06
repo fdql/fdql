@@ -19,6 +19,7 @@ import { useAppShellHotkeys } from './useAppShellHotkeys.ts';
 import { useAuthTabState } from './useAuthTabState.ts';
 import { useDestructiveActionController } from './useDestructiveActionController.ts';
 import { useDocumentDensity } from './useDocumentDensity.ts';
+import { useFdqlTabState } from './useFdqlTabState.ts';
 import { useFirestoreSqlTabState } from './useFirestoreSqlTabState.ts';
 import { useFirestoreTabState } from './useFirestoreTabState.ts';
 import { useJsTabState } from './useJsTabState.ts';
@@ -224,6 +225,11 @@ export function useAppShellController(
     recordActivity,
     selectedTreeItemId: selection.treeItemId,
   });
+  const fdqlTab = useFdqlTabState({
+    activeTab,
+    initialSources: persistedWorkspace.snapshot?.fdqlSources,
+    selectedTreeItemId: selection.treeItemId,
+  });
   const sqlTab = useFirestoreSqlTabState({
     activeTab,
     initialContexts: persistedWorkspace.snapshot?.sqlContexts,
@@ -243,12 +249,14 @@ export function useAppShellController(
   const workspaceSnapshot = useMemo(() => ({
     authFilter: authTab.authFilter,
     drafts: firestoreTab.drafts,
+    fdqlSources: fdqlTab.sources,
     scripts: jsTab.scripts,
     sqlContexts: sqlTab.contexts,
     sqlSources: sqlTab.sources,
     tabsState,
   }), [
     authTab.authFilter,
+    fdqlTab.sources,
     firestoreTab.drafts,
     jsTab.scripts,
     sqlTab.contexts,
@@ -314,6 +322,7 @@ export function useAppShellController(
     editingProject,
     firestoreTab,
     firestoreWrite,
+    fdqlTab,
     firstRunGuide,
     focusAuthFilter,
     focusTreeFilter,

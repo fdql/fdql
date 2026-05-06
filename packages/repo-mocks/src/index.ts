@@ -1,5 +1,6 @@
 export * from './activity.ts';
 export * from './auth.ts';
+export * from './fdql.ts';
 export * from './firestore-sql.ts';
 export * from './firestore.ts';
 export * from './fixtures/index.ts';

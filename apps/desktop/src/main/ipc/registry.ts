@@ -1,15 +1,21 @@
 import {
+  FDQL_EVENT_CHANNEL,
   FIRESTORE_SQL_EVENT_CHANNEL,
   IPC_CHANNELS,
   type IpcChannel,
   JOB_EVENT_CHANNEL,
   SCRIPT_RUN_EVENT_CHANNEL,
 } from '@firebase-desk/ipc-schemas';
-import type { FirestoreSqlRunEvent, ScriptRunEvent } from '@firebase-desk/repo-contracts';
+import type {
+  FdqlRunEvent,
+  FirestoreSqlRunEvent,
+  ScriptRunEvent,
+} from '@firebase-desk/repo-contracts';
 import type { BackgroundJobEvent } from '@firebase-desk/repo-contracts/jobs';
 import {
   AdminAuthProvider,
   AdminFirestoreProvider,
+  createFirebaseFdqlRepository,
   FirebaseAuthRepository,
   type FirebaseConnectionResolver,
   FirebaseFirestoreRepository,
@@ -81,6 +87,8 @@ export function registerIpcHandlers(): void {
   };
   const firestoreProvider = new AdminFirestoreProvider(connectionResolver);
   const firestoreRepository = new FirebaseFirestoreRepository(firestoreProvider);
+  const fdqlRepository = createFirebaseFdqlRepository(firestoreProvider);
+  fdqlRepository.subscribe(broadcastFdqlRunEvent);
   const firestoreSqlRepository = new FirebaseFirestoreSqlRepository(firestoreProvider);
   firestoreSqlRepository.subscribe(broadcastFirestoreSqlRunEvent);
   const jobsRepository = new MainBackgroundJobRepository(
@@ -111,6 +119,7 @@ export function registerIpcHandlers(): void {
     dataDirectory: userDataPath,
     firestoreProvider,
     firestoreRepository,
+    fdqlRepository,
     firestoreSqlRepository,
     jobsRepository,
     openDataDirectory: () => shell.openPath(userDataPath),
@@ -171,6 +180,12 @@ export function broadcastScriptRunEvent(event: ScriptRunEvent): void {
 export function broadcastFirestoreSqlRunEvent(event: FirestoreSqlRunEvent): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send(FIRESTORE_SQL_EVENT_CHANNEL, event);
+  }
+}
+
+export function broadcastFdqlRunEvent(event: FdqlRunEvent): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(FDQL_EVENT_CHANNEL, event);
   }
 }
 

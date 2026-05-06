@@ -280,6 +280,13 @@ fs order by d.createdAt desc
 fs limit 100
 ```
 
+Singleton stages:
+
+- `fs limit` can appear once for the current provider source.
+- `fs order by` can appear once for the current provider source.
+- `return` can appear once in the pipeline.
+- Duplicate singleton provider stages are diagnostics; FDQL must not silently overwrite the earlier clause.
+
 Provider read bounds:
 
 - Provider reads should have an explicit bound or an obviously bounded predicate.
@@ -711,6 +718,7 @@ FDQL_UNDECLARED_ALIAS
 FDQL_INVALID_SET
 FDQL_UNKNOWN_SET_KEY
 FDQL_MULTIPLE_FROM
+FDQL_DUPLICATE_STAGE
 FDQL_UNQUALIFIED_PROVIDER_FIELD
 FDQL_INVALID_FIELD_MASK
 FDQL_UNSUPPORTED_FS_WHERE

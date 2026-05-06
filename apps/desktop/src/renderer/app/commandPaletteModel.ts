@@ -7,6 +7,7 @@ export interface CommandPaletteModelInput {
   readonly onOpenSettings: () => void;
   readonly onOpenTab: (kind: WorkspaceTabKind) => void;
   readonly onRunQuery: () => void;
+  readonly onRunFdql?: (() => void) | undefined;
   readonly onRunScript: () => void;
   readonly onRunSql?: (() => void) | undefined;
   readonly onSelectTab: (tabId: string) => void;
@@ -21,6 +22,7 @@ export function createCommandPaletteModel(
     onOpenSettings,
     onOpenTab,
     onRunQuery,
+    onRunFdql,
     onRunScript,
     onRunSql,
     onSelectTab,
@@ -42,6 +44,7 @@ export function createCommandPaletteModel(
     { id: 'new-auth', label: 'New Auth tab', onSelect: () => onOpenTab('auth-users') },
     { id: 'new-js', label: 'New JS Query tab', onSelect: () => onOpenTab('js-query') },
     { id: 'new-sql', label: 'New Firestore SQL tab', onSelect: () => onOpenTab('firestore-sql') },
+    { id: 'new-fdql', label: 'New FDQL tab', onSelect: () => onOpenTab('fdql') },
     { id: 'settings', label: 'Settings', onSelect: onOpenSettings },
     {
       id: 'theme',
@@ -52,5 +55,6 @@ export function createCommandPaletteModel(
     { id: 'run-query', label: 'Run query', onSelect: onRunQuery },
     { id: 'run-script', label: 'Run script', onSelect: onRunScript },
     { id: 'run-sql', label: 'Run SQL', onSelect: onRunSql ?? (() => undefined) },
+    { id: 'run-fdql', label: 'Run FDQL', onSelect: onRunFdql ?? (() => undefined) },
   ];
 }

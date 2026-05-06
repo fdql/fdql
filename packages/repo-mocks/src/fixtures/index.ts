@@ -160,6 +160,13 @@ export const COLLECTIONS: ReadonlyArray<FixtureCollection> = [
     ],
   },
   {
+    path: 'public-versions',
+    docs: [
+      { id: 'version', data: { platform: 'web', version: 3166 } },
+      { id: 'desktop', data: { platform: 'desktop', version: 412 } },
+    ],
+  },
+  {
     path: 'auditLogs',
     docs: [],
   },

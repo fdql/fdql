@@ -190,6 +190,7 @@ function stubDesktopApi(overrides: Partial<DesktopApi>): void {
   vi.stubGlobal('firebaseDesk', {
     activity: desktopActivityApi(),
     auth: desktopAuthApi(),
+    fdql: desktopFdqlApi(),
     firestore: desktopFirestoreApi(),
     firestoreSql: desktopFirestoreSqlApi(),
     jobs: desktopJobsApi(),
@@ -241,6 +242,23 @@ function desktopFirestoreSqlApi(): DesktopFirestoreSqlApi {
       ok: true,
       plan: { kind: 'select', stages: [] },
       snippet: '',
+    })),
+    run: vi.fn(async () => ({
+      diagnostics: [],
+      durationMs: 1,
+      rows: [],
+      stats: null,
+    })),
+    subscribe: vi.fn(() => () => {}),
+  };
+}
+
+function desktopFdqlApi(): DesktopFdqlApi {
+  return {
+    cancel: vi.fn(async () => undefined),
+    compile: vi.fn(async () => ({
+      diagnostics: [],
+      ok: true,
     })),
     run: vi.fn(async () => ({
       diagnostics: [],

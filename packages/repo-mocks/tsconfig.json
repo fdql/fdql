@@ -3,6 +3,7 @@
   "include": ["src/**/*"],
   "references": [
     { "path": "../repo-contracts" },
+    { "path": "../fdql" },
     { "path": "../firestore-sql" },
     { "path": "../data-format" }
   ]

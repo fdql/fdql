@@ -1,0 +1,73 @@
+import type { FdqlRunEvent, FdqlRunResult } from '@firebase-desk/repo-contracts';
+import { describe, expect, it } from 'vitest';
+import { createInitialFdqlState } from './fdqlState.ts';
+import {
+  fdqlEventReceived,
+  fdqlRunFinished,
+  fdqlRunRequested,
+  fdqlRunStarted,
+} from './fdqlTransitions.ts';
+
+describe('fdqlTransitions', () => {
+  it('clears stale output when a run is requested', () => {
+    const state = fdqlRunRequested(
+      {
+        ...createInitialFdqlState(),
+        compileResults: { 'tab-1': { diagnostics: [], ok: true } },
+        results: { 'tab-1': result([{ id: 'stale' }]) },
+      },
+      'tab-1',
+    );
+
+    expect(state.compileResults['tab-1']).toBeUndefined();
+    expect(state.results['tab-1']).toBeUndefined();
+  });
+
+  it('replaces streamed rows with the final run result', () => {
+    const running = fdqlRunStarted(createInitialFdqlState(), {
+      connectionId: 'emu',
+      runId: 'run-1',
+      source: 'from $orders as o',
+      startedAt: 100,
+      tabId: 'tab-1',
+    });
+    const streamed = fdqlEventReceived(running, {
+      event: rowEvent('run-1', { id: 'streamed' }),
+      now: 110,
+      tabIsCurrent: () => true,
+    });
+
+    const state = fdqlRunFinished(streamed, 'tab-1', result([{ id: 'final' }]));
+
+    expect(state.results['tab-1']?.rows).toEqual([{ id: 'final' }]);
+  });
+});
+
+function rowEvent(runId: string, row: Record<string, unknown>): FdqlRunEvent {
+  return {
+    lineage: {
+      documentPath: 'orders/ord_1',
+      readContribution: 1,
+      source: '$orders',
+    },
+    row,
+    runId,
+    type: 'row',
+  };
+}
+
+function result(rows: readonly Record<string, unknown>[]): FdqlRunResult {
+  return {
+    diagnostics: [],
+    durationMs: 1,
+    rows,
+    stats: {
+      perProjectReads: { emu: rows.length },
+      readBudget: 5000,
+      reads: rows.length,
+      rowsOutput: rows.length,
+      rowsScanned: rows.length,
+      stoppedReason: 'completed',
+    },
+  };
+}

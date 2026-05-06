@@ -101,6 +101,13 @@ export async function openJavaScriptQuery(page: Page): Promise<void> {
   await tree.getByRole('treeitem', { name: /JavaScript Query/ }).click();
 }
 
+export async function openFdql(page: Page): Promise<void> {
+  await expandEmulatorAccount(page);
+  const tree = page.getByRole('tree', { name: 'Account tree' });
+  await expect(tree.getByRole('treeitem', { name: /FDQL/ })).toBeVisible();
+  await tree.getByRole('treeitem', { name: /FDQL/ }).click();
+}
+
 export function uniqueSmokeId(prefix: string): string {
   return `${prefix}-${randomUUID()}`;
 }

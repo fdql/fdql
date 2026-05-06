@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   useAuthTabState: vi.fn(),
   useDestructiveActionController: vi.fn(),
   useDocumentDensity: vi.fn(),
+  useFdqlTabState: vi.fn(),
   useFirestoreSqlTabState: vi.fn(),
   useFirestoreTabState: vi.fn(),
   useFirestoreWriteController: vi.fn(),
@@ -87,6 +88,10 @@ vi.mock('./useDocumentDensity.ts', () => ({
 
 vi.mock('./useFirestoreTabState.ts', () => ({
   useFirestoreTabState: mocks.useFirestoreTabState,
+}));
+
+vi.mock('./useFdqlTabState.ts', () => ({
+  useFdqlTabState: mocks.useFdqlTabState,
 }));
 
 vi.mock('./useFirestoreSqlTabState.ts', () => ({
@@ -199,6 +204,7 @@ describe('useAppShellController', () => {
       {
         authFilter: 'ada',
         drafts: scenario.firestoreTab.drafts,
+        fdqlSources: scenario.fdqlTab.sources,
         scripts: scenario.jsTab.scripts,
         sqlContexts: scenario.sqlTab.contexts,
         sqlSources: scenario.sqlTab.sources,
@@ -313,6 +319,7 @@ interface Scenario {
   readonly controller: AppShellController;
   readonly destructiveAction: ReturnType<typeof createDestructiveAction>;
   readonly drafts: Record<string, unknown>;
+  readonly fdqlTab: ReturnType<typeof createFdqlTab>;
   readonly firestoreTab: ReturnType<typeof createFirestoreTab>;
   readonly firestoreWrite: ReturnType<typeof createFirestoreWrite>;
   readonly jsTab: ReturnType<typeof createJsTab>;
@@ -322,6 +329,7 @@ interface Scenario {
     readonly snapshot: {
       readonly authFilter: string;
       readonly drafts: Record<string, unknown>;
+      readonly fdqlSources: Record<string, string>;
       readonly scripts: Record<string, string>;
       readonly sqlContexts: Record<string, unknown>;
       readonly sqlSources: Record<string, string>;
@@ -350,6 +358,7 @@ function setupMocks(scenario: Scenario) {
   });
   mocks.useAuthTabState.mockReturnValue(scenario.authTab);
   mocks.useDestructiveActionController.mockReturnValue(scenario.destructiveAction);
+  mocks.useFdqlTabState.mockReturnValue(scenario.fdqlTab);
   mocks.useFirestoreSqlTabState.mockReturnValue(scenario.sqlTab);
   mocks.useFirestoreTabState.mockReturnValue(scenario.firestoreTab);
   mocks.useFirestoreWriteController.mockReturnValue(scenario.firestoreWrite);
@@ -380,6 +389,7 @@ function createScenario(
   {
     authFilter = '',
     drafts = {},
+    fdqlSources = {},
     repositories = createRepositories(),
     scripts = {},
     sqlContexts = {},
@@ -392,6 +402,7 @@ function createScenario(
   }: {
     readonly authFilter?: string;
     readonly drafts?: Record<string, unknown>;
+    readonly fdqlSources?: Record<string, string>;
     readonly repositories?: RepositorySet;
     readonly scripts?: Record<string, string>;
     readonly sqlContexts?: Record<string, unknown>;
@@ -403,6 +414,7 @@ function createScenario(
   const project = createProjectFixture({ id: 'emu', name: 'Local Emulator' });
   const activity = createActivity();
   const firestoreTabState = createFirestoreTab({ drafts });
+  const fdqlTab = createFdqlTab({ sources: fdqlSources });
   const jsTab = createJsTab({ scripts });
   const sqlTab = createSqlTab({ contexts: sqlContexts, sources: sqlSources });
   return {
@@ -412,13 +424,14 @@ function createScenario(
     controller: createController(),
     destructiveAction: createDestructiveAction(),
     drafts,
+    fdqlTab,
     firestoreTab: firestoreTabState,
     firestoreWrite: createFirestoreWrite(),
     jsTab,
     jobs: createJobs(),
     persistedWorkspace: {
       restored: true,
-      snapshot: { authFilter, drafts, scripts, sqlContexts, sqlSources },
+      snapshot: { authFilter, drafts, fdqlSources, scripts, sqlContexts, sqlSources },
     },
     project,
     projectCommands: createProjectCommands(),
@@ -452,6 +465,12 @@ function createRepositories(
   return {
     activity: {},
     auth: {},
+    fdql: {
+      cancel: vi.fn(),
+      compile: vi.fn(),
+      run: vi.fn(),
+      subscribe: vi.fn(() => () => {}),
+    },
     firestore: { listSubcollections: vi.fn() },
     jobs: {
       cancel: vi.fn(),
@@ -601,6 +620,25 @@ function createJsTab({ scripts = {} }: { readonly scripts?: Record<string, strin
     scriptStartedAt: null,
     scripts,
     setScriptSource: vi.fn(),
+  };
+}
+
+function createFdqlTab(
+  { sources = {} }: { readonly sources?: Record<string, string>; } = {},
+) {
+  return {
+    cancel: vi.fn(() => false),
+    clearTab: vi.fn(),
+    compileResult: null,
+    isRunning: false,
+    isTabRunning: vi.fn(() => false),
+    result: null,
+    run: vi.fn(() => false),
+    runId: null,
+    runStartedAt: null,
+    setSource: vi.fn(),
+    source: 'from $orders as o\nreturn o',
+    sources,
   };
 }
 

@@ -2,6 +2,7 @@ import type { DensityName } from '@firebase-desk/design-tokens';
 import {
   AuthUsersSurface,
   type DeleteDocumentOptions,
+  FdqlSurface,
   type FirestoreCollectionJobDialogRequest,
   type FirestoreCreateDocumentRequest,
   FirestoreQuerySurface,
@@ -11,6 +12,8 @@ import {
 } from '@firebase-desk/product-ui';
 import type {
   AuthUser,
+  FdqlCompileResult,
+  FdqlRunResult,
   FirestoreCollectionNode,
   FirestoreDocumentResult,
   FirestoreFieldPatchOperation,
@@ -36,6 +39,7 @@ export interface WorkspaceTabViewProps {
   readonly activeTab: WorkspaceTab;
   readonly auth: AuthTabSurfaceModel;
   readonly density: DensityName;
+  readonly fdql?: FdqlTabSurfaceModel | undefined;
   readonly firestore: FirestoreTabSurfaceModel;
   readonly script: ScriptTabSurfaceModel;
   readonly sql: SqlTabSurfaceModel;
@@ -131,6 +135,18 @@ export interface ScriptTabSurfaceModel {
   readonly source: string;
 }
 
+export interface FdqlTabSurfaceModel {
+  readonly compileResult: FdqlCompileResult | undefined;
+  readonly isRunning: boolean;
+  readonly onCancel: () => void;
+  readonly onRun: () => void;
+  readonly onSourceChange: (source: string) => void;
+  readonly result: FdqlRunResult | undefined;
+  readonly runId: string | null;
+  readonly runStartedAt: number | null;
+  readonly source: string;
+}
+
 export interface SqlTabSurfaceModel {
   readonly compileResult: FirestoreSqlCompileResult | undefined;
   readonly context: FirestoreSqlContext;
@@ -147,6 +163,7 @@ export interface SqlTabSurfaceModel {
 }
 
 export function WorkspaceTabView(props: WorkspaceTabViewProps) {
+  const fdql = props.fdql ?? emptyFdqlSurfaceModel;
   if (props.activeTab.kind === 'auth-users') {
     return (
       <AuthUsersSurface
@@ -197,6 +214,19 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
       />
     );
   }
+  if (props.activeTab.kind === 'fdql') {
+    return (
+      <FdqlSurface
+        compileResult={fdql.compileResult ?? null}
+        isRunning={fdql.isRunning}
+        result={fdql.result ?? null}
+        source={fdql.source}
+        onCancel={fdql.onCancel}
+        onRun={fdql.onRun}
+        onSourceChange={fdql.onSourceChange}
+      />
+    );
+  }
   return (
     <FirestoreQuerySurface
       key={props.activeTab.id}
@@ -240,3 +270,15 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
     />
   );
 }
+
+const emptyFdqlSurfaceModel: FdqlTabSurfaceModel = {
+  compileResult: undefined,
+  isRunning: false,
+  result: undefined,
+  runId: null,
+  runStartedAt: null,
+  source: '',
+  onCancel: () => undefined,
+  onRun: () => undefined,
+  onSourceChange: () => undefined,
+};

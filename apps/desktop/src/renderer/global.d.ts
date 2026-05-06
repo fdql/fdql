@@ -2,6 +2,7 @@
 
 import type { IpcRequest, IpcResponse } from '@firebase-desk/ipc-schemas';
 import type {
+  FdqlRunEventListener,
   FirestoreSqlRunEventListener,
   ScriptRunEventListener,
 } from '@firebase-desk/repo-contracts';
@@ -132,6 +133,19 @@ declare global {
     readonly subscribe: (listener: FirestoreSqlRunEventListener) => () => void;
   }
 
+  interface DesktopFdqlApi {
+    readonly compile: (
+      request: IpcRequest<'fdql.compile'>,
+    ) => Promise<IpcResponse<'fdql.compile'>>;
+    readonly run: (
+      request: IpcRequest<'fdql.run'>,
+    ) => Promise<IpcResponse<'fdql.run'>>;
+    readonly cancel: (
+      request: IpcRequest<'fdql.cancel'>,
+    ) => Promise<IpcResponse<'fdql.cancel'>>;
+    readonly subscribe: (listener: FdqlRunEventListener) => () => void;
+  }
+
   interface DesktopAuthApi {
     readonly listUsers: (
       request: IpcRequest<'auth.listUsers'>,
@@ -155,6 +169,7 @@ declare global {
     readonly projects: DesktopProjectsApi;
     readonly settings: DesktopSettingsApi;
     readonly firestore: DesktopFirestoreApi;
+    readonly fdql: DesktopFdqlApi;
     readonly firestoreSql: DesktopFirestoreSqlApi;
     readonly scriptRunner: DesktopScriptRunnerApi;
     readonly auth: DesktopAuthApi;

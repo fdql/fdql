@@ -13,6 +13,12 @@ import {
   SetCustomClaimsRequestSchema,
 } from './auth.ts';
 import {
+  FdqlCompileRequestSchema,
+  FdqlCompileResultSchema,
+  FdqlRunRequestSchema,
+  FdqlRunResultSchema,
+} from './fdql.ts';
+import {
   FirestoreSqlCompileRequestSchema,
   FirestoreSqlCompileResultSchema,
   FirestoreSqlRunRequestSchema,
@@ -216,6 +222,18 @@ export const IPC_CHANNELS = {
     response: FirestoreSqlRunResultSchema,
   },
   'firestoreSql.cancel': {
+    request: z.object({ runId: z.string() }),
+    response: z.void(),
+  },
+  'fdql.compile': {
+    request: FdqlCompileRequestSchema,
+    response: FdqlCompileResultSchema,
+  },
+  'fdql.run': {
+    request: FdqlRunRequestSchema,
+    response: FdqlRunResultSchema,
+  },
+  'fdql.cancel': {
     request: z.object({ runId: z.string() }),
     response: z.void(),
   },

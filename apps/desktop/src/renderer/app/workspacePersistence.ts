@@ -96,6 +96,7 @@ export const PersistedWorkspaceStateSchema = z.object({
   authFilter: z.string(),
   drafts: z.record(z.string(), FirestoreQueryDraftSchema),
   scripts: z.record(z.string(), z.string()),
+  fdqlSources: z.record(z.string(), z.string()).optional(),
   sqlContexts: z.record(
     z.string(),
     z.object({
@@ -112,6 +113,9 @@ export const PersistedWorkspaceStateSchema = z.object({
   }
   for (const tabId of Object.keys(state.scripts)) {
     if (!tabIds.has(tabId)) context.addIssue({ code: 'custom', message: 'Script tab is not open' });
+  }
+  for (const tabId of Object.keys(state.fdqlSources ?? {})) {
+    if (!tabIds.has(tabId)) context.addIssue({ code: 'custom', message: 'FDQL tab is not open' });
   }
   for (const tabId of Object.keys(state.sqlSources ?? {})) {
     if (!tabIds.has(tabId)) context.addIssue({ code: 'custom', message: 'SQL tab is not open' });
@@ -202,6 +206,7 @@ async function persistWorkspaceState(
     authFilter: state.authFilter,
     drafts: pickTabRecord(state.drafts, tabIds),
     scripts: pickTabRecord(state.scripts, tabIds),
+    fdqlSources: pickTabRecord(state.fdqlSources ?? {}, tabIds),
     sqlContexts: pickTabRecord(state.sqlContexts ?? {}, tabIds),
     sqlSources: pickTabRecord(state.sqlSources ?? {}, tabIds),
     tabsState: sanitizeTabsState(state.tabsState),

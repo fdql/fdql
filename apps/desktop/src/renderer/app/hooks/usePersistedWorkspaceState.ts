@@ -14,6 +14,7 @@ import {
 export interface PersistedWorkspaceSnapshot {
   readonly authFilter?: string | undefined;
   readonly drafts?: Readonly<Record<string, FirestoreQueryDraft>> | undefined;
+  readonly fdqlSources?: Readonly<Record<string, string>> | undefined;
   readonly scripts?: Readonly<Record<string, string>> | undefined;
   readonly sqlContexts?: Readonly<Record<string, FirestoreSqlContext>> | undefined;
   readonly sqlSources?: Readonly<Record<string, string>> | undefined;
@@ -27,6 +28,7 @@ export interface PersistedWorkspaceStateResult {
 export interface WorkspacePersistenceSnapshot {
   readonly authFilter: string;
   readonly drafts: Readonly<Record<string, FirestoreQueryDraft>>;
+  readonly fdqlSources?: Readonly<Record<string, string>> | undefined;
   readonly scripts: Readonly<Record<string, string>>;
   readonly sqlContexts?: Readonly<Record<string, FirestoreSqlContext>> | undefined;
   readonly sqlSources?: Readonly<Record<string, string>> | undefined;

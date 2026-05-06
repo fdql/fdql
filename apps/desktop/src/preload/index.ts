@@ -1,4 +1,6 @@
 import {
+  FDQL_EVENT_CHANNEL,
+  FdqlRunEventSchema,
   FIRESTORE_SQL_EVENT_CHANNEL,
   FirestoreSqlRunEventSchema,
   IPC_CHANNELS,
@@ -11,6 +13,8 @@ import {
 } from '@firebase-desk/ipc-schemas';
 import { BackgroundJobEventSchema } from '@firebase-desk/ipc-schemas/jobs';
 import type {
+  FdqlRunEvent,
+  FdqlRunEventListener,
   FirestoreSqlRunEvent,
   FirestoreSqlRunEventListener,
   ScriptRunEvent,
@@ -98,6 +102,20 @@ const api = {
       invoke('firestore.updateDocumentFields', request),
     deleteDocument: (request: IpcRequest<'firestore.deleteDocument'>) =>
       invoke('firestore.deleteDocument', request),
+  },
+  fdql: {
+    compile: (request: IpcRequest<'fdql.compile'>) => invoke('fdql.compile', request),
+    run: (request: IpcRequest<'fdql.run'>) => invoke('fdql.run', request),
+    cancel: (request: IpcRequest<'fdql.cancel'>) => invoke('fdql.cancel', request),
+    subscribe: (listener: FdqlRunEventListener) => {
+      const handler = (_event: IpcRendererEvent, raw: unknown) => {
+        const parsed = FdqlRunEventSchema.safeParse(raw);
+        if (!parsed.success) return;
+        listener(parsed.data as FdqlRunEvent);
+      };
+      ipcRenderer.on(FDQL_EVENT_CHANNEL, handler);
+      return () => ipcRenderer.removeListener(FDQL_EVENT_CHANNEL, handler);
+    },
   },
   firestoreSql: {
     compile: (request: IpcRequest<'firestoreSql.compile'>) =>

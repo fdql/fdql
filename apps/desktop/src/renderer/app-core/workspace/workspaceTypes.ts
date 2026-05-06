@@ -3,6 +3,7 @@ export const WORKSPACE_TAB_KINDS = [
   'auth-users',
   'js-query',
   'firestore-sql',
+  'fdql',
 ] as const;
 
 export type WorkspaceTabKind = (typeof WORKSPACE_TAB_KINDS)[number];

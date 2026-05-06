@@ -92,14 +92,16 @@ export function defaultPathFor(kind: WorkspaceTabKind): string {
   if (kind === 'firestore-query') return 'orders';
   if (kind === 'auth-users') return 'auth/users';
   if (kind === 'js-query') return 'scripts/default';
-  return 'sql/default';
+  if (kind === 'firestore-sql') return 'sql/default';
+  return 'fdql/default';
 }
 
 export function titleFor(kind: WorkspaceTabKind, path: string): string {
   if (kind === 'firestore-query') return path || 'Firestore';
   if (kind === 'auth-users') return 'Auth';
   if (kind === 'js-query') return 'JS Query';
-  return 'SQL';
+  if (kind === 'firestore-sql') return 'SQL';
+  return 'FDQL';
 }
 
 export function clampIndex(index: number, values: ReadonlyArray<unknown>): number {

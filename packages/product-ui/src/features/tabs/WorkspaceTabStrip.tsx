@@ -19,6 +19,7 @@ import {
   Code2,
   Database,
   Folder,
+  ListFilter,
   ListTree,
   Trash2,
   Users,
@@ -26,7 +27,12 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
-export type WorkspaceTabKind = 'firestore-query' | 'auth-users' | 'js-query' | 'firestore-sql';
+export type WorkspaceTabKind =
+  | 'firestore-query'
+  | 'auth-users'
+  | 'js-query'
+  | 'firestore-sql'
+  | 'fdql';
 
 export interface WorkspaceTabModel {
   readonly id: string;
@@ -314,6 +320,7 @@ function iconForTabKind(kind: WorkspaceTabKind): ReactNode {
   if (kind === 'auth-users') return <Users size={14} aria-hidden='true' />;
   if (kind === 'js-query') return <Code2 size={14} aria-hidden='true' />;
   if (kind === 'firestore-sql') return <ListTree size={14} aria-hidden='true' />;
+  if (kind === 'fdql') return <ListFilter size={14} aria-hidden='true' />;
   return <Folder size={14} aria-hidden='true' />;
 }
 
