@@ -803,7 +803,7 @@ export function createAppShellController(
   }
 
   function handleCompileSql() {
-    if (sqlTab.compile()) input.ui.setLastAction('Planned Firestore SQL');
+    if (sqlTab.compile()) input.ui.setLastAction('Prepared Firestore SQL');
   }
 
   function handleRunSql() {

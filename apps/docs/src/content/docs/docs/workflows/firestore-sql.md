@@ -1,6 +1,6 @@
 ---
 title: Firestore SQL beta
-description: Read-only SQL workspace for Firestore inspection, joins, plans, and generated Firebase Desk JS Query snippets.
+description: Read-only SQL workspace for Firestore inspection, joins, live stats, and generated Firebase Desk JS Query snippets.
 ---
 
 Firestore SQL is a beta read-only workspace for exploring Firestore data with SQL-shaped queries.
@@ -26,8 +26,8 @@ It is useful when the question is easier to express as a query than as a tree cl
 - The SQL tab is read-only. `insert`, `update`, and `delete` syntax is blocked in the product UI.
 - Aggregation is specified, but not user-facing in the first beta.
 - Recursive CTE syntax is specified, but not executable.
-- The current plan panel still exposes the internal planner shape. A clearer execution-plan language is specified and planned for the UI.
-- Some join strategies run locally even when the syntax looks like SQL. The plan and stats should be treated as part of the query.
+- Execution-plan language is specified, but hidden from the SQL tab until it is ready for users.
+- Some join strategies run locally even when the syntax looks like SQL. The stats should be treated as part of the query.
 
 ## Collection names
 

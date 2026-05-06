@@ -15,8 +15,12 @@ import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from '@firebase-desk/ui';
-import { FileCode2, Play, RefreshCw, Square } from 'lucide-react';
+import { AlertTriangle, FileCode2, Play, RefreshCw, Square, Table2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../../code-editor/CodeEditor.tsx';
 import { useMediaQuery } from '../../hooks/useMediaQuery.ts';
@@ -75,7 +79,7 @@ export function FirestoreSqlSurface(
               actions={
                 <>
                   <Button variant='secondary' onClick={onCompile}>
-                    <RefreshCw size={13} aria-hidden='true' /> Plan
+                    <RefreshCw size={13} aria-hidden='true' /> Prepare
                   </Button>
                   <Button
                     variant={isRunning ? 'warning' : 'primary'}
@@ -111,14 +115,13 @@ export function FirestoreSqlSurface(
         </ResizablePanel>
         <ResizableHandle className={isWide ? 'mx-2 h-full w-px' : 'my-2 h-px w-full'} />
         <ResizablePanel defaultSize={isWide ? '56%' : '52%'} minSize={isWide ? '420px' : '240px'}>
-          <div className='grid h-full min-h-0 grid-rows-[minmax(0,1fr)_minmax(150px,0.55fr)] gap-2'>
-            <ResultsPanel isRunning={isRunning} rows={rows} stats={result?.stats ?? null} />
-            <div className='grid min-h-0 grid-cols-1 gap-2 lg:grid-cols-3'>
-              <DiagnosticsPanel diagnostics={diagnostics} />
-              <PlanPanel plan={compileResult?.plan ?? null} />
-              <SnippetPanel source={compileResult?.snippet ?? ''} />
-            </div>
-          </div>
+          <SqlOutputPanel
+            diagnostics={diagnostics}
+            isRunning={isRunning}
+            rows={rows}
+            snippet={compileResult?.snippet ?? ''}
+            stats={result?.stats ?? null}
+          />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
@@ -186,7 +189,64 @@ function SqlContextEditor(
   );
 }
 
-function ResultsPanel(
+function SqlOutputPanel(
+  { diagnostics, isRunning, rows, snippet, stats }: {
+    readonly diagnostics: readonly FirestoreSqlDiagnostic[];
+    readonly isRunning: boolean;
+    readonly rows: readonly Record<string, unknown>[];
+    readonly snippet: string;
+    readonly stats: FirestoreSqlStats | null;
+  },
+) {
+  return (
+    <Tabs defaultValue='results' className='h-full min-h-0'>
+      <Panel className='grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]'>
+        <PanelHeader
+          actions={
+            <TabsList className='border-b-0'>
+              <TabsTrigger className='h-7 gap-1.5 border-b-0 px-2' value='results'>
+                <Table2 size={14} aria-hidden='true' /> Results
+                <Badge
+                  className='px-1.5 py-0 text-[10px]'
+                  variant={statusVariant(stats, isRunning)}
+                >
+                  {statusLabel(stats, isRunning)}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger className='h-7 gap-1.5 border-b-0 px-2' value='issues'>
+                <AlertTriangle size={14} aria-hidden='true' /> Issues
+                {diagnostics.length > 0
+                  ? (
+                    <Badge className='px-1.5 py-0 text-[10px]' variant={issuesVariant(diagnostics)}>
+                      {diagnostics.length}
+                    </Badge>
+                  )
+                  : null}
+              </TabsTrigger>
+              <TabsTrigger className='h-7 gap-1.5 border-b-0 px-2' value='snippet'>
+                <FileCode2 size={14} aria-hidden='true' /> JS Query
+                <Badge className='px-1.5 py-0 text-[10px]' variant='warning'>beta</Badge>
+              </TabsTrigger>
+            </TabsList>
+          }
+        >
+          Output
+        </PanelHeader>
+        <TabsContent className='min-h-0 overflow-hidden' value='results'>
+          <ResultsView isRunning={isRunning} rows={rows} stats={stats} />
+        </TabsContent>
+        <TabsContent className='min-h-0 overflow-hidden' value='issues'>
+          <IssuesView diagnostics={diagnostics} />
+        </TabsContent>
+        <TabsContent className='min-h-0 overflow-hidden' value='snippet'>
+          <SnippetView source={snippet} />
+        </TabsContent>
+      </Panel>
+    </Tabs>
+  );
+}
+
+function ResultsView(
   { isRunning, rows, stats }: {
     readonly isRunning: boolean;
     readonly rows: readonly Record<string, unknown>[];
@@ -195,14 +255,7 @@ function ResultsPanel(
 ) {
   const columns = useMemo(() => resultColumns(rows), [rows]);
   return (
-    <Panel className='grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)]'>
-      <PanelHeader
-        actions={
-          <Badge variant={statusVariant(stats, isRunning)}>{statusLabel(stats, isRunning)}</Badge>
-        }
-      >
-        Results
-      </PanelHeader>
+    <div className='grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]'>
       <div className='flex flex-wrap items-center gap-2 border-b border-border-subtle px-2 py-1 text-xs text-text-secondary'>
         <span>{rows.length} rows</span>
         <span>{stats?.reads ?? 0} reads</span>
@@ -252,7 +305,7 @@ function ResultsPanel(
             </div>
           )}
       </PanelBody>
-    </Panel>
+    </div>
   );
 }
 
@@ -288,57 +341,32 @@ function parseAliases(value: string):
   return { aliases, ok: true };
 }
 
-function DiagnosticsPanel(
+function IssuesView(
   { diagnostics }: { readonly diagnostics: readonly FirestoreSqlDiagnostic[]; },
 ) {
   return (
-    <Panel className='grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]'>
-      <PanelHeader>Diagnostics</PanelHeader>
-      <PanelBody className='space-y-2 text-xs'>
-        {diagnostics.length === 0
-          ? <p className='text-text-muted'>No diagnostics.</p>
-          : diagnostics.map((diagnostic, index) => (
-            <div key={`${diagnostic.code}-${index}`} className='space-y-1'>
-              <Badge variant={diagnostic.severity === 'error' ? 'danger' : 'warning'}>
-                {diagnostic.code}
-              </Badge>
-              <p className='text-text-secondary'>{diagnostic.message}</p>
-            </div>
-          ))}
-      </PanelBody>
-    </Panel>
+    <PanelBody className='h-full min-h-0 space-y-2 overflow-auto text-xs'>
+      {diagnostics.length === 0
+        ? <p className='text-text-muted'>No issues.</p>
+        : diagnostics.map((diagnostic, index) => (
+          <div key={`${diagnostic.code}-${index}`} className='space-y-1'>
+            <Badge variant={diagnostic.severity === 'error' ? 'danger' : 'warning'}>
+              {diagnostic.code}
+            </Badge>
+            <p className='text-text-secondary'>{diagnostic.message}</p>
+          </div>
+        ))}
+    </PanelBody>
   );
 }
 
-function PlanPanel({ plan }: { readonly plan: unknown; }) {
+function SnippetView({ source }: { readonly source: string; }) {
   return (
-    <Panel className='grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]'>
-      <PanelHeader>Plan</PanelHeader>
-      <PanelBody className='p-0'>
-        {plan
-          ? (
-            <pre className='h-full overflow-auto p-2 text-xs text-text-secondary'>
-              {JSON.stringify(plan, null, 2)}
-            </pre>
-          )
-          : <EmptyState title='No plan' description='Compile to preview execution.' />}
-      </PanelBody>
-    </Panel>
-  );
-}
-
-function SnippetPanel({ source }: { readonly source: string; }) {
-  return (
-    <Panel className='grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]'>
-      <PanelHeader actions={<FileCode2 size={14} className='text-text-muted' aria-hidden='true' />}>
-        JS Query
-      </PanelHeader>
-      <PanelBody className='p-0'>
-        {source
-          ? <CodeEditor language='javascript' readOnly value={source} onChange={() => undefined} />
-          : <EmptyState title='No snippet' description='Compile a supported read query.' />}
-      </PanelBody>
-    </Panel>
+    <PanelBody className='h-full min-h-0 p-0'>
+      {source
+        ? <CodeEditor language='javascript' readOnly value={source} onChange={() => undefined} />
+        : <EmptyState title='No snippet' description='Prepare a supported read query.' />}
+    </PanelBody>
   );
 }
 
@@ -370,4 +398,10 @@ function statusVariant(
   if (isRunning) return 'warning';
   if (stats?.stoppedReason && stats.stoppedReason !== 'completed') return 'warning';
   return stats ? 'success' : 'neutral';
+}
+
+function issuesVariant(
+  diagnostics: readonly FirestoreSqlDiagnostic[],
+): 'danger' | 'warning' {
+  return diagnostics.some((diagnostic) => diagnostic.severity === 'error') ? 'danger' : 'warning';
 }

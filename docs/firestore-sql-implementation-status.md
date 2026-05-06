@@ -14,15 +14,15 @@ Status values:
 
 ## User Surface
 
-| Area                          | Status    | Notes                                                                                         |
-| ----------------------------- | --------- | --------------------------------------------------------------------------------------------- |
-| Dedicated Firestore SQL tab   | Shipped   | Editor, context aliases, Plan, Run, Cancel, diagnostics, plan, results, stats, snippet panel. |
-| Mock runtime                  | Shipped   | Uses repo mock fixtures and in-memory runtime.                                                |
-| Live Admin runtime            | Shipped   | Uses Firebase Admin reads through repo-firebase.                                              |
-| Browser demo support          | Shipped   | Runs through mock repositories.                                                               |
-| Read-only product policy      | Shipped   | Write commands are blocked in the SQL tab.                                                    |
-| Human execution-plan language | Spec only | Language is defined; UI still shows raw planner shape.                                        |
-| Result lineage UI             | Partial   | Runtime keeps lineage in events; UI does not expose source-row exploration yet.               |
+| Area                          | Status    | Notes                                                                                                      |
+| ----------------------------- | --------- | ---------------------------------------------------------------------------------------------------------- |
+| Dedicated Firestore SQL tab   | Shipped   | Editor, context aliases, Prepare, Run, Cancel, and Output tabs for results, issues, and JS Query snippets. |
+| Mock runtime                  | Shipped   | Uses repo mock fixtures and in-memory runtime.                                                             |
+| Live Admin runtime            | Shipped   | Uses Firebase Admin reads through repo-firebase.                                                           |
+| Browser demo support          | Shipped   | Runs through mock repositories.                                                                            |
+| Read-only product policy      | Shipped   | Write commands are blocked in the SQL tab.                                                                 |
+| Human execution-plan language | Spec only | Language is defined; raw planner shape is hidden from the SQL tab until this is ready.                     |
+| Result lineage UI             | Partial   | Runtime keeps lineage in events; UI does not expose source-row exploration yet.                            |
 
 ## Dialect And Parser
 
@@ -74,11 +74,11 @@ Status values:
 
 ## Snippets
 
-| Area                           | Status   | Notes                      |
-| ------------------------------ | -------- | -------------------------- |
-| Firebase Desk JS Query snippet | Shipped  | Generated from read plans. |
-| Admin JS/TS snippets           | Deferred | Planned extension.         |
-| Web SDK snippets               | Deferred | Planned extension.         |
+| Area                           | Status   | Notes                                 |
+| ------------------------------ | -------- | ------------------------------------- |
+| Firebase Desk JS Query snippet | Shipped  | Generated from prepared read queries. |
+| Admin JS/TS snippets           | Deferred | Planned extension.                    |
+| Web SDK snippets               | Deferred | Planned extension.                    |
 
 ## Write Work
 
