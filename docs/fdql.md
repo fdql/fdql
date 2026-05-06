@@ -8,7 +8,7 @@ The query text is the execution plan. Provider-native commands are namespace-pre
 
 Initial provider namespace:
 
-- `fs`: Firestore-native reads, filters, ordering, limits, metadata predicates, and supported Firestore aggregations.
+- `fs`: Firestore-native reads, filters, ordering, limits, metadata predicates, supported Firestore aggregations, and explicit Firestore writes.
 
 Reserved provider namespaces:
 
@@ -40,10 +40,11 @@ pipeline
 Rules:
 
 - `set` changes engine context values for the query.
-- `set` is only valid before the first `from`.
+- `set` is only valid before the first pipeline or write stage.
 - `set` values are not row fields and are not emitted in results.
 - `set` keys are not visible as `$` aliases.
 - Aliases cannot reference `set` values. Declare an `alias` for values used in query expressions.
+- The write `set` clause in `fs update` is not a query preamble declaration.
 
 ## Alias Declarations
 
@@ -116,6 +117,10 @@ Provider stages are namespace-prefixed commands.
 fs where
 fs order by
 fs limit
+fs create
+fs set
+fs update
+fs delete
 ```
 
 Provider stages must compile to that provider. If they cannot, the query is invalid. FDQL must not silently fall back from `fs where` to local filtering.
@@ -125,6 +130,7 @@ Rules:
 - Provider commands use spaced syntax, for example `fs where`, `fs order by`, and `fs limit`.
 - Provider functions use dot-call syntax, for example `fs.collection(...)`, `fs.id(...)`, and `fs.timestamp(...)`.
 - A provider command must not be written as a dot-call, so `fs.orderBy` is invalid.
+- Write commands are provider commands and must be terminal.
 
 ### Local Stages
 
@@ -187,6 +193,7 @@ Rules:
 - `fs.collectionGroup("orders")` accepts a collection id, not a path.
 - Source rows must have a row alias in `from`.
 - A pipeline can have one `from`.
+- Source-free direct write commands do not require `from`.
 - A second `from` in the same pipeline is invalid. Use `lookup` for related reads or `union all` for separate branches.
 - If a field mask is supplied, only those document fields are loaded.
 - If a field mask is omitted, Firebase Desk loads the full document.
@@ -644,6 +651,368 @@ Rules:
 - Results keep union branch lineage.
 - Global `sort by` or `take` after union requires an explicit final pipeline stage.
 
+## Firestore Writes
+
+FDQL write commands are terminal Firestore commands.
+
+Supported operations:
+
+```text
+fs create
+fs set
+fs update
+fs delete
+```
+
+Rules:
+
+- A write query has one terminal write command.
+- `return` is a read terminal stage. It cannot appear after a write command.
+- Source-free direct writes can start with `fs create`, `fs set`, `fs update`, or `fs delete` after the query preamble.
+- A write command writes to one Firestore target project/database per query.
+- Cross-project reads can feed one write target.
+- Cross-project writes are not atomic across project/database boundaries.
+- Firestore write commands never silently recurse into subcollections.
+- There is no implicit rollback and no generated inverse mutation.
+- Live write execution must report attempted, committed, failed, skipped, and stopped counts.
+
+### Write Targets
+
+Document row target:
+
+```sql
+alias $orders = fs.collection("orders")
+
+from $orders as o
+fs where o.status = "paid"
+fs limit 500
+
+fs update o
+  set
+    status = "archived",
+    archivedAt = fs.serverTimestamp()
+```
+
+Collection target plus id:
+
+```sql
+alias $orders = fs.collection("orders")
+
+fs update $orders id "ord_1"
+  set
+    status = "paid"
+```
+
+Dynamic subcollection target:
+
+```sql
+alias $customers = fs.collection("customers")
+
+from $customers as c
+fs where fs.id(c) = "cus_123"
+
+fs create fs.subcollection(c, "orders") id "ord_1"
+  data {
+    status: "draft",
+    createdAt: fs.serverTimestamp()
+  }
+```
+
+Rules:
+
+- `fs update rowAlias` and `fs delete rowAlias` target the document represented by that row binding.
+- `fs create`, `fs set`, and direct `fs update`/`fs delete` target a collection source plus `id`.
+- `fs create` can use `id expression` or `autoId`.
+- `fs set`, direct `fs update`, and direct `fs delete` require `id expression`.
+- `fs.collectionGroup(...)` cannot be a direct write target.
+- Documents read from `fs.collectionGroup(...)` can be updated or deleted by row alias.
+- Write target source aliases must not have field masks.
+- Field masks never affect written data.
+
+### Create
+
+Create fails if the destination document already exists.
+
+Explicit id:
+
+```sql
+alias $tags = fs.collection("tags")
+
+fs create $tags id "paid"
+  data {
+    name: "Paid",
+    kind: "status"
+  }
+```
+
+Auto id:
+
+```sql
+alias $events = fs.collection("events")
+
+fs create $events autoId
+  data {
+    type: "manual",
+    createdAt: fs.serverTimestamp()
+  }
+```
+
+Copy across projects:
+
+```sql
+alias $prodOrders = fs.project("prod").collection("orders")
+alias $archive = fs.project("staging").collection("archivedOrders")
+
+from $prodOrders as o
+fs where o.status = "paid"
+fs limit 500
+
+fs create $archive id fs.id(o)
+  data {
+    sourceId: fs.id(o),
+    status: o.status,
+    total: o.total,
+    archivedAt: fs.serverTimestamp()
+  }
+```
+
+Rules:
+
+- `fs create` maps to Firestore create semantics.
+- The destination document must not exist.
+- `autoId` must be explicit.
+- `fs.deleteField()` is invalid in create data.
+
+### Set
+
+Set writes a full document or a merge patch. The mode is mandatory.
+
+Merge:
+
+```sql
+alias $profiles = fs.collection("profiles")
+
+fs set $profiles id "usr_1" merge
+  data {
+    lastSeenAt: fs.serverTimestamp(),
+    loginCount: fs.increment(1)
+  }
+```
+
+Overwrite:
+
+```sql
+alias $settings = fs.collection("settings")
+
+fs set $settings id "global" overwrite
+  data {
+    version: 3,
+    flags: {
+      beta: true
+    }
+  }
+```
+
+Rules:
+
+- `merge` maps to Firestore set with merge.
+- `overwrite` replaces the destination document.
+- `merge` and `overwrite` must be written explicitly.
+- `fs.deleteField()` is valid only with `merge`.
+- `overwrite` must not contain `fs.deleteField()`.
+
+### Update
+
+Update patches an existing document.
+
+Pipeline update:
+
+```sql
+alias $orders = fs.collection("orders")
+
+from $orders as o
+fs where o.status = "paid"
+fs limit 500
+
+fs update o
+  set
+    status = "archived",
+    archivedAt = fs.serverTimestamp(),
+    archiveCount = fs.increment(1),
+    temporaryNote = fs.deleteField()
+```
+
+Update from lookup:
+
+```sql
+alias $drivers = fs.collection("drivers")
+alias $teams = fs.collection("teams")
+
+from $drivers as d
+fs where d.active = true
+fs limit 500
+
+then lookup one $teams as team
+  fs where fs.id(team) = d.teamId
+
+fs update d
+  set
+    teamName = team.name,
+    syncedAt = fs.serverTimestamp()
+```
+
+Dynamic map update:
+
+```sql
+alias $games = fs.collection("games")
+
+from $games as g
+fs limit 50
+
+then unwind entries(g.roundsById) as round
+then filter round.value.sequence = 1
+
+fs update g
+  set
+    fs.fieldPath("roundsById", round.key, "reviewed") = true,
+    fs.fieldPath("roundsById", round.key, "reviewedAt") = fs.serverTimestamp()
+```
+
+Rules:
+
+- `fs update` maps to Firestore update semantics.
+- The destination document must exist.
+- Assignments are patch field paths, not document replacement.
+- Static assignment targets such as `profile.firstName` are nested Firestore field paths.
+- Use `fs.fieldPath(...)` for dynamic paths and awkward literal segments.
+- `fs.deleteField()` is valid in update assignments.
+- If one input row maps to the same target document more than once, the query is invalid unless a future conflict policy is defined.
+
+### Delete
+
+Delete removes a document.
+
+Pipeline delete:
+
+```sql
+alias $sessions = fs.collection("sessions")
+
+from $sessions as s
+fs where s.expiresAt < fs.timestamp("2026-01-01T00:00:00.000Z")
+fs limit 1000
+
+fs delete s
+```
+
+Direct delete:
+
+```sql
+alias $orders = fs.collection("orders")
+
+fs delete $orders id "ord_1"
+```
+
+Recursive delete:
+
+```sql
+alias $customers = fs.collection("customers")
+
+from $customers as c
+fs where c.status = "deleted"
+fs limit 100
+
+fs delete recursive c
+```
+
+Rules:
+
+- `fs delete rowAlias` deletes only that document.
+- Direct `fs delete $collection id expression` maps to Firestore document delete.
+- Firestore document delete does not delete subcollections.
+- `fs delete recursive rowAlias` is the only recursive delete form.
+- Recursive delete must list subcollections and child documents explicitly during execution.
+- Recursive delete consumes read and write budgets.
+
+### Write Data And Field Paths
+
+Data maps:
+
+```sql
+data {
+  status: "paid",
+  "billing.total": 42,
+  nested: {
+    enabled: true
+  }
+}
+```
+
+Patch assignments:
+
+```sql
+set
+  status = "paid",
+  fs.fieldPath("billing.total") = 42,
+  fs.fieldPath("roundsById", round.key, "description") = round.value.description
+```
+
+Rules:
+
+- Map keys can be identifiers or strings.
+- String map keys are literal field names.
+- Assignment targets are Firestore field paths.
+- `a.b` in an assignment target means nested field path `a`, then `b`.
+- `fs.fieldPath("a.b")` means one literal segment named `a.b`.
+- `fs.fieldPath("a", "b")` means nested field path `a`, then `b`.
+- Assignment target aliases are omitted because the write target is already explicit.
+
+### Write Helpers
+
+Supported Firestore write helper values:
+
+```text
+fs.serverTimestamp()
+fs.increment(number)
+fs.arrayUnion(value, ...)
+fs.arrayRemove(value, ...)
+fs.deleteField()
+```
+
+Rules:
+
+- Write helpers are valid only inside write `data` maps or update assignments.
+- `fs.deleteField()` is valid only in `fs update` and `fs set ... merge`.
+- Helper arguments must be serializable Firestore values or current row expressions that resolve to Firestore values.
+- Unknown helper functions are diagnostics.
+
+### Write Execution Controls
+
+Write controls use query preamble `set` declarations.
+
+```sql
+set readBudget = 5000
+set writeBudget = 1000
+set timeout = "60s"
+set writeBatchSize = 400
+set writeMode = "batch"
+set stopOnWriteError = false
+```
+
+Rules:
+
+- `readBudget` caps source reads.
+- `writeBudget` caps attempted write operations.
+- `timeout` stops reads and writes with a clear stopped status.
+- `writeBatchSize` controls commit chunking where the runtime supports batches.
+- `writeMode` can be `"batch"` or `"bulkWriter"`.
+- `batch` commits sequential Firestore write batches.
+- `bulkWriter` uses provider/runtime controlled concurrency and retry behavior when available.
+- Batch size must respect Firestore limits.
+- `stopOnWriteError = true` stops after the first write failure.
+- `stopOnWriteError = false` continues where the runtime can safely continue.
+- Partial completion is possible after any committed batch or successful BulkWriter write.
+- Stats must show read pages, write batches, attempted writes, committed writes, failed writes, skipped writes, retries, and stop reason.
+
 ## Budgets And Execution Controls
 
 Execution controls come from Firebase Desk runtime context and optional pre-pipeline `set` declarations.
@@ -668,9 +1037,10 @@ Rules:
 - Runtime context provides defaults.
 - `set` overrides runtime context defaults for one query.
 - `set` must be declared before aliases and before the pipeline.
-- `set` cannot appear after `from`, `then`, `lookup`, `unwind`, `aggregate`, or `return`.
+- `set` cannot appear after `from`, `then`, `lookup`, `unwind`, `aggregate`, `return`, or a write command.
 - Supported `set` keys are engine-defined.
-- Initial supported keys: `readBudget`, `timeout`, `cache`, and `allowUnboundedReads`.
+- Initial read keys: `readBudget`, `timeout`, `cache`, and `allowUnboundedReads`.
+- Initial write keys: `writeBudget`, `writeBatchSize`, `writeMode`, and `stopOnWriteError`.
 - Unknown `set` keys are diagnostics, not ignored.
 - `set` values do not need `$` prefixes because they are not aliases.
 - Read budget, timeout, cache mode, and provider scan permissions are internal execution context values.
@@ -729,6 +1099,17 @@ FDQL_LOOKUP_CARDINALITY_ERROR
 FDQL_AMBIGUOUS_FIELD
 FDQL_UNKNOWN_BINDING
 FDQL_BUDGET_EXCEEDED
+FDQL_WRITE_NOT_TERMINAL
+FDQL_RETURN_AFTER_WRITE
+FDQL_MULTIPLE_WRITE_TARGETS
+FDQL_INVALID_WRITE_TARGET
+FDQL_WRITE_TARGET_FIELD_MASK
+FDQL_WRITE_REQUIRES_ID
+FDQL_INVALID_WRITE_MODE
+FDQL_UNKNOWN_WRITE_HELPER
+FDQL_INVALID_WRITE_HELPER
+FDQL_WRITE_CONFLICT
+FDQL_WRITE_FAILED
 ```
 
 Rules:
@@ -762,3 +1143,5 @@ For aggregate groups, source exploration should be on demand to avoid retaining 
 - Arbitrary inline JS/TS execution inside FDQL expressions.
 - Cross-provider writes.
 - Transaction semantics across provider namespaces.
+- Implicit rollback or generated inverse mutations.
+- Hidden recursive deletes.
