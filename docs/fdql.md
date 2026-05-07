@@ -8,7 +8,7 @@ The query text is the execution plan. Provider-native commands are namespace-pre
 
 Initial provider namespace:
 
-- `fs`: Firestore-native reads, filters, ordering, limits, metadata predicates, supported Firestore aggregations, and explicit Firestore writes.
+- `fs`: Firestore-native reads, filters, ordering, limits, metadata predicates, planned Firestore aggregations, and explicit Firestore write syntax.
 
 Implementation status is tracked separately in [FDQL Read Implementation](./fdql-read-implementation.md). The current product slice is read-only; write syntax and Firestore aggregate helpers remain spec work until implemented there.
 
@@ -31,13 +31,14 @@ Reserved namespaces have no semantics until a provider dialect defines them. Usi
 
 ## Current Read Direction
 
-The next read work is ordered by product value and implementation risk:
+The implemented read surface already includes bounded Firestore reads, lookups, subcollections, local
+unwind, local aggregation, union all, cache, and execution stats. The next read work is ordered by
+product value and implementation risk:
 
-1. Stabilize read correctness and diagnostics.
-2. Add Firestore subcollection reads.
-3. Add Firestore native aggregate reads.
-4. Complete common read expressions.
-5. Improve editor assistance from the implemented language surface.
+1. Add Firestore native aggregate reads.
+2. Complete common read expressions.
+3. Tighten Firestore provider query validation.
+4. Improve context-aware editor assistance from the implemented language surface.
 
 This is an implementation order, not separate language versions.
 

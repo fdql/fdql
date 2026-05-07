@@ -47,17 +47,21 @@ Provider SDK code belongs in provider repository packages. For Firestore, live A
 
 Core FDQL orchestration files:
 
-- `parser.ts`: syntax and source ranges
-- `compiler.ts`: provider-neutral compile orchestration
-- `executor.ts`: provider-neutral execution orchestration
+- `parser.ts`: lean `parseFdql(...)` composer
+- `parser/*`: preamble, lookup, stage, projection, source-text, and parser helper modules
+- `compiler.ts`: lean `compileFdql(...)` and `compileFdqlRead(...)` composer
+- `compiler/*`: settings, aliases, commands, source reads, lookups, local stages, expression validation, and compiler diagnostics
+- `executor.ts`: lean `executeFdql(...)` composer
+- `executor/*`: provider reads, lookups, local stages, projection, stats, errors, and executor-local types
 - `evaluator.ts`: local expression evaluation and provider function delegation
 - `provider.ts`: dialect and runtime contracts
 - `types.ts`: public AST, plan, diagnostics, runtime, stats, and lineage types
 
 Provider package files:
 
-- `packages/fdql-firestore/src/fs-dialect.ts`: Firestore dialect semantics
-- `packages/fdql-firestore/src/fs-dialect.test.ts`: Firestore dialect tests
+- `packages/fdql-firestore/src/fs-dialect.ts`: lean Firestore dialect object composer
+- `packages/fdql-firestore/src/fs-dialect/*`: Firestore sources, field masks, functions, settings, validation, language metadata, and helpers
+- `packages/fdql-firestore/src/fs-dialect.test.ts`: lean dialect wiring tests
 - `packages/fdql-firestore/src/test-helpers/firestore-runtime.ts`: Firestore test runtime helpers only
 - `packages/fdql-core/src/test-helpers/provider.ts`: fake provider helpers for core tests only
 
