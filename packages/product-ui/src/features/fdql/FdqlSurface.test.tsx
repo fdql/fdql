@@ -57,8 +57,8 @@ const result: FdqlRunResult = {
   }],
   stats: {
     aggregateSourceRows: 0,
-    cacheHits: 0,
-    cacheMisses: 0,
+    cacheHits: 1,
+    cacheMisses: 2,
     lookupReads: 0,
     providerReads: { 'fs:local': 1 },
     readBudget: 5000,
@@ -94,6 +94,8 @@ describe('FdqlSurface', () => {
     );
 
     expect(screen.getByText('1.234s elapsed')).toHaveProperty('title', '1234ms');
+    expect(screen.getByText('1 cache hit')).toBeTruthy();
+    expect(screen.getByText('2 cache misses')).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'version' })).toBeTruthy();
     expect(screen.getByRole('cell', { name: '3166' })).toBeTruthy();
     expect(screen.getByRole('cell', { name: expectedLocalTimestamp(startsAtIso) })).toHaveProperty(

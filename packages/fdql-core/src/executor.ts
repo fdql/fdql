@@ -46,6 +46,7 @@ export async function* executeFdql(
 ): AsyncIterable<FdqlExecutionEvent> {
   const startedAt = options.now?.() ?? Date.now();
   const stats = createStats(plan.settings.readBudget);
+  const lookupCache: LookupCache = new Map();
   yield { kind: 'started' };
 
   try {
@@ -58,12 +59,20 @@ export async function* executeFdql(
           options,
           stats,
           startedAt,
+          lookupCache,
           index,
         );
         if (result === 'stopped') return;
       }
     } else {
-      const result = yield* executeReadBranch(plan, runtime, options, stats, startedAt);
+      const result = yield* executeReadBranch(
+        plan,
+        runtime,
+        options,
+        stats,
+        startedAt,
+        lookupCache,
+      );
       if (result === 'stopped') return;
     }
     stats.stoppedReason = 'completed';
@@ -86,6 +95,7 @@ async function* executeReadBranch(
   options: FdqlExecutionOptions,
   stats: MutableStats,
   startedAt: number,
+  lookupCache: LookupCache,
   unionBranch?: number | undefined,
 ): AsyncGenerator<FdqlExecutionEvent, 'done' | 'stopped', unknown> {
   const request = createReadRequest(plan.provider, plan, plan.rowAlias, stats);
@@ -118,6 +128,7 @@ async function* executeReadBranch(
     stats,
     startedAt,
     options,
+    lookupCache,
   );
   if (localResult.kind === 'failed') {
     yield { diagnostic: localResult.diagnostic, kind: 'failed' };
@@ -273,6 +284,7 @@ async function* applyLocalStages(
   stats: MutableStats,
   startedAt: number,
   options: FdqlExecutionOptions,
+  lookupCache: LookupCache,
 ): AsyncGenerator<
   FdqlExecutionEvent,
   | { readonly kind: 'failed'; readonly diagnostic: FdqlDiagnostic; }
@@ -296,7 +308,16 @@ async function* applyLocalStages(
       const nextRows: RowRecord[] = [];
       const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
       for (const row of rows) {
-        const lookup = await executeLookup(stage, plan, row, runtime, stats, startedAt, options);
+        const lookup = await executeLookup(
+          stage,
+          plan,
+          row,
+          runtime,
+          stats,
+          startedAt,
+          options,
+          lookupCache,
+        );
         for (const event of lookup.events) yield event;
         if (lookup.diagnostic) return { diagnostic: lookup.diagnostic, kind: 'failed' };
         if (lookup.stopReason) return { kind: 'stopped', reason: lookup.stopReason };
@@ -498,6 +519,7 @@ async function executeLookup(
   stats: MutableStats,
   startedAt: number,
   options: FdqlExecutionOptions,
+  lookupCache: LookupCache,
 ): Promise<{
   readonly diagnostic?: Extract<FdqlExecutionEvent, { readonly kind: 'failed'; }>['diagnostic'];
   readonly events: readonly FdqlExecutionEvent[];
@@ -516,6 +538,17 @@ async function executeLookup(
   );
   const documents: FdqlProviderRow[] = [];
   const events: FdqlExecutionEvent[] = [];
+  const cacheKey = plan.settings.cache === 'run' ? lookupCacheKey(request, runtime) : undefined;
+  const cachedDocuments = cacheKey ? lookupCache.get(cacheKey) : undefined;
+  if (cachedDocuments) {
+    stats.cacheHits += 1;
+    return {
+      events: [{ kind: 'stats', stats: freezeStats(stats) }],
+      row: lookupRow(stage, row, cachedDocuments.slice(0, request.maxDocuments)),
+    };
+  }
+  if (cacheKey) stats.cacheMisses += 1;
+
   for await (const document of readProvider(runtime, request)) {
     events.push(recordRead(document, request, stats, true));
     documents.push(document);
@@ -535,13 +568,184 @@ async function executeLookup(
       row,
     };
   }
+  if (cacheKey) lookupCache.set(cacheKey, documents);
   return {
     events,
-    row: {
-      ...row,
-      [stage.rowAlias]: stage.mode === 'one' ? documents[0] ?? null : documents,
-    },
+    row: lookupRow(stage, row, documents),
   };
+}
+
+function lookupRow(
+  stage: FdqlLookupPlanStage,
+  row: RowRecord,
+  documents: readonly FdqlProviderRow[],
+): RowRecord {
+  return {
+    ...row,
+    [stage.rowAlias]: stage.mode === 'one' ? documents[0] ?? null : documents,
+  };
+}
+
+function lookupCacheKey(
+  request: FdqlProviderReadRequest,
+  runtime: FdqlProviderRuntimeRegistry,
+): string {
+  return stableStringify({
+    aliases: request.aliases,
+    correlated: correlatedLookupValues(request, runtime),
+    fieldMask: request.fieldMask,
+    limit: request.limit,
+    orderBy: request.orderBy,
+    predicate: request.predicate,
+    rowAlias: request.rowAlias,
+    source: request.source,
+  });
+}
+
+function correlatedLookupValues(
+  request: FdqlProviderReadRequest,
+  runtime: FdqlProviderRuntimeRegistry,
+): readonly { readonly expression: FdqlExpression; readonly value: unknown; }[] {
+  const rows = request.rows;
+  if (!rows) return [];
+  const outerAliases = new Set(Object.keys(rows).filter((alias) => alias !== request.rowAlias));
+  const expressions: FdqlExpression[] = [];
+  const seen = new Set<string>();
+  for (
+    const expression of [
+      request.predicate,
+      request.orderBy?.expression,
+    ]
+  ) {
+    if (expression) collectCorrelatedExpressions(expression, outerAliases, expressions, seen);
+  }
+  const context = {
+    aliases: request.aliases,
+    providers: providerDialects(runtime),
+    rows,
+  };
+  return expressions.map((expression) => ({
+    expression,
+    value: evaluateExpression(expression, context),
+  }));
+}
+
+function collectCorrelatedExpressions(
+  expression: FdqlExpression,
+  outerAliases: ReadonlySet<string>,
+  expressions: FdqlExpression[],
+  seen: Set<string>,
+): boolean {
+  if (expression.kind === 'field') {
+    const correlated = outerAliases.has(expression.path[0] ?? '');
+    if (correlated) pushUniqueExpression(expression, expressions, seen);
+    return correlated;
+  }
+  if (expression.kind === 'call') {
+    let correlated = false;
+    for (const arg of expression.args) {
+      correlated = collectCorrelatedExpressions(arg, outerAliases, expressions, seen) || correlated;
+    }
+    if (correlated) pushUniqueExpression(expression, expressions, seen);
+    return correlated;
+  }
+  if (expression.kind === 'array') {
+    let correlated = false;
+    for (const item of expression.items) {
+      correlated = collectCorrelatedExpressions(item, outerAliases, expressions, seen)
+        || correlated;
+    }
+    return correlated;
+  }
+  if (expression.kind === 'map') {
+    let correlated = false;
+    for (const entry of expression.entries) {
+      correlated = collectCorrelatedExpressions(entry.value, outerAliases, expressions, seen)
+        || correlated;
+    }
+    return correlated;
+  }
+  if (expression.kind === 'unary') {
+    return collectCorrelatedExpressions(expression.expression, outerAliases, expressions, seen);
+  }
+  if (expression.kind === 'binary') {
+    const left = collectCorrelatedExpressions(expression.left, outerAliases, expressions, seen);
+    const right = collectCorrelatedExpressions(expression.right, outerAliases, expressions, seen);
+    return left || right;
+  }
+  return false;
+}
+
+function pushUniqueExpression(
+  expression: FdqlExpression,
+  expressions: FdqlExpression[],
+  seen: Set<string>,
+): void {
+  const key = stableStringify(expression);
+  if (seen.has(key)) return;
+  seen.add(key);
+  expressions.push(expression);
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(stableValue(value)) ?? 'undefined';
+}
+
+function stableValue(value: unknown): unknown {
+  if (isFdqlValue(value)) return stableFdqlValue(value);
+  if (isDocument(value)) {
+    return {
+      context: stableValue(value.context),
+      data: stableValue(value.data),
+      id: value.id,
+      path: value.path,
+      provider: value.provider,
+      source: stableValue(value.source),
+      type: 'providerRow',
+    };
+  }
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (isPlainRecord(value)) {
+    return Object.fromEntries(
+      sortedKeys(value).map((key) => [key, stableValue(value[key])]),
+    );
+  }
+  if (value === undefined) return { type: 'undefined' };
+  return value;
+}
+
+function sortedKeys(value: Record<string, unknown>): readonly string[] {
+  const keys: string[] = [];
+  for (const key of Object.keys(value)) {
+    const index = keys.findIndex((candidate) => key.localeCompare(candidate) < 0);
+    if (index < 0) keys.push(key);
+    else keys.splice(index, 0, key);
+  }
+  return keys;
+}
+
+function stableFdqlValue(value: FdqlValue): unknown {
+  switch (value.kind) {
+    case 'array':
+      return { kind: value.kind, value: value.value.map(stableFdqlValue) };
+    case 'map':
+      return {
+        kind: value.kind,
+        value: stableValue(value.value),
+      };
+    case 'providerValue':
+      return {
+        display: value.display,
+        equalityKey: value.equalityKey,
+        kind: value.kind,
+        orderKey: value.orderKey,
+        provider: value.provider,
+        value: stableValue(value.value),
+        valueType: value.valueType,
+      };
+    default:
+      return value;
+  }
 }
 
 function projectItems(
@@ -668,6 +872,8 @@ function isFdqlValue(value: unknown): value is FdqlValue {
 }
 
 type RowRecord = Record<string, unknown>;
+
+type LookupCache = Map<string, readonly FdqlProviderRow[]>;
 
 type MutableStats = {
   -readonly [Key in keyof FdqlStats]: Key extends 'providerReads' ? Record<string, number>

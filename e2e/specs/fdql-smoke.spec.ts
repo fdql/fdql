@@ -213,6 +213,47 @@ return fs.path(o) as path, o.status`,
       await expect(page.getByText('1 reads')).toBeVisible();
     });
 
+    await test.step('nested map and array workflow dedupes repeated lookup reads', async () => {
+      await runFdql(
+        page,
+        `set fdql.cache = "run"
+
+alias $events = fs.collection("${data.events}", ["name", "slug", "schedule", "entriesById"])
+alias $drivers = fs.collection("${data.eventDrivers}", ["firstName", "steamId"])
+
+from $events as event
+fs order by event.schedule.startsAt desc
+fs limit 20
+then unwind entries(event.entriesById) as entry
+then unwind entry.value.drivers as eventDriver
+then take 3
+then lookup one $drivers as driver
+  fs where fs.id(driver) = eventDriver.steamId
+return eventDriver.steamId, driver.firstName, event.slug, event.name, event.schedule.startsAt`,
+      );
+
+      await expectFdqlTable(
+        page,
+        ['steamId', 'firstName', 'slug', 'name', 'startsAt'],
+        [
+          ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+          ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+          ['steam_ben', 'Ben', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+        ],
+      );
+      await expect(page.getByText('3 rows')).toBeVisible();
+      await expect(page.getByText('3 reads')).toBeVisible();
+      await expect(page.getByText('3 scanned')).toBeVisible();
+      await expect(page.getByText('1 cache hit')).toBeVisible();
+      await expect(page.getByText('2 cache misses')).toBeVisible();
+
+      await page.getByRole('tab', { name: 'Tree' }).click();
+      await expect(page.getByRole('tree').filter({ hasText: 'row_1' })).toBeVisible();
+      await page.getByRole('tab', { name: 'JSON' }).click();
+      await expect(page.getByLabel('FDQL JSON results')).toHaveValue(/"steamId": "steam_ada"/);
+      await page.getByRole('tab', { name: 'Table' }).click();
+    });
+
     await test.step('duplicate fs limit is an issue and clears stale rows', async () => {
       await runFdql(
         page,
@@ -238,6 +279,8 @@ return fs.id(o) as id`,
 
 async function seedFdqlReadData(): Promise<{
   readonly drivers: string;
+  readonly eventDrivers: string;
+  readonly events: string;
   readonly nestedOrderId: string;
   readonly parent: string;
   readonly rounds: string;
@@ -245,6 +288,8 @@ async function seedFdqlReadData(): Promise<{
 }> {
   const suffix = uniqueSmokeId('fdql').replace(/-/g, '_');
   const drivers = `fdqlDrivers_${suffix}`;
+  const eventDrivers = `fdqlEventDrivers_${suffix}`;
+  const events = `fdqlEvents_${suffix}`;
   const teams = `fdqlTeams_${suffix}`;
   const rounds = `fdqlRounds_${suffix}`;
   const parent = `fdqlParents_${suffix}`;
@@ -261,6 +306,28 @@ async function seedFdqlReadData(): Promise<{
       metadata: { region: 'emea', tier: 'silver' },
       teamId: 'team_2',
     }),
+    setFirestoreEmulatorDocument(`${eventDrivers}/steam_ada`, {
+      firstName: 'Ada',
+      steamId: 'steam_ada',
+    }),
+    setFirestoreEmulatorDocument(`${eventDrivers}/steam_ben`, {
+      firstName: 'Ben',
+      steamId: 'steam_ben',
+    }),
+    setFirestoreEmulatorDocument(`${events}/event_24h`, {
+      entriesById: {
+        entry_1: {
+          drivers: [
+            { steamId: 'steam_ada' },
+            { steamId: 'steam_ada' },
+            { steamId: 'steam_ben' },
+          ],
+        },
+      },
+      name: '24H Mount',
+      schedule: { startsAt: '2026-05-05T10:27:00.000Z' },
+      slug: 'event_24h',
+    }),
     setFirestoreEmulatorDocument(`${teams}/team_1`, { name: 'Orange' }),
     setFirestoreEmulatorDocument(`${teams}/team_2`, { name: 'Blue' }),
     setFirestoreEmulatorDocument(`${rounds}/round_1`, { driverId: 'drv_1', score: 10 }),
@@ -271,7 +338,7 @@ async function seedFdqlReadData(): Promise<{
     }),
   ]);
 
-  return { drivers, nestedOrderId, parent, rounds, teams };
+  return { drivers, eventDrivers, events, nestedOrderId, parent, rounds, teams };
 }
 
 async function runFdql(page: Page, source: string): Promise<void> {

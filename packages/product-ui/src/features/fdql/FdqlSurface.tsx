@@ -232,6 +232,7 @@ function ResultsView(
           <span>{rows.length} rows</span>
           <span>{stats?.reads ?? 0} reads</span>
           <span>{stats?.rowsScanned ?? 0} scanned</span>
+          {cacheStatLabels(stats).map((label) => <span key={label}>{label}</span>)}
           <span title={`${durationMs}ms`}>{formatDuration(durationMs)} elapsed</span>
           <span>{stats?.stoppedReason ?? 'idle'}</span>
         </div>
@@ -407,6 +408,18 @@ function statusVariant(
   if (isRunning) return 'warning';
   if (stats?.stoppedReason && stats.stoppedReason !== 'completed') return 'warning';
   return stats ? 'success' : 'neutral';
+}
+
+function cacheStatLabels(stats: FdqlStats | null): readonly string[] {
+  if (!stats || stats.cacheHits + stats.cacheMisses === 0) return [];
+  return [
+    pluralLabel(stats.cacheHits, 'cache hit', 'cache hits'),
+    pluralLabel(stats.cacheMisses, 'cache miss', 'cache misses'),
+  ];
+}
+
+function pluralLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function issuesVariant(diagnostics: readonly FdqlDiagnostic[]): 'danger' | 'warning' {

@@ -24,7 +24,7 @@ const fdqlCoreSettingByName = {
   },
   'fdql.cache': {
     detail: 'Read cache mode',
-    insertText: 'set fdql.cache = "${1|off,run,session|}"',
+    insertText: 'set fdql.cache = "${1|off,run|}"',
   },
   'fdql.readBudget': {
     detail: 'Maximum documents read by this query',

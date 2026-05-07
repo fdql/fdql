@@ -526,6 +526,12 @@ function resolveSettings(
       );
     }
   }
+  if (settings.cache === 'session') {
+    diagnostics.push(
+      error('FDQL_UNSUPPORTED_CACHE_MODE', 'fdql.cache = "session" is not supported yet.'),
+    );
+    settings = { ...settings, cache: 'off' };
+  }
   return { providerContext, settings };
 }
 
@@ -602,8 +608,16 @@ function applyFdqlSetting(
     const timeoutMs = parseDurationMs(scalar);
     if (timeoutMs) return { ...settings, timeoutMs };
     else diagnostics.push(error('FDQL_INVALID_SET', 'Invalid value for set fdql.timeout.', line));
-  } else if (key === 'cache' && (scalar === 'off' || scalar === 'run' || scalar === 'session')) {
+  } else if (key === 'cache' && (scalar === 'off' || scalar === 'run')) {
     return { ...settings, cache: scalar };
+  } else if (key === 'cache' && scalar === 'session') {
+    diagnostics.push(
+      error(
+        'FDQL_UNSUPPORTED_CACHE_MODE',
+        'set fdql.cache = "session" is not supported yet.',
+        line,
+      ),
+    );
   } else if (key === 'allowUnboundedReads' && typeof scalar === 'boolean') {
     return { ...settings, allowUnboundedReads: scalar };
   } else if (!['allowUnboundedReads', 'cache', 'readBudget', 'timeout'].includes(key)) {

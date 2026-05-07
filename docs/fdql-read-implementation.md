@@ -66,7 +66,7 @@ Current implementation does not parse or execute:
 ```fdql
 set fdql.readBudget = 5000
 set fdql.timeout = "60s"
-set fdql.cache = "off" // accepted, runtime cache semantics missing
+set fdql.cache = "run"
 set fdql.allowUnboundedReads = false
 
 alias $drivers = fs.project("prod").db("db2").collection("drivers", ["firstName", "teamId", "metadata"])
@@ -175,7 +175,7 @@ These block the read implementation from being honest at production scale.
 | Read budget in live repo         | Done    | Runtime read requests cap Firestore page reads before docs are fetched.                                                            |
 | Cancel in live repo              | Partial | Cancel is observed between pages/rows, but not while a Firestore page request is already in flight.                                |
 | Timeout in live repo             | Partial | Same issue as cancel.                                                                                                              |
-| Cache modes                      | Missing | `set fdql.cache = ...` parses/compiles, but runtime does not dedupe or cache reads.                                                |
+| Cache modes                      | Partial | `set fdql.cache = "run"` dedupes repeated lookup reads per execution and reports cache stats. `session` is reserved/unsupported.   |
 | Output row streaming             | Partial | Read events stream as provider rows arrive, but final row events are emitted after the branch source read and local stages finish. |
 | Provider query validation parity | Partial | Firestore dialect validates simple provider shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.               |
 | Field path fidelity              | Partial | Live field masks split on `.`, so literal dotted field names are not represented yet. Need explicit field-path segment handling.   |
@@ -229,11 +229,11 @@ These block the read implementation from being honest at production scale.
 | Type inference     | Missing                    | Compiler does not infer expression, stage, or result column types.                                                               |
 | Row-shape analysis | Missing                    | Unknown fields are runtime missing values; compiler does not prove row shape.                                                    |
 | Lineage UI         | Partial                    | Events carry provider-neutral row lineage, but UI does not expose source exploration.                                            |
-| More E2E           | Partial                    | Covers main read paths. Still needs deterministic cancel/timeout and named DB coverage.                                          |
+| More E2E           | Partial                    | Covers main read paths plus nested map/array lookup cache. Still needs deterministic cancel/timeout and named DB coverage.       |
 | Generated scripts  | Not planned for current UI | Spec mentions generated scripts, but current product slice intentionally has no JS snippet panel. Revisit before implementing.   |
 
 ## Suggested Next Order
 
-1. Add a combined E2E for the real nested map/array plus lookup workflow.
-2. Implement run-cache lookup dedupe and expose cache hit/miss stats.
+1. Add deterministic cancel/timeout coverage.
+2. Add named database coverage.
 3. Implement missing read syntax from P1/P2.

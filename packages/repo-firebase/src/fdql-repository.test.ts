@@ -98,6 +98,48 @@ return fs.id(d) as id, team.name as teamName`,
     });
   });
 
+  it('dedupes repeated correlated lookup reads in run cache mode', async () => {
+    const driversQuery = fakeQuery([
+      fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' }),
+      fakeSnapshot('drv_2', 'drivers/drv_2', { firstName: 'Alex', teamId: 'team_1' }),
+    ]);
+    const teamsQuery = fakeQuery([fakeSnapshot('team_1', 'teams/team_1', { name: 'Orange' })]);
+    const db = {
+      collection: vi.fn((path: string) => path === 'drivers' ? driversQuery : teamsQuery),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    const result = await repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source: `set fdql.cache = "run"
+alias $drivers = fs.collection("drivers", ["firstName", "teamId"])
+alias $teams = fs.collection("teams", ["name"])
+from $drivers as d
+fs limit 2
+then lookup one $teams as team
+  fs where fs.id(team) = d.teamId
+return fs.id(d) as id, team.name as teamName`,
+    });
+
+    expect(teamsQuery.get).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      diagnostics: [],
+      rows: [
+        { id: 'drv_1', teamName: 'Orange' },
+        { id: 'drv_2', teamName: 'Orange' },
+      ],
+      stats: {
+        cacheHits: 1,
+        cacheMisses: 1,
+        lookupReads: 1,
+        reads: 3,
+        rowsOutput: 2,
+        rowsScanned: 3,
+      },
+    });
+  });
+
   it('returns compile diagnostics without touching Firestore', async () => {
     const db = {
       collection: vi.fn(),

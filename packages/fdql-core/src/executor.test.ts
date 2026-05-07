@@ -39,6 +39,11 @@ const runtime = createTestProviderRuntime({
     round_2: { createdAt: '2025-10-06T00:00:00.000Z', driverId: 'p1', status: 'draft' },
     round_3: { createdAt: '2025-10-07T00:00:00.000Z', driverId: 'p2', status: 'done' },
   },
+  assignments: {
+    a1: { teamId: 'team_1' },
+    a2: { teamId: 'team_1' },
+    a3: { teamId: 'team_2' },
+  },
   teams: {
     team_1: { id: 'team_1', name: 'Orange' },
     team_2: { id: 'team_2', name: 'Blue' },
@@ -173,6 +178,85 @@ return mem.id(p) as id, p.name, team.name as teamName`);
       reads: 2,
       rowsOutput: 1,
       rowsScanned: 2,
+    });
+  });
+
+  it('dedupes repeated lookup reads when run cache is enabled', async () => {
+    const events = await run(`set fdql.cache = "run"
+alias $assignments = mem.collection("assignments")
+alias $teams = mem.collection("teams")
+from $assignments as assignment
+mem limit 3
+
+then lookup one $teams as team
+  mem where team.id = assignment.teamId
+
+return mem.id(assignment) as id, team.name as teamName`);
+
+    expect(rows(events)).toEqual([
+      { id: 'a1', teamName: 'Orange' },
+      { id: 'a2', teamName: 'Orange' },
+      { id: 'a3', teamName: 'Blue' },
+    ]);
+    expect(completed(events)).toMatchObject({
+      cacheHits: 1,
+      cacheMisses: 2,
+      lookupReads: 2,
+      reads: 5,
+      rowsOutput: 3,
+      rowsScanned: 5,
+    });
+  });
+
+  it('runs repeated lookup reads when run cache is off', async () => {
+    const events = await run(`set fdql.cache = "off"
+alias $assignments = mem.collection("assignments")
+alias $teams = mem.collection("teams")
+from $assignments as assignment
+mem limit 3
+
+then lookup one $teams as team
+  mem where team.id = assignment.teamId
+
+return mem.id(assignment) as id, team.name as teamName`);
+
+    expect(rows(events)).toHaveLength(3);
+    expect(completed(events)).toMatchObject({
+      cacheHits: 0,
+      cacheMisses: 0,
+      lookupReads: 3,
+      reads: 6,
+      rowsScanned: 6,
+    });
+  });
+
+  it('keeps lookup cache keys separate by field mask, limit, and correlated values', async () => {
+    const events = await run(`set fdql.cache = "run"
+alias $assignments = mem.collection("assignments")
+alias $teamNames = mem.collection("teams", ["name"])
+alias $teamIds = mem.collection("teams", ["id"])
+from $assignments as assignment
+mem limit 2
+
+then lookup one $teamNames as teamName
+  mem where teamName.id = assignment.teamId
+
+then lookup one $teamIds as teamId
+  mem where teamId.id = assignment.teamId
+  mem limit 1
+
+return mem.id(assignment) as id, teamName.name as teamName, teamId.id as teamId`);
+
+    expect(rows(events)).toEqual([
+      { id: 'a1', teamId: 'team_1', teamName: 'Orange' },
+      { id: 'a2', teamId: 'team_1', teamName: 'Orange' },
+    ]);
+    expect(completed(events)).toMatchObject({
+      cacheHits: 2,
+      cacheMisses: 2,
+      lookupReads: 2,
+      reads: 4,
+      rowsScanned: 4,
     });
   });
 

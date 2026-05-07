@@ -1224,14 +1224,13 @@ Cache modes:
 
 ```text
 run
-session
 off
 ```
 
 Rules:
 
 - Run cache dedupes repeated lookup reads during one query run.
-- Session cache persists while the app is open.
+- Session cache is reserved and must return an unsupported diagnostic until implemented.
 - Cache must be visible in execution stats.
 - Provider-native results and lookup results must not silently come from stale cache.
 

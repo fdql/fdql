@@ -4,7 +4,12 @@ import {
   type FdqlProviderDialect,
   type FdqlProviderRuntimeRegistry,
 } from '../provider.ts';
-import type { FdqlDiagnostic, FdqlExpression, FdqlProviderRow } from '../types.ts';
+import type {
+  FdqlDiagnostic,
+  FdqlExpression,
+  FdqlFieldMaskField,
+  FdqlProviderRow,
+} from '../types.ts';
 import { missingValue, stringValue, toFdqlValue } from '../value.ts';
 
 export const testProviderDialect: FdqlProviderDialect = {
@@ -45,6 +50,7 @@ export const testProviderDialect: FdqlProviderDialect = {
       return null;
     }
     return {
+      ...fieldMaskFromExpression(declaration.value.args[1]),
       kind: 'source',
       source: {
         provider: 'mem',
@@ -69,6 +75,18 @@ export const testProviderDialect: FdqlProviderDialect = {
     validatePredicate(input.expression, input.rowAlias, input.diagnostics, input.line);
   },
 };
+
+function fieldMaskFromExpression(
+  expression: FdqlExpression | undefined,
+): { readonly fieldMask: readonly FdqlFieldMaskField[]; } | null {
+  if (!expression) return null;
+  if (expression.kind !== 'array') return null;
+  return {
+    fieldMask: expression.items.flatMap((item) =>
+      item.kind === 'literal' && typeof item.value === 'string' ? [{ path: item.value }] : []
+    ),
+  };
+}
 
 export function createTestProviderRuntime(
   collections: Readonly<Record<string, Readonly<Record<string, Record<string, unknown>>>>>,

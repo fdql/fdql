@@ -136,6 +136,22 @@ return p.name`,
     );
   });
 
+  it('rejects session cache until session runtime semantics exist', () => {
+    const result = compileFdqlRead(
+      `set fdql.cache = "session"
+alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+return p.name`,
+      options,
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNSUPPORTED_CACHE_MODE', line: 1 }),
+    );
+  });
+
   it('rejects undeclared aliases', () => {
     const result = compileFdqlRead(
       `from $people as p
