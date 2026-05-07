@@ -349,9 +349,16 @@ function fieldMask(expression: FdqlExpression): readonly string[] {
   if (expression.kind !== 'call') return [];
   const maybeMask = expression.args.find((arg) => arg.kind === 'array');
   if (maybeMask?.kind !== 'array') return [];
-  return maybeMask.items.flatMap((item) =>
-    item.kind === 'literal' && typeof item.value === 'string' ? [item.value] : []
-  );
+  return maybeMask.items.flatMap((item) => {
+    if (item.kind === 'literal' && typeof item.value === 'string') return [item.value];
+    if (item.kind === 'call' && item.name.endsWith('.fieldPath')) {
+      const segments = item.args.flatMap((arg) =>
+        arg.kind === 'literal' && typeof arg.value === 'string' ? [arg.value] : []
+      );
+      return segments.length ? [segments.join('.')] : [];
+    }
+    return [];
+  });
 }
 
 function isSourceExpression(expression: FdqlExpression): boolean {

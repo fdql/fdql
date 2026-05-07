@@ -10,12 +10,14 @@ import type {
   FdqlAggregateStage,
   FdqlCacheMode,
   FdqlDiagnostic,
+  FdqlDiagnosticContext,
   FdqlExecutionEvent,
   FdqlExecutionOptions,
   FdqlExpression,
   FdqlFilterStage,
   FdqlLookupPlanStage,
   FdqlProjectionItem,
+  FdqlProviderReadControls,
   FdqlProviderReadPlan,
   FdqlProviderReadRequest,
   FdqlProviderRow,
@@ -91,9 +93,13 @@ function diagnosticFromError(error: unknown): FdqlDiagnostic {
   const location: { readonly column?: unknown; readonly line?: unknown; } = error instanceof Error
     ? error as Error & { readonly column?: unknown; readonly line?: unknown; }
     : {};
+  const context = error instanceof Error
+    ? (error as Error & { readonly context?: unknown; }).context
+    : undefined;
   return {
     code: 'FDQL_EXECUTION_FAILED',
     ...(typeof location.column === 'number' ? { column: location.column } : {}),
+    ...(isDiagnosticContext(context) ? { context } : {}),
     ...(typeof location.line === 'number' ? { line: location.line } : {}),
     message: error instanceof Error ? error.message : String(error),
     severity: 'error',
@@ -109,19 +115,28 @@ async function* executeReadBranch(
   lookupCache: LookupCache,
   unionBranch?: number | undefined,
 ): AsyncGenerator<FdqlExecutionEvent, 'done' | 'stopped', unknown> {
-  const request = createReadRequest(plan.provider, plan, plan.rowAlias, stats);
+  const request = createReadRequest(plan.provider, plan, plan.rowAlias, stats, 'source');
   const sourceRows: RowRecord[] = [];
   const sourceLineage = new WeakMap<RowRecord, FdqlProviderRow>();
   let readStopReason: NonNullable<FdqlStats['stoppedReason']> | undefined;
 
-  for await (const document of readProvider(runtime, request)) {
-    yield recordRead(document, request, stats, false);
+  const beforeReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
+  if (beforeReadStop) {
+    stats.stoppedReason = beforeReadStop;
+    for (const event of stopEvents(stats, beforeReadStop)) yield event;
+    return 'stopped';
+  }
+
+  for await (
+    const document of readProvider(runtime, request, providerReadControls(plan, options, startedAt))
+  ) {
     const beforeRowStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
     if (beforeRowStop) {
       stats.stoppedReason = beforeRowStop;
       for (const event of stopEvents(stats, beforeRowStop)) yield event;
       return 'stopped';
     }
+    yield recordRead(document, request, stats, false);
     const row = { [plan.rowAlias]: document };
     sourceRows.push(row);
     sourceLineage.set(row, document);
@@ -129,6 +144,13 @@ async function* executeReadBranch(
       readStopReason = 'budget';
       break;
     }
+  }
+
+  const afterReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
+  if (afterReadStop) {
+    stats.stoppedReason = afterReadStop;
+    for (const event of stopEvents(stats, afterReadStop)) yield event;
+    return 'stopped';
   }
 
   const localResult = yield* applyLocalStages(
@@ -190,6 +212,7 @@ function createReadRequest(
   plan: FdqlSingleReadPlan,
   rowAlias: string,
   stats: MutableStats,
+  stage: 'lookup' | 'source',
   rows?: EvalRows,
   maxOverride?: number,
 ): FdqlProviderReadRequest {
@@ -211,6 +234,7 @@ function createReadRequest(
     rowAlias,
     ...(rows ? { rows } : {}),
     source,
+    stage,
   };
 }
 
@@ -263,6 +287,18 @@ function stopReasonFor(
   if (now - startedAt >= plan.settings.timeoutMs) return 'timeout';
   if (phase === 'afterRow' && stats.reads >= plan.settings.readBudget) return 'budget';
   return undefined;
+}
+
+function providerReadControls(
+  plan: FdqlReadPlan,
+  options: FdqlExecutionOptions,
+  startedAt: number,
+): FdqlProviderReadControls {
+  return {
+    deadlineAtMs: startedAt + plan.settings.timeoutMs,
+    now: options.now ?? (() => Date.now()),
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
 }
 
 function stopEvents(
@@ -547,9 +583,12 @@ async function executeLookup(
     plan,
     stage.rowAlias,
     stats,
+    'lookup',
     row as EvalRows,
     Math.min(remainingBudget, lookupOneCap ?? remainingBudget),
   );
+  const beforeLookupStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
+  if (beforeLookupStop) return { events: [], row, stopReason: beforeLookupStop };
   if (lookupHasMissingCorrelatedValue(request, runtime)) {
     return { events: [], row: lookupRow(stage, row, []) };
   }
@@ -580,12 +619,18 @@ async function executeLookup(
   }
   if (cachePolicy.kind !== 'off') stats.cacheMisses += 1;
 
-  for await (const document of readProvider(runtime, request)) {
+  for await (
+    const document of readProvider(runtime, request, providerReadControls(plan, options, startedAt))
+  ) {
+    const beforeReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
+    if (beforeReadStop) return { events, row, stopReason: beforeReadStop };
     events.push(recordRead(document, request, stats, true));
     documents.push(document);
     const stopReason = stopReasonFor(plan, stats, startedAt, options, 'afterRow');
     if (stopReason) return { events, row, stopReason };
   }
+  const afterReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
+  if (afterReadStop) return { events, row, stopReason: afterReadStop };
   if (stage.mode === 'one' && documents.length > 1) {
     return {
       diagnostic: {
@@ -823,16 +868,54 @@ function labelFor(expression: FdqlExpression, fallback: string): string {
 async function* readProvider(
   runtime: FdqlProviderRuntimeRegistry,
   request: FdqlProviderReadRequest,
+  controls: FdqlProviderReadControls,
 ): AsyncIterable<FdqlProviderRow> {
   const provider = runtime.providers[request.source.provider];
   if (!provider) {
     throw new Error(`No runtime registered for provider ${request.source.provider}.`);
   }
-  yield* provider.read(request);
+  try {
+    yield* provider.read(request, controls);
+  } catch (error) {
+    throw errorWithDiagnosticContext(error, request);
+  }
 }
 
 function providerDialects(runtime: FdqlProviderRuntimeRegistry): FdqlProviderDialectRegistry {
   return runtime.dialects ?? {};
+}
+
+function errorWithDiagnosticContext(
+  error: unknown,
+  request: FdqlProviderReadRequest,
+): Error {
+  const next = error instanceof Error ? error : new Error(String(error));
+  const existing = (next as Error & { context?: FdqlDiagnosticContext; }).context;
+  (next as Error & { context: FdqlDiagnosticContext; }).context = {
+    provider: request.source.provider,
+    rowAlias: request.rowAlias,
+    ...(correlatedRowPath(request) ? { rowPath: correlatedRowPath(request) } : {}),
+    source: request.source.sourceAlias,
+    stage: request.stage,
+    ...(isDiagnosticContext(existing) ? existing : {}),
+  };
+  return next;
+}
+
+function correlatedRowPath(request: FdqlProviderReadRequest): string | undefined {
+  if (!request.rows) return undefined;
+  for (const value of Object.values(request.rows)) {
+    if (isDocument(value)) return value.path;
+  }
+  return undefined;
+}
+
+function isDiagnosticContext(value: unknown): value is FdqlDiagnosticContext {
+  return value !== null && typeof value === 'object'
+    && Object.entries(value as Record<string, unknown>).every(([key, entry]) =>
+      ['provider', 'rowAlias', 'rowPath', 'source', 'stage'].includes(key)
+      && (entry === undefined || typeof entry === 'string')
+    );
 }
 
 function freezeStats(stats: MutableStats): FdqlStats {

@@ -102,6 +102,11 @@ export const firestoreProviderDialect: FdqlProviderDialect = {
         name: 'fs.ref',
       },
       {
+        detail: 'Firestore field path with explicit segments',
+        insertText: 'fs.fieldPath("${1:field}")',
+        name: 'fs.fieldPath',
+      },
+      {
         detail: 'Firestore array-contains predicate',
         insertText: 'fs.arrayContains(${1:field}, ${2:value})',
         name: 'fs.arrayContains',
@@ -110,7 +115,14 @@ export const firestoreProviderDialect: FdqlProviderDialect = {
   },
   namespace: 'fs',
   sourceFunctions: new Set(['collection', 'collectionGroup', 'db', 'project']),
-  valueFunctions: new Set(['fs.arrayContains', 'fs.id', 'fs.path', 'fs.projectId', 'fs.ref']),
+  valueFunctions: new Set([
+    'fs.arrayContains',
+    'fs.fieldPath',
+    'fs.id',
+    'fs.path',
+    'fs.projectId',
+    'fs.ref',
+  ]),
   evaluateCall(input) {
     if (input.name === 'fs.id') {
       const row = rowArg(input.args[0], input.context);
@@ -130,6 +142,19 @@ export const firestoreProviderDialect: FdqlProviderDialect = {
       if (isProviderRow(row)) return documentRefValue(row.path, row);
       const path = stringScalar(input.evaluate(input.args[0]!, input.context));
       return path ? documentRefValue(path) : missingValue;
+    }
+    if (input.name === 'fs.fieldPath') {
+      const segments = input.args.flatMap((arg) => {
+        const segment = stringScalar(input.evaluate(arg, input.context));
+        return segment ? [segment] : [];
+      });
+      return providerValue({
+        display: segments.join('.'),
+        equalityKey: `fs:fieldPath:${JSON.stringify(segments)}`,
+        provider: 'fs',
+        value: { segments: arrayValue(segments.map(stringValue)) },
+        valueType: 'fieldPath',
+      });
     }
     if (input.name === 'fs.arrayContains') {
       const array = input.evaluate(input.args[0]!, input.context);
@@ -275,9 +300,15 @@ function validateFirestoreWhere(input: FdqlProviderPredicateValidationInput): vo
   walkExpression(input.expression, (node, parent) => {
     if (
       node.kind === 'call'
-      && !['bytes', 'fs.id', 'fs.ref', 'fs.arrayContains', 'geoPoint', 'timestamp'].includes(
-        node.name,
-      )
+      && ![
+        'bytes',
+        'fs.arrayContains',
+        'fs.fieldPath',
+        'fs.id',
+        'fs.ref',
+        'geoPoint',
+        'timestamp',
+      ].includes(node.name)
     ) {
       input.diagnostics.push(
         error(
@@ -286,6 +317,9 @@ function validateFirestoreWhere(input: FdqlProviderPredicateValidationInput): vo
           input.line,
         ),
       );
+    }
+    if (node.kind === 'call' && node.name === 'fs.fieldPath') {
+      readFieldPathSegments(node, input.diagnostics, input.line);
     }
     if (node.kind === 'field' && !isMetadataArgument(node, parent)) {
       const binding = node.path[0];
@@ -378,7 +412,15 @@ function validateFirestoreOrderBy(input: FdqlProviderOrderByValidationInput): vo
     validateProviderField(input.expression.path, input.rowAlias, input.diagnostics, input.line);
     return;
   }
-  if (input.expression.kind === 'call' && input.expression.name === 'fs.id') return;
+  if (
+    input.expression.kind === 'call'
+    && (input.expression.name === 'fs.id' || input.expression.name === 'fs.fieldPath')
+  ) {
+    if (input.expression.name === 'fs.fieldPath') {
+      readFieldPathSegments(input.expression, input.diagnostics, input.line);
+    }
+    return;
+  }
   input.diagnostics.push(
     error('FDQL_UNSUPPORTED_FS_ORDER_BY', '`fs order by` needs a provider field.', input.line),
   );
@@ -428,10 +470,59 @@ function readFieldMask(
     );
   }
   return expression.items.flatMap((item) => {
-    if (item.kind === 'literal' && typeof item.value === 'string') return [{ path: item.value }];
-    diagnostics.push(error('FDQL_INVALID_FIELD_MASK', 'Field mask entries must be strings.', line));
+    if (item.kind === 'literal' && typeof item.value === 'string') {
+      return fieldMaskFromSegments(item.value.split('.'), diagnostics, line);
+    }
+    if (item.kind === 'call' && item.name === 'fs.fieldPath') {
+      return fieldMaskFromSegments(
+        readFieldPathSegments(item, diagnostics, line),
+        diagnostics,
+        line,
+      );
+    }
+    diagnostics.push(
+      error(
+        'FDQL_INVALID_FIELD_MASK',
+        'Field mask entries must be strings or fs.fieldPath(...).',
+        line,
+      ),
+    );
     return [];
   });
+}
+
+function readFieldPathSegments(
+  expression: Extract<FdqlExpression, { readonly kind: 'call'; }>,
+  diagnostics: FdqlDiagnostic[],
+  line: number,
+): readonly string[] {
+  if (expression.args.length === 0) {
+    diagnostics.push(
+      error('FDQL_INVALID_FIELD_PATH', 'fs.fieldPath needs at least one segment.', line),
+    );
+    return [];
+  }
+  return expression.args.flatMap((arg) => {
+    if (arg.kind === 'literal' && typeof arg.value === 'string') return [arg.value];
+    diagnostics.push(
+      error('FDQL_INVALID_FIELD_PATH', 'fs.fieldPath segments must be literal strings.', line),
+    );
+    return [];
+  });
+}
+
+function fieldMaskFromSegments(
+  segments: readonly string[],
+  diagnostics: FdqlDiagnostic[],
+  line: number,
+): readonly FdqlFieldMaskField[] {
+  if (segments.length === 0 || segments.some((segment) => segment.length === 0)) {
+    diagnostics.push(
+      error('FDQL_INVALID_FIELD_PATH', 'Field paths need non-empty segments.', line),
+    );
+    return [];
+  }
+  return [{ segments }];
 }
 
 function evaluateAliasValue(
@@ -480,7 +571,8 @@ function isProviderOperand(
 ): expression is Extract<FdqlExpression, { readonly kind: 'call' | 'field'; }> {
   if (!expression) return false;
   if (expression.kind === 'field') return expression.path[0] === rowAlias;
-  return isIdCall(expression, rowAlias);
+  if (expression.kind !== 'call') return false;
+  return isIdCall(expression, rowAlias) || expression.name === 'fs.fieldPath';
 }
 
 function isProviderValueExpression(expression: FdqlExpression | undefined): boolean {

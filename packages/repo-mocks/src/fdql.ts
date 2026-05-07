@@ -11,8 +11,10 @@ import {
   createProviderDialectRegistry,
   evaluateExpression,
   executeFdql,
+  type FdqlAbortSignal,
   type FdqlClearCacheCommandPlan,
   type FdqlExecutionEvent,
+  type FdqlProviderReadControls,
   type FdqlProviderReadRequest,
   type FdqlProviderRow,
   type FdqlProviderRuntimeRegistry,
@@ -43,7 +45,7 @@ import { COLLECTIONS } from './fixtures/index.ts';
 const firestoreDialects = createProviderDialectRegistry([firestoreProviderDialect]);
 
 export function createMockFdqlRepository(): FdqlRepository {
-  const activeRuns = new Map<string, FdqlRunController>();
+  const activeRuns = new Map<string, RunAbortController>();
   const listeners = new Set<FdqlRunEventListener>();
 
   function emit(event: FdqlRunEvent): void {
@@ -58,7 +60,7 @@ export function createMockFdqlRepository(): FdqlRepository {
 
     async run(request): Promise<FdqlRunResult> {
       const startedAt = Date.now();
-      const controller = createFdqlRunController();
+      const controller = createRunAbortController();
       activeRuns.set(request.runId, controller);
       emit({ runId: request.runId, type: 'started' });
 
@@ -159,21 +161,35 @@ function compileOptions(request: FdqlCompileRequest) {
   };
 }
 
-interface FdqlRunController {
-  readonly signal: { readonly aborted: boolean; };
+interface RunAbortController {
+  readonly signal: FdqlAbortSignal;
   abort(): void;
 }
 
-function createFdqlRunController(): FdqlRunController {
+function createRunAbortController(): RunAbortController {
+  const NativeAbortController = (globalThis as unknown as {
+    readonly AbortController?: new() => RunAbortController;
+  }).AbortController;
+  if (NativeAbortController) return new NativeAbortController();
+  const listeners = new Set<() => void>();
   let aborted = false;
   return {
     signal: {
+      addEventListener(_type, listener) {
+        listeners.add(listener);
+      },
       get aborted() {
         return aborted;
       },
+      removeEventListener(_type, listener) {
+        listeners.delete(listener);
+      },
     },
     abort() {
+      if (aborted) return;
       aborted = true;
+      for (const listener of listeners) listener();
+      listeners.clear();
     },
   };
 }
@@ -184,7 +200,7 @@ function runtimeFor(connectionId: string): FdqlProviderRuntimeRegistry {
     dialects: firestoreDialects,
     providers: {
       fs: {
-        async *read(request) {
+        async *read(request, controls) {
           const projectId = stringTarget(request, 'projectId');
           const selectedProject = {
             emu: project,
@@ -202,6 +218,7 @@ function runtimeFor(connectionId: string): FdqlProviderRuntimeRegistry {
             }))
           );
           for (const document of orderDocuments(filtered, request).slice(0, request.maxDocuments)) {
+            if (controlsStopped(controls)) break;
             yield applyFieldMask(document, request);
           }
         },
@@ -296,10 +313,14 @@ function applyFieldMask(
   if (!request.fieldMask) return document;
   const data: Record<string, FdqlValue> = {};
   for (const field of request.fieldMask) {
-    const value = readPath(document.data, field.path);
-    if (!isMissingValue(value)) writePath(data, field.path, value);
+    const value = readPath(document.data, field.segments);
+    if (!isMissingValue(value)) writePath(data, field.segments, value);
   }
   return { ...document, data };
+}
+
+function controlsStopped(controls: FdqlProviderReadControls): boolean {
+  return Boolean(controls.signal?.aborted) || controls.now() >= controls.deadlineAtMs;
 }
 
 function stringTarget(request: FdqlProviderReadRequest, key: string): string {
@@ -307,15 +328,21 @@ function stringTarget(request: FdqlProviderReadRequest, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
-function readPath(source: Readonly<Record<string, FdqlValue>>, path: string): FdqlValue {
-  return path.split('.').reduce<FdqlValue>((value, segment) => {
+function readPath(
+  source: Readonly<Record<string, FdqlValue>>,
+  segments: readonly string[],
+): FdqlValue {
+  return segments.reduce<FdqlValue>((value, segment) => {
     if (value.kind !== 'map') return missingValue;
     return value.value[segment] ?? missingValue;
   }, mapValue(source));
 }
 
-function writePath(target: Record<string, FdqlValue>, path: string, value: FdqlValue): void {
-  const segments = path.split('.');
+function writePath(
+  target: Record<string, FdqlValue>,
+  segments: readonly string[],
+  value: FdqlValue,
+): void {
   let current = target;
   for (const segment of segments.slice(0, -1)) {
     const existing = current[segment];

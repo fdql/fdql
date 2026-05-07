@@ -21,7 +21,7 @@ return fs.id(d) as id, fs.path(d) as path, d.firstName`,
       ok: true,
       plan: {
         provider: {
-          fieldMask: [{ path: 'firstName' }, { path: 'lastName' }],
+          fieldMask: [{ segments: ['firstName'] }, { segments: ['lastName'] }],
           limit: 25,
           orderBy: { direction: 'desc' },
           source: {

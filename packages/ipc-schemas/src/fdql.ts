@@ -5,6 +5,13 @@ export const FDQL_EVENT_CHANNEL = 'fdql.event';
 export const FdqlDiagnosticSchema = z.object({
   code: z.string(),
   column: z.number().optional(),
+  context: z.object({
+    provider: z.string().optional(),
+    rowAlias: z.string().optional(),
+    rowPath: z.string().optional(),
+    source: z.string().optional(),
+    stage: z.string().optional(),
+  }).optional(),
   line: z.number().optional(),
   message: z.string(),
   severity: z.enum(['error', 'warning']),

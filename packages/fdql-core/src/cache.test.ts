@@ -12,7 +12,7 @@ describe('FDQL provider read cache key', () => {
   it('canonicalizes field mask and commutative provider predicates', () => {
     const first = createFdqlProviderReadCacheKey({
       request: request({
-        fieldMask: [{ path: 'name' }, { path: 'id' }],
+        fieldMask: [{ segments: ['name'] }, { segments: ['id'] }],
         predicate: and(
           eq(field('team', 'id'), literal('team_1')),
           eq(field('team', 'name'), literal('Orange')),
@@ -21,7 +21,7 @@ describe('FDQL provider read cache key', () => {
     });
     const second = createFdqlProviderReadCacheKey({
       request: request({
-        fieldMask: [{ path: 'id' }, { path: 'name' }],
+        fieldMask: [{ segments: ['id'] }, { segments: ['name'] }],
         predicate: and(
           eq(field('team', 'name'), literal('Orange')),
           eq(field('team', 'id'), literal('team_1')),
@@ -66,6 +66,17 @@ describe('FDQL provider read cache key', () => {
     expect(second.canonicalJson).not.toBe(first.canonicalJson);
   });
 
+  it('keeps nested and literal dotted field masks distinct', () => {
+    const nested = createFdqlProviderReadCacheKey({
+      request: request({ fieldMask: [{ segments: ['schedule', 'startsAt'] }] }),
+    });
+    const literalMask = createFdqlProviderReadCacheKey({
+      request: request({ fieldMask: [{ segments: ['schedule.startsAt'] }] }),
+    });
+
+    expect(literalMask.canonicalJson).not.toBe(nested.canonicalJson);
+  });
+
   it('ignores parser source ranges in cacheable expressions', () => {
     const first = createFdqlProviderReadCacheKey({
       request: request({
@@ -103,6 +114,7 @@ function request(
       sourceType: 'collection',
       target: target ?? { collection: 'teams', projectId: 'local' },
     },
+    stage: 'lookup',
     ...requestOverrides,
   };
 }

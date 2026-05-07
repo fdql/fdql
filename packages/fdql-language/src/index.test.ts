@@ -19,7 +19,7 @@ describe('FDQL language service', () => {
       expect.arrayContaining(['fs where', 'fs order by', 'fs limit']),
     );
     expect(labels(service.metadata.expressionFunctions)).toEqual(
-      expect.arrayContaining(['timestamp', 'fs.id']),
+      expect.arrayContaining(['timestamp', 'fs.id', 'fs.fieldPath']),
     );
     expect(labels(service.metadata.snippets)).toEqual(
       expect.arrayContaining(['clear cache', 'clear cache provider project']),
@@ -62,7 +62,7 @@ describe('FDQL language service', () => {
       ]),
     );
     expect(completionLabels(service, 'return ', 1, 8)).toEqual(
-      expect.arrayContaining(['timestamp', 'entries', 'fs.id']),
+      expect.arrayContaining(['timestamp', 'entries', 'fs.id', 'fs.fieldPath']),
     );
   });
 

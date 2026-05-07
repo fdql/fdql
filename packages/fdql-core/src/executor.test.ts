@@ -140,6 +140,73 @@ return p.name`,
     expect(events).toContainEqual(expect.objectContaining({ kind: 'cancelled' }));
   });
 
+  it('does not call the provider when cancelled before the read starts', async () => {
+    const result = compileFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+return p.name`,
+      compileOptions,
+    );
+    if (!result.ok) {
+      throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('\n'));
+    }
+    let reads = 0;
+    const events: FdqlExecutionEvent[] = [];
+    const cancelledRuntime: FdqlProviderRuntimeRegistry = {
+      dialects: { mem: testProviderDialect },
+      providers: {
+        mem: {
+          async *read() {
+            reads += 1;
+            yield* [];
+          },
+        },
+      },
+    };
+
+    for await (
+      const event of executeFdql(result.plan, cancelledRuntime, { signal: { aborted: true } })
+    ) {
+      events.push(event);
+    }
+
+    expect(reads).toBe(0);
+    expect(events).toContainEqual(expect.objectContaining({ kind: 'cancelled' }));
+    expect(rows(events)).toEqual([]);
+  });
+
+  it('stops with timeout before and after rows without over-reading output', async () => {
+    const beforeEvents = await run(
+      `set fdql.timeout = 1s
+alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+return p.name`,
+      runtime,
+      { now: sequenceClock([0, 1000]) },
+    );
+
+    expect(rows(beforeEvents)).toEqual([]);
+    expect(completed(beforeEvents)).toMatchObject({ reads: 0, stoppedReason: 'timeout' });
+
+    const afterEvents = await run(
+      `set fdql.timeout = 1s
+alias $people = mem.collection("people")
+from $people as p
+mem limit 2
+return p.name`,
+      runtime,
+      { now: sequenceClock([0, 0, 0, 0, 0, 1000]) },
+    );
+
+    expect(rows(afterEvents)).toEqual([{ name: 'Vini' }]);
+    expect(completed(afterEvents)).toMatchObject({
+      rowsOutput: 1,
+      stoppedReason: 'timeout',
+    });
+  });
+
   it('passes provider limits to the runtime', async () => {
     const requests: unknown[] = [];
     const collectingRuntime: FdqlProviderRuntimeRegistry = {
@@ -725,6 +792,12 @@ return p.name`,
         diagnostic: {
           code: 'FDQL_EXECUTION_FAILED',
           column: 26,
+          context: {
+            provider: 'mem',
+            rowAlias: 'p',
+            source: '$people',
+            stage: 'source',
+          },
           line: 6,
           message: 'Provider rejected lookup value.',
           severity: 'error',
@@ -790,4 +863,9 @@ function completed(events: readonly FdqlExecutionEvent[]) {
     if (event?.kind === 'completed') return event.stats;
   }
   throw new Error('Missing completed event.');
+}
+
+function sequenceClock(values: readonly number[]): () => number {
+  let index = 0;
+  return () => values[Math.min(index++, values.length - 1)] ?? 0;
 }

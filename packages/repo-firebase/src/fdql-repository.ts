@@ -4,10 +4,12 @@ import {
   createProviderDialectRegistry,
   evaluateExpression,
   executeFdql,
+  type FdqlAbortSignal,
   type FdqlClearCacheCommandPlan,
   type FdqlExecutionEvent,
   type FdqlExpression,
   type FdqlPersistentCache,
+  type FdqlProviderReadControls,
   type FdqlProviderReadRequest,
   type FdqlProviderRow,
   type FdqlProviderRuntimeRegistry,
@@ -66,7 +68,7 @@ export function createFirebaseFdqlRepository(
   provider: AdminFirestoreProvider,
   options: FirebaseFdqlRepositoryOptions = {},
 ): FdqlRepository {
-  const activeRuns = new Map<string, FdqlRunController>();
+  const activeRuns = new Map<string, RunAbortController>();
   const listeners = new Set<FdqlRunEventListener>();
 
   function emit(event: FdqlRunEvent): void {
@@ -81,7 +83,7 @@ export function createFirebaseFdqlRepository(
 
     async run(request): Promise<FdqlRunResult> {
       const startedAt = Date.now();
-      const controller = createFdqlRunController();
+      const controller = createRunAbortController();
       activeRuns.set(request.runId, controller);
       emit({ runId: request.runId, type: 'started' });
 
@@ -175,7 +177,7 @@ function createAdminFdqlRuntime(provider: AdminFirestoreProvider): FdqlProviderR
     dialects: firestoreDialects,
     providers: {
       fs: {
-        async *read(request) {
+        async *read(request, controls) {
           const projectId = stringTarget(request, 'projectId');
           const databaseId = optionalStringTarget(request, 'databaseId');
           const { db } = await provider.getFirestoreConnection(projectId, databaseId);
@@ -188,13 +190,15 @@ function createAdminFdqlRuntime(provider: AdminFirestoreProvider): FdqlProviderR
           let readCount = 0;
           let lastDocument: QueryDocumentSnapshot | null = null;
           // oxlint-disable no-await-in-loop -- Each page depends on the previous cursor.
-          while (readCount < request.maxDocuments) {
+          while (readCount < request.maxDocuments && !controlsStopped(controls)) {
             const pageLimit = Math.min(request.pageSize, request.maxDocuments - readCount);
             let pageQuery = query.limit(pageLimit);
             if (lastDocument) pageQuery = pageQuery.startAfter(lastDocument);
-            const snapshot = await pageQuery.get();
+            const snapshot = await raceWithReadControls(pageQuery.get(), controls);
+            if (!snapshot || controlsStopped(controls)) break;
             if (!snapshot.docs.length) break;
             for (const doc of snapshot.docs) {
+              if (controlsStopped(controls)) break;
               readCount += 1;
               lastDocument = doc;
               yield rowFromSnapshot(request, doc);
@@ -224,7 +228,7 @@ function applyProviderQuery(
     );
   }
   if (request.fieldMask) {
-    next = next.select(...request.fieldMask.map((field) => toAdminFieldPath(field.path)));
+    next = next.select(...request.fieldMask.map((field) => toAdminFieldPath(field.segments)));
   }
   return next;
 }
@@ -271,10 +275,48 @@ function filterFromExpression(
 
 function fieldPathFromExpression(expression: FdqlExpression, rowAlias: string): string | FieldPath {
   if (expression.kind === 'call' && expression.name === 'fs.id') return FieldPath.documentId();
+  if (expression.kind === 'call' && expression.name === 'fs.fieldPath') {
+    return toAdminFieldPath(fieldPathSegments(expression));
+  }
   if (expression.kind === 'field') {
     return new FieldPath(...expression.path.slice(expression.path[0] === rowAlias ? 1 : 0));
   }
   return new FieldPath('__unsupported__');
+}
+
+function fieldPathSegments(
+  expression: Extract<FdqlExpression, { readonly kind: 'call'; }>,
+): readonly string[] {
+  return expression.args.flatMap((arg) =>
+    arg.kind === 'literal' && typeof arg.value === 'string' ? [arg.value] : []
+  );
+}
+
+async function raceWithReadControls<T>(
+  promise: Promise<T>,
+  controls: FdqlProviderReadControls,
+): Promise<T | null> {
+  if (controlsStopped(controls)) return null;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let abortListener: (() => void) | undefined;
+  const stopped = new Promise<null>((resolve) => {
+    const remainingMs = Math.max(0, controls.deadlineAtMs - controls.now());
+    timeoutId = setTimeout(() => resolve(null), remainingMs);
+    if (controls.signal?.addEventListener) {
+      abortListener = () => resolve(null);
+      controls.signal.addEventListener('abort', abortListener, { once: true });
+    }
+  });
+  try {
+    return await Promise.race([promise, stopped]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (abortListener) controls.signal?.removeEventListener?.('abort', abortListener);
+  }
+}
+
+function controlsStopped(controls: FdqlProviderReadControls): boolean {
+  return Boolean(controls.signal?.aborted) || controls.now() >= controls.deadlineAtMs;
 }
 
 function stringTarget(request: FdqlProviderReadRequest, key: string): string {
@@ -318,6 +360,7 @@ function valueFor(
         + `Add a local filter before this lookup, for example `
         + `then filter ${expressionLabel(expression)}, or ensure the field exists.`,
       expression,
+      request,
     );
   }
   const adminValue = toAdminValue(db, value);
@@ -325,18 +368,50 @@ function valueFor(
     throw errorForExpression(
       `Firestore filter value could not be encoded for ${expressionLabel(expression)}.`,
       expression,
+      request,
     );
   }
   return adminValue;
 }
 
-function errorForExpression(message: string, expression: FdqlExpression): Error {
-  const error = new Error(message) as Error & { column?: number; line?: number; };
+function errorForExpression(
+  message: string,
+  expression: FdqlExpression,
+  request: FdqlProviderReadRequest,
+): Error {
+  const error = new Error(message) as Error & {
+    column?: number;
+    context?: FdqlDiagnostic['context'];
+    line?: number;
+  };
   if (expression.range) {
     error.column = expression.range.startColumn;
     error.line = expression.range.startLine;
   }
+  error.context = {
+    provider: request.source.provider,
+    rowAlias: request.rowAlias,
+    ...(correlatedRowPath(request) ? { rowPath: correlatedRowPath(request) } : {}),
+    source: request.source.sourceAlias,
+    stage: request.stage,
+  };
   return error;
+}
+
+function correlatedRowPath(request: FdqlProviderReadRequest): string | undefined {
+  if (!request.rows) return undefined;
+  for (const value of Object.values(request.rows)) {
+    if (isProviderRow(value)) return value.path;
+  }
+  return undefined;
+}
+
+function isProviderRow(value: unknown): value is FdqlProviderRow {
+  return value !== null
+    && typeof value === 'object'
+    && 'path' in value
+    && 'provider' in value
+    && 'source' in value;
 }
 
 function expressionLabel(expression: FdqlExpression): string {
@@ -385,21 +460,35 @@ function compileOptions(request: FdqlCompileRequest) {
   };
 }
 
-interface FdqlRunController {
-  readonly signal: { readonly aborted: boolean; };
+interface RunAbortController {
+  readonly signal: FdqlAbortSignal;
   abort(): void;
 }
 
-function createFdqlRunController(): FdqlRunController {
+function createRunAbortController(): RunAbortController {
+  const NativeAbortController = (globalThis as unknown as {
+    readonly AbortController?: new() => RunAbortController;
+  }).AbortController;
+  if (NativeAbortController) return new NativeAbortController();
+  const listeners = new Set<() => void>();
   let aborted = false;
   return {
     signal: {
+      addEventListener(_type, listener) {
+        listeners.add(listener);
+      },
       get aborted() {
         return aborted;
       },
+      removeEventListener(_type, listener) {
+        listeners.delete(listener);
+      },
     },
     abort() {
+      if (aborted) return;
       aborted = true;
+      for (const listener of listeners) listener();
+      listeners.clear();
     },
   };
 }
@@ -507,8 +596,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function toAdminFieldPath(path: string): FieldPath {
-  return new FieldPath(...path.split('.'));
+function toAdminFieldPath(segments: readonly string[]): FieldPath {
+  return new FieldPath(...segments);
 }
 
 function eventToRunEvent(runId: string, event: FdqlExecutionEvent): FdqlRunEvent | null {

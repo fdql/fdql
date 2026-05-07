@@ -68,6 +68,86 @@ return fs.id(o) as id`,
     });
   });
 
+  it('stops pending live reads on cancel without emitting rows', async () => {
+    const query = pendingQuery();
+    const db = {
+      collection: vi.fn(() => query),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+    const events: string[] = [];
+    const unsubscribe = repository.subscribe((event) => events.push(event.type));
+
+    const resultPromise = repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source: `alias $orders = fs.collection("orders", [])
+from $orders as o
+fs limit 1
+return fs.id(o) as id`,
+    });
+
+    await waitUntil(() => query.get.mock.calls.length > 0);
+    await repository.cancel('run_1');
+    const result = await resultPromise;
+    unsubscribe();
+
+    expect(result).toMatchObject({
+      cancelled: true,
+      rows: [],
+      stats: { reads: 0, rowsOutput: 0, rowsScanned: 0, stoppedReason: 'cancelled' },
+    });
+    expect(events).not.toContain('read');
+    expect(events).not.toContain('row');
+  });
+
+  it('stops pending live reads on timeout without emitting rows', async () => {
+    const query = pendingQuery();
+    const db = {
+      collection: vi.fn(() => query),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    const result = await repository.run({
+      connectionId: 'local',
+      execution: { timeoutMs: 1 },
+      runId: 'run_1',
+      source: `alias $orders = fs.collection("orders", [])
+from $orders as o
+fs limit 1
+return fs.id(o) as id`,
+    });
+
+    expect(result).toMatchObject({
+      rows: [],
+      stats: { reads: 0, rowsOutput: 0, rowsScanned: 0, stoppedReason: 'timeout' },
+    });
+  });
+
+  it('uses exact Firestore field path segments for masks and ordering', async () => {
+    const query = fakeQuery([fakeSnapshot('evt_1', 'events/evt_1', {})]);
+    const db = {
+      collection: vi.fn(() => query),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    await repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source:
+        `alias $events = fs.collection("events", ["schedule.startsAt", fs.fieldPath("literal.with.dot")])
+from $events as e
+fs order by fs.fieldPath("literal.with.dot") desc
+fs limit 1
+return fs.id(e) as id`,
+    });
+
+    expect(query.select).toHaveBeenCalledWith(
+      expectFieldPath(['schedule', 'startsAt']),
+      expectFieldPath(['literal.with.dot']),
+    );
+    expect(query.orderBy).toHaveBeenCalledWith(expectFieldPath(['literal.with.dot']), 'desc');
+  });
+
   it('runs correlated lookup reads', async () => {
     const driversQuery = fakeQuery([
       [fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' })],
@@ -279,6 +359,18 @@ function fakeQuery(docsOrPages: readonly unknown[] | readonly (readonly unknown[
   return query;
 }
 
+function pendingQuery() {
+  const query = {
+    get: vi.fn(async () => await new Promise<{ readonly docs: readonly unknown[]; }>(() => {})),
+    limit: vi.fn((_limit: number) => query),
+    orderBy: vi.fn((_field: FieldPath | string, _direction: 'asc' | 'desc') => query),
+    select: vi.fn((..._fields: FieldPath[]) => query),
+    startAfter: vi.fn((_document: unknown) => query),
+    where: vi.fn((_filter: unknown) => query),
+  };
+  return query;
+}
+
 function fakeSnapshot(id: string, path: string, data: Record<string, unknown>) {
   return {
     data: () => data,
@@ -358,4 +450,12 @@ function project(projectId: string): ProjectSummary {
     projectId,
     target: 'emulator',
   };
+}
+
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error('Timed out waiting for condition.');
 }

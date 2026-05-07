@@ -331,13 +331,18 @@ Field masks are part of source creation.
 
 ```sql
 alias $drivers = fs.collection("drivers", ["firstName", "lastName", "steamId"])
+alias $events = fs.collection("events", ["schedule.startsAt", fs.fieldPath("literal.with.dot")])
 alias $metadataOnlyDrivers = fs.collection("drivers", [])
 ```
 
 Rules:
 
-- Field mask entries are strings, so dotted or awkward field paths do not need identifier escaping.
+- String field mask entries use Firestore dotted path semantics, so `"schedule.startsAt"` means nested path `schedule`, then `startsAt`.
+- Use `fs.fieldPath(...)` when segments must be exact.
+- `fs.fieldPath("literal.with.dot")` means one literal segment named `literal.with.dot`.
+- `fs.fieldPath("schedule", "startsAt")` means nested path `schedule`, then `startsAt`.
 - Top-level source alias field masks must be literal arrays.
+- `fs.fieldPath(...)` entries in top-level field masks must use literal string segments.
 - Field masks can include at most 150 fields.
 - Current read implementation does not support dynamic field masks.
 - Planned pipeline source functions may use current row expressions for field masks when those source functions are implemented.
@@ -386,6 +391,7 @@ fs where d.active = true and (d.status = "active" or d.status = "pending")
 fs where d.createdAt >= timestamp("2025-10-01T00:00:00.000Z")
 fs where fs.arrayContains(d.tags, "admin")
 fs where fs.id(d) = $driverId
+fs where fs.fieldPath("literal.with.dot") = "value"
 ```
 
 Rules:
@@ -394,6 +400,7 @@ Rules:
 - `and`, `or`, and parentheses are valid when Firestore can compile the filter.
 - Firestore `or`, `in`, and `arrayContainsAny` limits apply.
 - `fs.id(rowAlias)` inside an `fs` clause means the Firestore document id for that document row binding.
+- `fs.fieldPath(...)` inside an `fs` clause names exact Firestore field path segments.
 - Correlated values are allowed on the value side in lookup stages.
 - Local expressions such as `lower(d.name) = "vini"` are invalid in `fs where`; use `filter`.
 
@@ -401,6 +408,7 @@ Rules:
 
 ```sql
 fs order by d.createdAt desc
+fs order by fs.fieldPath("literal.with.dot") asc
 ```
 
 `fs limit` caps provider reads for the current provider source:
@@ -1238,6 +1246,7 @@ Rules:
 - Failed, cancelled, timed out, budget-stopped, or partial provider reads must not be persisted.
 - Persistent cache size is capped at 256 MB and evicts least-recently-used entries.
 - Cache keys are canonical JSON hashed with SHA-256. Field mask order and provider `and`/`or` predicate order must not create different keys.
+- Cache keys store field paths as normalized segment arrays, so nested `"a.b"` and literal `fs.fieldPath("a.b")` stay distinct.
 - Cache keys include provider, connection/profile context, project, database, source, field mask, provider predicates, provider ordering, provider limit, and correlated lookup values.
 - Cache keys exclude aliases, row alias names, comments, whitespace, page size, read budget, timeout, and local pipeline stages.
 

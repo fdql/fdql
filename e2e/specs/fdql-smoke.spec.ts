@@ -340,6 +340,10 @@ return fs.id(o) as id`,
 
       await page.getByRole('tab', { name: /Issues/ }).click();
       await expect(page.getByText('FDQL_DUPLICATE_STAGE')).toBeVisible();
+      const issueLocation = page.getByRole('button', { name: /Line 5/ });
+      await expect(issueLocation).toBeVisible();
+      await issueLocation.click();
+      await expect(page.locator('.monaco-editor.focused')).toBeVisible();
       await page.getByRole('tab', { name: /Results/ }).click();
       await expect(page.getByText('No rows yet')).toBeVisible();
       await expect(page.getByRole('table')).toHaveCount(0);

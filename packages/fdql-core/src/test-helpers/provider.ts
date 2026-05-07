@@ -83,7 +83,9 @@ function fieldMaskFromExpression(
   if (expression.kind !== 'array') return null;
   return {
     fieldMask: expression.items.flatMap((item) =>
-      item.kind === 'literal' && typeof item.value === 'string' ? [{ path: item.value }] : []
+      item.kind === 'literal' && typeof item.value === 'string'
+        ? [{ segments: item.value.split('.') }]
+        : []
     ),
   };
 }

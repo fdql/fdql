@@ -49,6 +49,27 @@ describe('FDQL IPC schemas', () => {
     ).toBe(false);
   });
 
+  it('accepts diagnostic execution context', () => {
+    expect(
+      FdqlRunEventSchema.safeParse({
+        diagnostic: {
+          code: 'FDQL_EXECUTION_FAILED',
+          context: {
+            provider: 'fs',
+            rowAlias: 'driver',
+            rowPath: 'events/event_24h',
+            source: '$drivers',
+            stage: 'lookup',
+          },
+          message: 'Provider read failed.',
+          severity: 'error',
+        },
+        runId: 'run_1',
+        type: 'diagnostic',
+      }).success,
+    ).toBe(true);
+  });
+
   it('accepts cache clear run results', () => {
     expect(
       FdqlRunResultSchema.safeParse({

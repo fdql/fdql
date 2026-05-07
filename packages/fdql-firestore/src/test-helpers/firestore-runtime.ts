@@ -124,8 +124,8 @@ function applyFieldMask(
   if (!request.fieldMask) return document;
   const data: Record<string, FdqlValue> = {};
   for (const field of request.fieldMask) {
-    const value = readPath(document.data, field.path);
-    if (!isMissingValue(value)) writePath(data, field.path, value);
+    const value = readPath(document.data, field.segments);
+    if (!isMissingValue(value)) writePath(data, field.segments, value);
   }
   return { ...document, data };
 }
@@ -135,15 +135,21 @@ function stringTarget(request: FdqlProviderReadRequest, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
-function readPath(source: Readonly<Record<string, FdqlValue>>, path: string): FdqlValue {
-  return path.split('.').reduce<FdqlValue>((value, segment) => {
+function readPath(
+  source: Readonly<Record<string, FdqlValue>>,
+  segments: readonly string[],
+): FdqlValue {
+  return segments.reduce<FdqlValue>((value, segment) => {
     if (value.kind !== 'map') return missingValue;
     return value.value[segment] ?? missingValue;
   }, mapValue(source));
 }
 
-function writePath(target: Record<string, FdqlValue>, path: string, value: FdqlValue): void {
-  const segments = path.split('.');
+function writePath(
+  target: Record<string, FdqlValue>,
+  segments: readonly string[],
+  value: FdqlValue,
+): void {
   let current = target;
   for (const segment of segments.slice(0, -1)) {
     const existing = current[segment];

@@ -17,7 +17,7 @@ Scope: read features only. Write operations are out of this tracker. This docume
 ## Registered Decisions
 
 - Keep FDQL read-only for the next work. Writes stay out of this tracker.
-- Do read correctness polish before adding broader syntax.
+- Read correctness polish is complete for current read paths: deterministic app-level cancel/timeout stops, diagnostic context, exact Firestore field paths, and issue-click navigation.
 - Add subcollection reads before Firestore aggregate reads.
 - Treat subcollection reads as dynamic provider source expressions, not only top-level aliases, because they depend on the current row.
 - Add provider-native Firestore aggregate reads after subcollections.
@@ -26,11 +26,10 @@ Scope: read features only. Write operations are out of this tracker. This docume
 
 Current priority order:
 
-1. Read correctness polish: cancel/timeout coverage, row/source diagnostics, field-path fidelity, issue-click navigation.
-2. Subcollection reads: `fs.subcollection(parent, name, fields?)` and `fs.subcollections(parent)`.
-3. Firestore native aggregate reads: `lookup aggregate` plus `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max`.
-4. Expression completeness: null/missing predicates, `not in`, `case`, math, and remaining Firestore helpers.
-5. Language/editor follow-up: context-aware completions, field hints, and diagnostics for masked-out fields.
+1. Subcollection reads: `fs.subcollection(parent, name, fields?)` and `fs.subcollections(parent)`.
+2. Firestore native aggregate reads: `lookup aggregate` plus `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max`.
+3. Expression completeness: null/missing predicates, `not in`, `case`, math, and remaining Firestore helpers.
+4. Language/editor follow-up: context-aware completions, field hints, and diagnostics for masked-out fields.
 
 ## Current Read Slice
 
@@ -65,9 +64,9 @@ Current parser/compiler accepts:
 Current Firestore dialect accepts:
 
 - Source functions: `fs.collection(...)`, `fs.collectionGroup(...)`, `fs.project(...)`, `fs.db(...)`.
-- Source field masks as literal string arrays on source alias declarations.
+- Source field masks as literal arrays on source alias declarations. Strings use dotted Firestore paths; `fs.fieldPath(...)` gives exact segments.
 - Settings: `set fs.projectId = "..."`, `set fs.databaseId = "..."`.
-- Value/metadata functions: `fs.id(row)`, `fs.path(row)`, `fs.projectId(row)`, `fs.ref(rowOrPath)`, `fs.arrayContains(field, value)`.
+- Value/metadata functions: `fs.id(row)`, `fs.path(row)`, `fs.projectId(row)`, `fs.ref(rowOrPath)`, `fs.fieldPath(...)`, `fs.arrayContains(field, value)`.
 - Provider predicates with provider field/id on the left. Lookup predicates may reference previous row bindings on the value side.
 
 Current implementation does not parse or execute:
@@ -191,12 +190,12 @@ These block the read implementation from being honest at production scale.
 | -------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Live streaming/pages             | Done    | Live repo uses cursor pages and caps each page by configured page size and remaining read budget/provider limit.                                                     |
 | Read budget in live repo         | Done    | Runtime read requests cap Firestore page reads before docs are fetched.                                                                                              |
-| Cancel in live repo              | Partial | Cancel is observed between pages/rows, but not while a Firestore page request is already in flight.                                                                  |
-| Timeout in live repo             | Partial | Same issue as cancel.                                                                                                                                                |
+| Cancel in live repo              | Done    | App-level cancellation stops output deterministically and ignores late SDK page results. Admin SDK network abort is not guaranteed.                                  |
+| Timeout in live repo             | Done    | Page reads race against deadline and stop output deterministically, preserving partial rows/stats with timeout status.                                               |
 | Cache modes                      | Done    | `off`, `run`, and `persistent` are implemented for lookup reads with TTL, hashed canonical keys, stats, desktop SQLite storage, and `clear cache` command execution. |
 | Output row streaming             | Partial | Read events stream as provider rows arrive, but final row events are emitted after the branch source read and local stages finish.                                   |
 | Provider query validation parity | Partial | Firestore dialect validates simple provider shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.                                                 |
-| Field path fidelity              | Partial | Live field masks split on `.`, so literal dotted field names are not represented yet. Need explicit field-path segment handling.                                     |
+| Field path fidelity              | Done    | Field masks and provider paths carry segment arrays. Strings are nested dotted paths; `fs.fieldPath(...)` preserves literal dotted segments.                         |
 
 ## P1 Spec Features Not Implemented
 
@@ -232,6 +231,7 @@ These block the read implementation from being honest at production scale.
 | `geoPoint(lat, lng)`      | Done    | Core constructor.                                                  |
 | `fs.ref(row)`             | Done    | Firestore document reference provider value.                       |
 | `fs.ref(path)`            | Done    | Firestore document reference provider value constructor.           |
+| `fs.fieldPath(...)`       | Done    | Firestore exact field-path segments for masks, filters, and order. |
 | `fs.parentPath(row)`      | Missing | Metadata function from spec.                                       |
 | `fs.databaseId(row)`      | Missing | Useful with named database reads.                                  |
 
@@ -241,23 +241,22 @@ These block the read implementation from being honest at production scale.
 | ------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Full grammar        | Partial                    | Parser now uses source-located statements, but expression and pipeline grammar still need broader syntax coverage.                         |
 | Source-located AST  | Done                       | Top-level declarations and stages carry source columns/ranges; parser expression diagnostics use source columns.                           |
-| Execution locations | Partial                    | Provider filter execution failures can report expression line/column. Row/source context and issue-click editor navigation remain missing. |
+| Execution locations | Done                       | Execution diagnostics preserve line/column and provider/source/row/stage context; Issues can focus the editor position.                    |
 | Editor language     | Done                       | FDQL has a reusable language service plus Monaco language id, highlighting, bracket/comment rules, completions, and diagnostics.           |
 | FDQL type model     | Done                       | Core/runtime values are tagged internally and encoded at output.                                                                           |
 | Provider adapters   | Partial                    | Firestore values normalize/encode in provider repos; core FDQL has no Firestore-shaped runtime API.                                        |
 | Type inference      | Missing                    | Compiler does not infer expression, stage, or result column types.                                                                         |
 | Row-shape analysis  | Missing                    | Unknown fields are runtime missing values; compiler does not prove row shape.                                                              |
 | Lineage UI          | Partial                    | Events carry provider-neutral row lineage, but UI does not expose source exploration.                                                      |
-| More E2E            | Partial                    | Covers main read paths plus nested map/array lookup cache. Still needs deterministic cancel/timeout and named DB coverage.                 |
+| More E2E            | Partial                    | Covers main read paths plus nested map/array lookup cache, field-path fidelity, and issue-click navigation. Still needs named DB coverage. |
 | Generated scripts   | Not planned for current UI | Spec mentions generated scripts, but current product slice intentionally has no JS snippet panel. Revisit before implementing.             |
 
 ## Suggested Next Order
 
-1. Add deterministic cancel/timeout coverage.
-2. Add row/source context to execution diagnostics.
-3. Fix field-path fidelity for field masks and provider paths.
-4. Add issue-click editor navigation.
-5. Add subcollection reads.
-6. Add Firestore native aggregate reads.
-7. Add expression completeness.
-8. Add context-aware editor/language polish.
+1. Add subcollection reads.
+2. Add Firestore native aggregate reads.
+3. Complete common read expressions.
+4. Improve context-aware editor assistance.
+5. Add Firestore native aggregate reads.
+6. Add expression completeness.
+7. Add context-aware editor/language polish.

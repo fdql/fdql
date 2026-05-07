@@ -1,9 +1,18 @@
 export interface FdqlDiagnostic {
   readonly code: string;
   readonly column?: number | undefined;
+  readonly context?: FdqlDiagnosticContext | undefined;
   readonly line?: number | undefined;
   readonly message: string;
   readonly severity: 'error' | 'warning';
+}
+
+export interface FdqlDiagnosticContext {
+  readonly provider?: string | undefined;
+  readonly rowAlias?: string | undefined;
+  readonly rowPath?: string | undefined;
+  readonly source?: string | undefined;
+  readonly stage?: string | undefined;
 }
 
 export interface FdqlStats {

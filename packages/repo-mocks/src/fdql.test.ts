@@ -25,6 +25,21 @@ return fs.id(o) as id, o.status`,
     );
   });
 
+  it('applies nested field mask segments like the live repository', async () => {
+    const repo = createMockFdqlRepository();
+
+    const result = await repo.run({
+      connectionId: 'mock',
+      runId: 'run_1',
+      source: `alias $orders = fs.collection("orders", ["metadata.fraudScore"])
+from $orders as o
+fs where fs.id(o) = "ord_1024"
+return o.metadata.fraudScore as fraudScore, o.status`,
+    });
+
+    expect(result.rows).toEqual([{ fraudScore: 0.02 }]);
+  });
+
   it('runs cache clear commands as successful no-ops', async () => {
     const repo = createMockFdqlRepository();
 

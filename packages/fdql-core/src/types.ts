@@ -5,9 +5,18 @@ import type { FdqlValue } from './value.ts';
 export interface FdqlDiagnostic {
   readonly code: string;
   readonly column?: number | undefined;
+  readonly context?: FdqlDiagnosticContext | undefined;
   readonly line?: number | undefined;
   readonly message: string;
   readonly severity: 'error' | 'warning';
+}
+
+export interface FdqlDiagnosticContext {
+  readonly provider?: string | undefined;
+  readonly rowAlias?: string | undefined;
+  readonly rowPath?: string | undefined;
+  readonly source?: string | undefined;
+  readonly stage?: string | undefined;
 }
 
 export interface FdqlSourceRange {
@@ -332,7 +341,7 @@ export interface FdqlProviderSource {
 }
 
 export interface FdqlFieldMaskField {
-  readonly path: string;
+  readonly segments: readonly string[];
 }
 
 export interface FdqlProviderOrderByClause {
@@ -417,6 +426,7 @@ export interface FdqlProviderReadRequest {
   readonly rowAlias: string;
   readonly rows?: EvalRows | undefined;
   readonly source: FdqlProviderSource;
+  readonly stage: 'lookup' | 'source';
 }
 
 export interface FdqlExecutionOptions {
@@ -428,6 +438,20 @@ export interface FdqlExecutionOptions {
 
 export interface FdqlAbortSignal {
   readonly aborted: boolean;
+  addEventListener?:
+    | ((
+      type: 'abort',
+      listener: () => void,
+      options?: { readonly once?: boolean; } | undefined,
+    ) => void)
+    | undefined;
+  removeEventListener?: ((type: 'abort', listener: () => void) => void) | undefined;
+}
+
+export interface FdqlProviderReadControls {
+  readonly deadlineAtMs: number;
+  readonly now: () => number;
+  readonly signal?: FdqlAbortSignal | undefined;
 }
 
 export type FdqlStopReason = 'budget' | 'cancelled' | 'completed' | 'timeout';

@@ -27,7 +27,7 @@ describe('Firestore FDQL dialect', () => {
 
     expect(diagnostics).toEqual([]);
     expect(source).toMatchObject({
-      fieldMask: [{ path: 'firstName' }, { path: 'teamId' }],
+      fieldMask: [{ segments: ['firstName'] }, { segments: ['teamId'] }],
       kind: 'source',
       source: {
         provider: 'fs',
@@ -35,6 +35,31 @@ describe('Firestore FDQL dialect', () => {
         sourceType: 'collection',
         target: { collectionPath: 'drivers', projectId: 'local' },
       },
+    });
+  });
+
+  it('resolves string and explicit Firestore field path masks', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    const source = firestoreProviderDialect.resolveSourceAlias({
+      aliases: {},
+      declaration: aliasDeclaration(
+        '$events',
+        call(
+          'fs.collection',
+          literal('events'),
+          array(literal('schedule.startsAt'), call('fs.fieldPath', literal('literal.with.dot'))),
+        ),
+      ),
+      defaultProviderContext,
+      diagnostics,
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(source).toMatchObject({
+      fieldMask: [
+        { segments: ['schedule', 'startsAt'] },
+        { segments: ['literal.with.dot'] },
+      ],
     });
   });
 
@@ -155,6 +180,12 @@ describe('Firestore FDQL dialect', () => {
       line: 5,
       rowAlias: 'd',
     });
+    firestoreProviderDialect.validateOrderBy({
+      diagnostics,
+      expression: call('fs.fieldPath', literal('literal.with.dot')),
+      line: 6,
+      rowAlias: 'd',
+    });
 
     expect(diagnostics).toEqual([]);
     expect(
@@ -251,6 +282,19 @@ describe('Firestore FDQL dialect', () => {
         name: 'fs.path',
       }),
     ).toEqual(stringValue('drivers/drv_1'));
+    expect(
+      firestoreProviderDialect.evaluateCall?.({
+        args: [literal('literal.with.dot')],
+        context,
+        evaluate,
+        name: 'fs.fieldPath',
+      }),
+    ).toMatchObject({
+      display: 'literal.with.dot',
+      kind: 'providerValue',
+      provider: 'fs',
+      valueType: 'fieldPath',
+    });
     expect(
       firestoreProviderDialect.evaluateCall?.({
         args: [field('d')],

@@ -76,6 +76,22 @@ export function FdqlSurface(
     ...(compileResult?.diagnostics ?? []),
     ...(result?.diagnostics ?? []),
   ];
+  const [issueCursorTarget, setIssueCursorTarget] = useState<
+    {
+      readonly column: number;
+      readonly key: number;
+      readonly line: number;
+    } | null
+  >(null);
+
+  function revealIssue(diagnostic: FdqlDiagnostic) {
+    if (!diagnostic.line) return;
+    setIssueCursorTarget((current) => ({
+      column: diagnostic.column ?? 1,
+      key: (current?.key ?? 0) + 1,
+      line: diagnostic.line!,
+    }));
+  }
 
   return (
     <div className='h-full min-h-0 overflow-hidden p-2'>
@@ -112,6 +128,7 @@ export function FdqlSurface(
               <CodeEditor
                 language={FDQL_LANGUAGE_ID}
                 readOnly={isRunning}
+                revealCursorTarget={issueCursorTarget}
                 value={source}
                 onChange={onSourceChange}
               />
@@ -125,6 +142,7 @@ export function FdqlSurface(
             diagnostics={diagnostics}
             durationMs={result?.durationMs ?? 0}
             isRunning={isRunning}
+            onIssueClick={revealIssue}
             rows={rows}
             runId={runId}
             stats={result?.stats ?? null}
@@ -136,11 +154,12 @@ export function FdqlSurface(
 }
 
 function FdqlOutputPanel(
-  { command, diagnostics, durationMs, isRunning, rows, runId, stats }: {
+  { command, diagnostics, durationMs, isRunning, onIssueClick, rows, runId, stats }: {
     readonly command: FdqlRunCommandResult | null;
     readonly diagnostics: readonly FdqlDiagnostic[];
     readonly durationMs: number;
     readonly isRunning: boolean;
+    readonly onIssueClick: (diagnostic: FdqlDiagnostic) => void;
     readonly rows: readonly Record<string, unknown>[];
     readonly runId: string | null;
     readonly stats: FdqlStats | null;
@@ -187,7 +206,7 @@ function FdqlOutputPanel(
           />
         </TabsContent>
         <TabsContent className='min-h-0 overflow-hidden' value='issues'>
-          <IssuesView diagnostics={diagnostics} />
+          <IssuesView diagnostics={diagnostics} onIssueClick={onIssueClick} />
         </TabsContent>
       </Panel>
     </Tabs>
@@ -370,7 +389,12 @@ function ResultsView(
   );
 }
 
-function IssuesView({ diagnostics }: { readonly diagnostics: readonly FdqlDiagnostic[]; }) {
+function IssuesView(
+  { diagnostics, onIssueClick }: {
+    readonly diagnostics: readonly FdqlDiagnostic[];
+    readonly onIssueClick: (diagnostic: FdqlDiagnostic) => void;
+  },
+) {
   return (
     <PanelBody className='h-full min-h-0 select-text space-y-2 overflow-auto text-xs'>
       {diagnostics.length === 0
@@ -382,17 +406,36 @@ function IssuesView({ diagnostics }: { readonly diagnostics: readonly FdqlDiagno
             </Badge>
             {diagnostic.line
               ? (
-                <p className='text-text-muted'>
+                <button
+                  className='block text-left text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus'
+                  type='button'
+                  onClick={() => onIssueClick(diagnostic)}
+                >
                   Line {diagnostic.line}
                   {diagnostic.column ? `, column ${diagnostic.column}` : ''}
-                </p>
+                </button>
               )
+              : null}
+            {diagnostic.context
+              ? <p className='break-words text-text-muted'>{diagnosticContextLabel(diagnostic)}</p>
               : null}
             <p className='break-words text-text-secondary'>{diagnostic.message}</p>
           </div>
         ))}
     </PanelBody>
   );
+}
+
+function diagnosticContextLabel(diagnostic: FdqlDiagnostic): string {
+  const context = diagnostic.context;
+  if (!context) return '';
+  return [
+    context.provider ? `provider ${context.provider}` : null,
+    context.source ? `source ${context.source}` : null,
+    context.stage ? `stage ${context.stage}` : null,
+    context.rowAlias ? `row ${context.rowAlias}` : null,
+    context.rowPath ? `path ${context.rowPath}` : null,
+  ].filter(Boolean).join(' · ');
 }
 
 function resultColumns(rows: readonly Record<string, unknown>[]): readonly string[] {

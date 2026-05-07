@@ -54,11 +54,14 @@ export function stableStringify(value: unknown): string {
 
 function normalizedFieldMask(
   request: FdqlProviderReadRequest,
-): { readonly kind: 'fields'; readonly paths: readonly string[]; } | { readonly kind: 'full'; } {
+):
+  | { readonly fields: readonly (readonly string[])[]; readonly kind: 'fields'; }
+  | { readonly kind: 'full'; }
+{
   if (!request.fieldMask) return { kind: 'full' };
   return {
+    fields: sortedUniqueSegments(request.fieldMask.map((field) => field.segments)),
     kind: 'fields',
-    paths: sortedUnique(request.fieldMask.map((field) => field.path)),
   };
 }
 
@@ -252,8 +255,11 @@ function sortedKeys(value: Record<string, unknown>): readonly string[] {
   return sortBy(Object.keys(value), (key) => key);
 }
 
-function sortedUnique(values: readonly string[]): readonly string[] {
-  return sortBy([...new Set(values)], (value) => value);
+function sortedUniqueSegments(
+  values: readonly (readonly string[])[],
+): readonly (readonly string[])[] {
+  const unique = new Map(values.map((value) => [stableStringify(value), value]));
+  return sortBy([...unique.values()], stableStringify);
 }
 
 function sortBy<Value>(values: readonly Value[], keyFor: (value: Value) => string): Value[] {

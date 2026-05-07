@@ -4,6 +4,10 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FdqlSurface } from './FdqlSurface.tsx';
 
+const codeEditorProbe = vi.hoisted(() => ({
+  revealTargets: [] as unknown[],
+}));
+
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: (
     { count, estimateSize }: {
@@ -27,21 +31,25 @@ vi.mock('@tanstack/react-virtual', () => ({
 
 vi.mock('../../code-editor/CodeEditor.tsx', () => ({
   CodeEditor: (
-    { language, onChange, readOnly, value }: {
+    { language, onChange, readOnly, revealCursorTarget, value }: {
       readonly language: string;
       readonly onChange?: (value: string) => void;
       readonly readOnly?: boolean;
+      readonly revealCursorTarget?: unknown;
       readonly value: string;
     },
-  ) => (
-    <textarea
-      aria-label='FDQL source'
-      data-language={language}
-      readOnly={readOnly}
-      value={value}
-      onChange={(event) => onChange?.(event.currentTarget.value)}
-    />
-  ),
+  ) => {
+    if (revealCursorTarget) codeEditorProbe.revealTargets.push(revealCursorTarget);
+    return (
+      <textarea
+        aria-label='FDQL source'
+        data-language={language}
+        readOnly={readOnly}
+        value={value}
+        onChange={(event) => onChange?.(event.currentTarget.value)}
+      />
+    );
+  },
 }));
 
 const startsAtIso = '2026-05-05T10:27:00.000Z';
@@ -75,6 +83,7 @@ const result: FdqlRunResult = {
 
 describe('FdqlSurface', () => {
   beforeEach(() => {
+    codeEditorProbe.revealTargets = [];
     vi.stubGlobal(
       'matchMedia',
       vi.fn(() => ({
@@ -227,6 +236,13 @@ describe('FdqlSurface', () => {
           diagnostics: [{
             column: 18,
             code: 'FDQL_EXECUTION_FAILED',
+            context: {
+              provider: 'fs',
+              rowAlias: 'driver',
+              rowPath: 'events/event_24h',
+              source: '$drivers',
+              stage: 'lookup',
+            },
             line: 9,
             message: 'Firestore filter value resolved to missing for eDriver.steamId.',
             severity: 'error',
@@ -250,8 +266,21 @@ describe('FdqlSurface', () => {
     const message = screen.getByText(
       'Firestore filter value resolved to missing for eDriver.steamId.',
     );
-    expect(screen.getByText('Line 9, column 18')).toBeTruthy();
+    const location = screen.getByRole('button', { name: 'Line 9, column 18' });
+    expect(location).toBeTruthy();
+    expect(
+      screen.getByText(
+        'provider fs · source $drivers · stage lookup · row driver · path events/event_24h',
+      ),
+    ).toBeTruthy();
     expect(message.closest('.select-text')).toBeTruthy();
+
+    fireEvent.click(location);
+
+    expect(codeEditorProbe.revealTargets.at(-1)).toMatchObject({
+      column: 18,
+      line: 9,
+    });
   });
 });
 

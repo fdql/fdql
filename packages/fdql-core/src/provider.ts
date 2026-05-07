@@ -4,6 +4,7 @@ import type {
   FdqlDiagnostic,
   FdqlExpression,
   FdqlFieldMaskField,
+  FdqlProviderReadControls,
   FdqlProviderReadRequest,
   FdqlProviderRow,
   FdqlProviderSource,
@@ -123,7 +124,10 @@ export interface FdqlProviderDialect {
 export type FdqlProviderDialectRegistry = Readonly<Record<string, FdqlProviderDialect>>;
 
 export interface FdqlProviderRuntime {
-  readonly read: (request: FdqlProviderReadRequest) => AsyncIterable<FdqlProviderRow>;
+  readonly read: (
+    request: FdqlProviderReadRequest,
+    controls: FdqlProviderReadControls,
+  ) => AsyncIterable<FdqlProviderRow>;
 }
 
 export interface FdqlProviderRuntimeRegistry {

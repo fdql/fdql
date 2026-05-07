@@ -11,12 +11,15 @@ const monacoMock = vi.hoisted(() => ({
   editorContentListener: null as (() => void) | null,
   editorLanguage: 'json',
   editorValue: '',
+  focusEditor: vi.fn(),
   javascriptContribution: vi.fn(),
   javascriptAddExtraLib: vi.fn(() => ({ dispose: vi.fn() })),
   loaderConfig: vi.fn(),
   modifiedValue: '',
   registerCompletionItemProvider: vi.fn(() => ({ dispose: vi.fn() })),
   registerLanguage: vi.fn(),
+  revealPositionInCenter: vi.fn(),
+  setEditorPosition: vi.fn(),
   setLanguageConfiguration: vi.fn(),
   setModelMarkers: vi.fn(),
   setMonarchTokensProvider: vi.fn(),
@@ -89,6 +92,7 @@ vi.mock('@monaco-editor/react', async () => {
         monacoMock.editorValue = value;
         beforeMount?.(monacoApiMock);
         onMount?.({
+          focus: monacoMock.focusEditor,
           getModel: () => ({
             getLanguageId: () => monacoMock.editorLanguage,
             getValue: () => monacoMock.editorValue,
@@ -104,6 +108,8 @@ vi.mock('@monaco-editor/react', async () => {
               },
             };
           },
+          revealPositionInCenter: monacoMock.revealPositionInCenter,
+          setPosition: monacoMock.setEditorPosition,
         } as unknown as MonacoEditorTypes.IStandaloneCodeEditor, monacoApiMock);
       }, [beforeMount, language, onMount, value]);
       return (
@@ -315,6 +321,36 @@ return fs.id(o) as id`;
       </AppearanceProvider>,
     );
     expect(await screen.findByLabelText('Document JSON')).toBeTruthy();
+  });
+
+  it('reveals requested cursor targets in Monaco', async () => {
+    const settings = new MockSettingsRepository();
+    const { rerender } = render(
+      <AppearanceProvider settings={settings}>
+        <CodeEditor
+          language={FDQL_LANGUAGE_ID}
+          revealCursorTarget={{ column: 4, key: 1, line: 3 }}
+          value='return *'
+        />
+      </AppearanceProvider>,
+    );
+    await screen.findByTestId('monaco');
+
+    expect(monacoMock.focusEditor).toHaveBeenCalled();
+    expect(monacoMock.revealPositionInCenter).toHaveBeenCalledWith({ column: 4, lineNumber: 3 });
+    expect(monacoMock.setEditorPosition).toHaveBeenCalledWith({ column: 4, lineNumber: 3 });
+
+    rerender(
+      <AppearanceProvider settings={settings}>
+        <CodeEditor
+          language={FDQL_LANGUAGE_ID}
+          revealCursorTarget={{ column: 2, key: 2, line: 5 }}
+          value='return *'
+        />
+      </AppearanceProvider>,
+    );
+
+    expect(monacoMock.setEditorPosition).toHaveBeenLastCalledWith({ column: 2, lineNumber: 5 });
   });
 
   it('calls the latest diff change handler after rerender', async () => {

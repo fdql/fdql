@@ -21,6 +21,12 @@ export interface CodeEditorExtraLib {
   readonly filePath: string;
 }
 
+export interface CodeEditorCursorTarget {
+  readonly column: number;
+  readonly key: number | string;
+  readonly line: number;
+}
+
 const MonacoEditor = lazy(async () => {
   const module = await loadMonacoReact();
   return { default: module.default };
@@ -38,6 +44,7 @@ export interface CodeEditorProps {
   readonly language: string;
   readonly onChange?: (value: string) => void;
   readonly readOnly?: boolean;
+  readonly revealCursorTarget?: CodeEditorCursorTarget | null | undefined;
   readonly value: string;
 }
 
@@ -49,11 +56,13 @@ export function CodeEditor(
     language,
     onChange,
     readOnly = false,
+    revealCursorTarget = null,
     value,
   }: CodeEditorProps,
 ) {
   const { resolvedTheme } = useAppearance();
   const diagnosticsSubscription = useRef<{ dispose(): void; } | null>(null);
+  const editorRef = useRef<MonacoEditorTypes.IStandaloneCodeEditor | null>(null);
   const options: MonacoEditorTypes.IStandaloneEditorConstructionOptions = {
     minimap: { enabled: false },
     readOnly,
@@ -61,6 +70,18 @@ export function CodeEditor(
   if (ariaLabel) options.ariaLabel = ariaLabel;
 
   useEffect(() => () => diagnosticsSubscription.current?.dispose(), []);
+  useEffect(() => {
+    if (!revealCursorTarget) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+    const position = {
+      column: revealCursorTarget.column,
+      lineNumber: revealCursorTarget.line,
+    };
+    editor.focus();
+    editor.revealPositionInCenter(position);
+    editor.setPosition(position);
+  }, [revealCursorTarget]);
 
   return (
     <Suspense fallback={<div role='status'>Loading editor</div>}>
@@ -77,6 +98,7 @@ export function CodeEditor(
         value={value}
         onChange={(nextValue) => onChange?.(nextValue ?? '')}
         onMount={(editor, monaco) => {
+          editorRef.current = editor;
           diagnosticsSubscription.current?.dispose();
           diagnosticsSubscription.current = language === FDQL_LANGUAGE_ID
             ? attachFdqlDiagnostics(monaco, editor)
