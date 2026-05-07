@@ -85,6 +85,61 @@ describe('hotkeys', () => {
     expect(onGlobal).not.toHaveBeenCalled();
     expect(onAllowed).toHaveBeenCalledWith(event);
   });
+
+  it('suppresses global hotkeys when focus is inside an editor wrapper', () => {
+    const onGlobal = vi.fn();
+    render(<HotkeyProbe id='tree.focusFilter' onFire={onGlobal} />);
+
+    const editor = document.createElement('div');
+    editor.className = 'monaco-editor';
+    const target = document.createElement('div');
+    editor.append(target);
+    document.body.append(editor);
+
+    const globalCallback = tanstackHotkeys.useHotkey.mock.calls[0]?.[1] as HotkeyCallback;
+    const event = {
+      target,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    globalCallback(event);
+
+    expect(onGlobal).not.toHaveBeenCalled();
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopPropagation).not.toHaveBeenCalled();
+    editor.remove();
+  });
+
+  it('suppresses global hotkeys when an editable element has focus', () => {
+    const onGlobal = vi.fn();
+    render(<HotkeyProbe id='tree.focusFilter' onFire={onGlobal} />);
+
+    const input = document.createElement('textarea');
+    document.body.append(input);
+    input.focus();
+
+    const globalCallback = tanstackHotkeys.useHotkey.mock.calls[0]?.[1] as HotkeyCallback;
+    const event = {
+      target: document.body,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    globalCallback(event);
+
+    expect(onGlobal).not.toHaveBeenCalled();
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(event.stopPropagation).not.toHaveBeenCalled();
+    input.remove();
+  });
+
+  it('lets callers decide when to prevent default behavior', () => {
+    render(<HotkeyProbe id='tree.focusFilter' onFire={vi.fn()} />);
+
+    expect(tanstackHotkeys.useHotkey.mock.calls[0]?.[2]).toEqual({
+      preventDefault: false,
+      stopPropagation: false,
+    });
+  });
 });
 
 type HotkeyCallback = (event: KeyboardEvent) => void;
