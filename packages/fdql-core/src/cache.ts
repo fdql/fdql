@@ -143,6 +143,12 @@ function normalizedExpression(
       value: stableValue(evaluateCorrelatedExpression(expression, input)),
     };
   }
+  if (expression.kind === 'literal') {
+    return { kind: 'literal', value: expression.value };
+  }
+  if (expression.kind === 'wildcard') {
+    return { kind: 'wildcard' };
+  }
   return expression;
 }
 

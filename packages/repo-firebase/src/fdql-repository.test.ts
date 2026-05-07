@@ -100,6 +100,41 @@ return fs.id(d) as id, team.name as teamName`,
     });
   });
 
+  it('reports missing correlated lookup values before Firestore receives them', async () => {
+    const driversQuery = fakeQuery([
+      fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini' }),
+    ]);
+    const teamsQuery = fakeQuery([]);
+    const db = {
+      collection: vi.fn((path: string) => path === 'drivers' ? driversQuery : teamsQuery),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    const result = await repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source: `alias $drivers = fs.collection("drivers", ["firstName"])
+alias $teams = fs.collection("teams", ["name"])
+from $drivers as d
+fs limit 1
+then lookup one $teams as team
+  fs where fs.id(team) = d.teamId
+return fs.id(d) as id, team.name as teamName`,
+    });
+
+    expect(teamsQuery.where).not.toHaveBeenCalled();
+    expect(result.rows).toEqual([]);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        column: 26,
+        code: 'FDQL_EXECUTION_FAILED',
+        line: 6,
+        message: expect.stringContaining('d.teamId'),
+      }),
+    );
+    expect(result.diagnostics[0]?.message).toContain('then filter d.teamId');
+  });
+
   it('dedupes repeated correlated lookup reads with lookup-local run cache', async () => {
     const driversQuery = fakeQuery([
       fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' }),

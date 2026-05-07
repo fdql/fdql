@@ -167,6 +167,40 @@ describe('FdqlSurface', () => {
     expect(screen.getByText('completed')).toBeTruthy();
     expect(screen.queryByRole('columnheader', { name: 'version' })).toBeNull();
   });
+
+  it('shows selectable issue messages', () => {
+    render(
+      <FdqlSurface
+        result={{
+          diagnostics: [{
+            column: 18,
+            code: 'FDQL_EXECUTION_FAILED',
+            line: 9,
+            message: 'Firestore filter value resolved to missing for eDriver.steamId.',
+            severity: 'error',
+          }],
+          durationMs: 15,
+          rows: [],
+          stats: null,
+        }}
+        source='return *'
+        onCancel={() => undefined}
+        onRun={() => undefined}
+        onSourceChange={() => undefined}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /Issues/ }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    const message = screen.getByText(
+      'Firestore filter value resolved to missing for eDriver.steamId.',
+    );
+    expect(screen.getByText('Line 9, column 18')).toBeTruthy();
+    expect(message.closest('.select-text')).toBeTruthy();
+  });
 });
 
 function expectedLocalTimestamp(iso: string): string {

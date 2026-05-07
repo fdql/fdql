@@ -192,6 +192,22 @@ return d.profileUrl`);
     });
   });
 
+  it('source-locates expressions', () => {
+    const result = parseFdql(`alias $drivers = mem.collection("drivers")
+from $drivers as d
+  mem where d.active = d.status
+return d.firstName`);
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    const where = pipelineAst(result).stages.find((stage) => stage.kind === 'providerWhere');
+    expect(where).toMatchObject({
+      expression: {
+        range: { endColumn: 32, endLine: 3, startColumn: 13, startLine: 3 },
+        right: { range: { endColumn: 32, endLine: 3, startColumn: 24, startLine: 3 } },
+      },
+    });
+  });
+
   it('reports absolute expression diagnostic columns', () => {
     const result = parseFdql(`alias $drivers = mem.collection("drivers")
 from $drivers as d

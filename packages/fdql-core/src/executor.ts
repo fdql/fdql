@@ -81,14 +81,23 @@ export async function* executeFdql(
     yield { kind: 'completed', stats: freezeStats(stats) };
   } catch (error) {
     yield {
-      diagnostic: {
-        code: 'FDQL_EXECUTION_FAILED',
-        message: error instanceof Error ? error.message : String(error),
-        severity: 'error',
-      },
+      diagnostic: diagnosticFromError(error),
       kind: 'failed',
     };
   }
+}
+
+function diagnosticFromError(error: unknown): FdqlDiagnostic {
+  const location: { readonly column?: unknown; readonly line?: unknown; } = error instanceof Error
+    ? error as Error & { readonly column?: unknown; readonly line?: unknown; }
+    : {};
+  return {
+    code: 'FDQL_EXECUTION_FAILED',
+    ...(typeof location.column === 'number' ? { column: location.column } : {}),
+    ...(typeof location.line === 'number' ? { line: location.line } : {}),
+    message: error instanceof Error ? error.message : String(error),
+    severity: 'error',
+  };
 }
 
 async function* executeReadBranch(

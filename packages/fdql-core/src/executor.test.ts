@@ -556,6 +556,47 @@ return mem.id(p) as id`,
       }),
     );
   });
+
+  it('preserves execution error source locations in failed diagnostics', async () => {
+    const executionError = new Error('Provider rejected lookup value.') as Error & {
+      column: number;
+      line: number;
+    };
+    executionError.line = 6;
+    executionError.column = 26;
+
+    const events = await run(
+      `alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+return p.name`,
+      {
+        dialects: { mem: testProviderDialect },
+        providers: {
+          mem: {
+            async *read() {
+              const emptyProviderRows: readonly FdqlProviderRow[] = [];
+              for (const providerRow of emptyProviderRows) yield providerRow;
+              throw executionError;
+            },
+          },
+        },
+      },
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        diagnostic: {
+          code: 'FDQL_EXECUTION_FAILED',
+          column: 26,
+          line: 6,
+          message: 'Provider rejected lookup value.',
+          severity: 'error',
+        },
+        kind: 'failed',
+      }),
+    );
+  });
 });
 
 async function run(

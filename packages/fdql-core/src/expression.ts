@@ -5,6 +5,7 @@ import type {
   FdqlDiagnostic,
   FdqlExpression,
   FdqlMapEntry,
+  FdqlSourceRange,
 } from './types.ts';
 
 const WhiteSpace = createToken({ name: 'WhiteSpace', pattern: /\s+/, group: Lexer.SKIPPED });
@@ -182,11 +183,15 @@ function createExpressionParser(
   }
 
   function parseUnary(): FdqlExpression | undefined {
-    if (matchIdentifier('not')) {
+    const token = peek();
+    if (token && isToken(token, Identifier) && token.image.toLowerCase() === 'not') {
+      consume();
+      const expression = parseUnary() ?? literalExpression(null);
       return {
-        expression: parseUnary() ?? literalExpression(null),
+        expression,
         kind: 'unary',
         operator: 'not',
+        ...rangeProp(spanRange(tokenRange(token), expression.range)),
       };
     }
     return parsePrimary();
@@ -200,25 +205,34 @@ function createExpressionParser(
     }
     if (isToken(token, NumberLiteral)) {
       consume();
-      return literalExpression(Number(token.image));
+      return literalExpression(Number(token.image), tokenRange(token));
     }
     if (isToken(token, StringLiteral)) {
       consume();
-      return literalExpression(parseStringToken(token.image));
+      return literalExpression(parseStringToken(token.image), tokenRange(token));
     }
     if (isToken(token, DollarIdentifier)) {
       consume();
-      return { kind: 'alias', name: token.image };
+      return { kind: 'alias', name: token.image, ...rangeProp(tokenRange(token)) };
     }
-    if (matchIdentifier('true')) return literalExpression(true);
-    if (matchIdentifier('false')) return literalExpression(false);
-    if (matchIdentifier('null')) return literalExpression(null);
+    if (isIdentifierToken(token, 'true')) {
+      consume();
+      return literalExpression(true, tokenRange(token));
+    }
+    if (isIdentifierToken(token, 'false')) {
+      consume();
+      return literalExpression(false, tokenRange(token));
+    }
+    if (isIdentifierToken(token, 'null')) {
+      consume();
+      return literalExpression(null, tokenRange(token));
+    }
     if (isToken(token, LParen)) return parseParenthesized();
     if (isToken(token, LBracket)) return parseArray();
     if (isToken(token, LBrace)) return parseMap();
     if (isToken(token, Star)) {
       consume();
-      return { kind: 'wildcard' };
+      return { kind: 'wildcard', ...rangeProp(tokenRange(token)) };
     }
     if (isToken(token, Identifier)) return parseIdentifierExpression();
     fail(`Unexpected token ${token.image}.`, token);
@@ -227,7 +241,7 @@ function createExpressionParser(
   }
 
   function parseParenthesized(): FdqlExpression | undefined {
-    consumeExpected(LParen);
+    const start = consumeExpected(LParen);
     const items: FdqlExpression[] = [];
     if (!isToken(peek(), RParen)) {
       do {
@@ -235,13 +249,13 @@ function createExpressionParser(
         if (item) items.push(item);
       } while (match(Comma));
     }
-    consumeExpected(RParen);
+    const end = consumeExpected(RParen);
     if (items.length === 1) return items[0];
-    return { items, kind: 'array' };
+    return { items, kind: 'array', ...rangeProp(tokenRange(start, end)) };
   }
 
   function parseArray(): FdqlArrayExpression {
-    consumeExpected(LBracket);
+    const start = consumeExpected(LBracket);
     const items: FdqlExpression[] = [];
     if (!isToken(peek(), RBracket)) {
       do {
@@ -249,12 +263,12 @@ function createExpressionParser(
         if (item) items.push(item);
       } while (match(Comma));
     }
-    consumeExpected(RBracket);
-    return { items, kind: 'array' };
+    const end = consumeExpected(RBracket);
+    return { items, kind: 'array', ...rangeProp(tokenRange(start, end)) };
   }
 
   function parseMap(): FdqlExpression {
-    consumeExpected(LBrace);
+    const start = consumeExpected(LBrace);
     const entries: FdqlMapEntry[] = [];
     if (!isToken(peek(), RBrace)) {
       do {
@@ -266,26 +280,40 @@ function createExpressionParser(
         entries.push({ key, value: parseOr() ?? literalExpression(null) });
       } while (match(Comma));
     }
-    consumeExpected(RBrace);
-    return { entries, kind: 'map' };
+    const end = consumeExpected(RBrace);
+    return { entries, kind: 'map', ...rangeProp(tokenRange(start, end)) };
   }
 
   function parseIdentifierExpression(): FdqlExpression {
-    const parts = [consume()?.image ?? ''];
+    const start = consume();
+    let end = start;
+    const parts = [start?.image ?? ''];
     let args: FdqlExpression[] | null = null;
-    if (match(LParen)) args = parseCallArgs();
+    if (match(LParen)) {
+      const parsedArgs = parseCallArgs();
+      args = parsedArgs.args;
+      end = parsedArgs.endToken ?? end;
+    }
     while (match(Dot)) {
       const next = consumeExpected(Identifier);
+      end = next ?? end;
       parts.push(next?.image ?? '');
       if (match(LParen)) {
-        args = [...(args ?? []), ...parseCallArgs()];
+        const parsedArgs = parseCallArgs();
+        args = [...(args ?? []), ...parsedArgs.args];
+        end = parsedArgs.endToken ?? end;
       }
     }
-    if (args) return { args, kind: 'call', name: parts.join('.') };
-    return { kind: 'field', path: parts };
+    if (args) {
+      return { args, kind: 'call', name: parts.join('.'), ...rangeProp(tokenRange(start, end)) };
+    }
+    return { kind: 'field', path: parts, ...rangeProp(tokenRange(start, end)) };
   }
 
-  function parseCallArgs(): FdqlExpression[] {
+  function parseCallArgs(): {
+    readonly args: FdqlExpression[];
+    readonly endToken?: IToken | undefined;
+  } {
     const args: FdqlExpression[] = [];
     if (!isToken(peek(), RParen)) {
       do {
@@ -293,8 +321,8 @@ function createExpressionParser(
         if (arg) args.push(arg);
       } while (match(Comma));
     }
-    consumeExpected(RParen);
-    return args;
+    const endToken = consumeExpected(RParen);
+    return { args, ...(endToken ? { endToken } : {}) };
   }
 
   function comparisonOperator(token: IToken | undefined): FdqlBinaryExpression['operator'] | null {
@@ -317,7 +345,7 @@ function createExpressionParser(
 
   function matchIdentifier(value: string): boolean {
     const token = peek();
-    if (!token || !isToken(token, Identifier) || token.image.toLowerCase() !== value) return false;
+    if (!isIdentifierToken(token, value)) return false;
     index += 1;
     return true;
   }
@@ -349,6 +377,19 @@ function createExpressionParser(
     });
   }
 
+  function tokenRange(
+    start: IToken | undefined,
+    end: IToken | undefined = start,
+  ): FdqlSourceRange | undefined {
+    if (!start) return undefined;
+    return {
+      endColumn: (shiftColumn(end?.endColumn ?? start.endColumn, columnOffset) ?? 0) + 1,
+      endLine: line,
+      startColumn: shiftColumn(start.startColumn, columnOffset) ?? 0,
+      startLine: line,
+    };
+  }
+
   return { diagnostics, parse };
 }
 
@@ -361,15 +402,46 @@ function binaryExpression(
   operator: FdqlBinaryExpression['operator'],
   right: FdqlExpression,
 ): FdqlBinaryExpression {
-  return { kind: 'binary', left, operator, right };
+  return {
+    kind: 'binary',
+    left,
+    operator,
+    ...rangeProp(spanRange(left.range, right.range)),
+    right,
+  };
 }
 
-function literalExpression(value: null | boolean | number | string): FdqlExpression {
-  return { kind: 'literal', value };
+function literalExpression(
+  value: null | boolean | number | string,
+  range?: FdqlSourceRange | undefined,
+): FdqlExpression {
+  return { kind: 'literal', ...rangeProp(range), value };
 }
 
 function isToken(token: IToken | undefined, tokenType: TokenType): boolean {
   return token?.tokenType === tokenType;
+}
+
+function isIdentifierToken(token: IToken | undefined, value: string): boolean {
+  return Boolean(token && isToken(token, Identifier) && token.image.toLowerCase() === value);
+}
+
+function rangeProp(range: FdqlSourceRange | undefined): { readonly range?: FdqlSourceRange; } {
+  return range ? { range } : {};
+}
+
+function spanRange(
+  left: FdqlSourceRange | undefined,
+  right: FdqlSourceRange | undefined,
+): FdqlSourceRange | undefined {
+  if (!left) return right;
+  if (!right) return left;
+  return {
+    endColumn: right.endColumn,
+    endLine: right.endLine,
+    startColumn: left.startColumn,
+    startLine: left.startLine,
+  };
 }
 
 function parseStringToken(image: string): string {

@@ -14,6 +14,7 @@ import {
   type FdqlValue,
   firestoreProviderDialect,
   geoPointValue,
+  isMissingValue,
   mapValue,
   providerValue,
   stringScalar,
@@ -306,14 +307,65 @@ function valueFor(
   expression: FdqlExpression,
   request: FdqlProviderReadRequest,
 ): unknown {
-  return toAdminValue(
-    db,
-    evaluateExpression(expression, {
-      aliases: request.aliases,
-      providers: firestoreDialects,
-      rows: request.rows,
-    }),
-  );
+  const value = evaluateExpression(expression, {
+    aliases: request.aliases,
+    providers: firestoreDialects,
+    rows: request.rows,
+  });
+  if (isMissingValue(value)) {
+    throw errorForExpression(
+      `Firestore filter value resolved to missing for ${expressionLabel(expression)}. `
+        + `Add a local filter before this lookup, for example `
+        + `then filter ${expressionLabel(expression)}, or ensure the field exists.`,
+      expression,
+    );
+  }
+  const adminValue = toAdminValue(db, value);
+  if (adminValue === undefined) {
+    throw errorForExpression(
+      `Firestore filter value could not be encoded for ${expressionLabel(expression)}.`,
+      expression,
+    );
+  }
+  return adminValue;
+}
+
+function errorForExpression(message: string, expression: FdqlExpression): Error {
+  const error = new Error(message) as Error & { column?: number; line?: number; };
+  if (expression.range) {
+    error.column = expression.range.startColumn;
+    error.line = expression.range.startLine;
+  }
+  return error;
+}
+
+function expressionLabel(expression: FdqlExpression): string {
+  switch (expression.kind) {
+    case 'alias':
+      return expression.name;
+    case 'array':
+      return `[${expression.items.map(expressionLabel).join(', ')}]`;
+    case 'binary':
+      return `${expressionLabel(expression.left)} ${expression.operator} ${
+        expressionLabel(expression.right)
+      }`;
+    case 'call':
+      return `${expression.name}(${expression.args.map(expressionLabel).join(', ')})`;
+    case 'field':
+      return expression.path.join('.');
+    case 'literal':
+      return JSON.stringify(expression.value);
+    case 'map':
+      return `{${
+        expression.entries.map((entry) => `${entry.key}: ${expressionLabel(entry.value)}`).join(
+          ', ',
+        )
+      }}`;
+    case 'unary':
+      return `${expression.operator} ${expressionLabel(expression.expression)}`;
+    case 'wildcard':
+      return '*';
+  }
 }
 
 function compileOptions(request: FdqlCompileRequest) {

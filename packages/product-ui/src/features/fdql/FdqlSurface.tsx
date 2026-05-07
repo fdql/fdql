@@ -338,7 +338,7 @@ function ResultsView(
 
 function IssuesView({ diagnostics }: { readonly diagnostics: readonly FdqlDiagnostic[]; }) {
   return (
-    <PanelBody className='h-full min-h-0 space-y-2 overflow-auto text-xs'>
+    <PanelBody className='h-full min-h-0 select-text space-y-2 overflow-auto text-xs'>
       {diagnostics.length === 0
         ? <p className='text-text-muted'>No issues.</p>
         : diagnostics.map((diagnostic, index) => (
@@ -346,7 +346,15 @@ function IssuesView({ diagnostics }: { readonly diagnostics: readonly FdqlDiagno
             <Badge variant={diagnostic.severity === 'error' ? 'danger' : 'warning'}>
               {diagnostic.code}
             </Badge>
-            <p className='text-text-secondary'>{diagnostic.message}</p>
+            {diagnostic.line
+              ? (
+                <p className='text-text-muted'>
+                  Line {diagnostic.line}
+                  {diagnostic.column ? `, column ${diagnostic.column}` : ''}
+                </p>
+              )
+              : null}
+            <p className='break-words text-text-secondary'>{diagnostic.message}</p>
           </div>
         ))}
     </PanelBody>

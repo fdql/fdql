@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createFdqlProviderReadCacheKey } from './cache.ts';
-import type { FdqlExpression, FdqlProviderReadRequest, FdqlProviderRow } from './types.ts';
+import type {
+  FdqlExpression,
+  FdqlProviderReadRequest,
+  FdqlProviderRow,
+  FdqlSourceRange,
+} from './types.ts';
 import { stringValue } from './value.ts';
 
 describe('FDQL provider read cache key', () => {
@@ -60,6 +65,23 @@ describe('FDQL provider read cache key', () => {
 
     expect(second.canonicalJson).not.toBe(first.canonicalJson);
   });
+
+  it('ignores parser source ranges in cacheable expressions', () => {
+    const first = createFdqlProviderReadCacheKey({
+      request: request({
+        orderBy: { direction: 'asc', expression: wildcard(range(2, 5, 2, 6)) },
+        predicate: eq(field('team', 'id'), literal('team_1', range(1, 17, 1, 25))),
+      }),
+    });
+    const second = createFdqlProviderReadCacheKey({
+      request: request({
+        orderBy: { direction: 'asc', expression: wildcard(range(20, 8, 20, 9)) },
+        predicate: eq(field('team', 'id'), literal('team_1', range(10, 24, 10, 32))),
+      }),
+    });
+
+    expect(second.canonicalJson).toBe(first.canonicalJson);
+  });
 });
 
 function request(
@@ -105,8 +127,8 @@ function field(...path: readonly string[]): FdqlExpression {
   return { kind: 'field', path };
 }
 
-function literal(value: string): FdqlExpression {
-  return { kind: 'literal', value };
+function literal(value: string, sourceRange?: FdqlSourceRange): FdqlExpression {
+  return { kind: 'literal', ...(sourceRange ? { range: sourceRange } : {}), value };
 }
 
 function eq(left: FdqlExpression, right: FdqlExpression): FdqlExpression {
@@ -115,4 +137,17 @@ function eq(left: FdqlExpression, right: FdqlExpression): FdqlExpression {
 
 function and(left: FdqlExpression, right: FdqlExpression): FdqlExpression {
   return { kind: 'binary', left, operator: 'and', right };
+}
+
+function wildcard(sourceRange: FdqlSourceRange): FdqlExpression {
+  return { kind: 'wildcard', range: sourceRange };
+}
+
+function range(
+  startLine: number,
+  startColumn: number,
+  endLine: number,
+  endColumn: number,
+): FdqlSourceRange {
+  return { endColumn, endLine, startColumn, startLine };
 }

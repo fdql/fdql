@@ -32,27 +32,32 @@ export type FdqlExpression =
 
 export interface FdqlLiteralExpression {
   readonly kind: 'literal';
+  readonly range?: FdqlSourceRange | undefined;
   readonly value: FdqlLiteralValue;
 }
 
 export interface FdqlAliasExpression {
   readonly kind: 'alias';
   readonly name: string;
+  readonly range?: FdqlSourceRange | undefined;
 }
 
 export interface FdqlFieldExpression {
   readonly kind: 'field';
   readonly path: readonly string[];
+  readonly range?: FdqlSourceRange | undefined;
 }
 
 export interface FdqlArrayExpression {
   readonly items: readonly FdqlExpression[];
   readonly kind: 'array';
+  readonly range?: FdqlSourceRange | undefined;
 }
 
 export interface FdqlMapExpression {
   readonly entries: readonly FdqlMapEntry[];
   readonly kind: 'map';
+  readonly range?: FdqlSourceRange | undefined;
 }
 
 export interface FdqlMapEntry {
@@ -64,22 +69,26 @@ export interface FdqlCallExpression {
   readonly args: readonly FdqlExpression[];
   readonly kind: 'call';
   readonly name: string;
+  readonly range?: FdqlSourceRange | undefined;
 }
 
 export interface FdqlWildcardExpression {
   readonly kind: 'wildcard';
+  readonly range?: FdqlSourceRange | undefined;
 }
 
 export interface FdqlUnaryExpression {
   readonly expression: FdqlExpression;
   readonly kind: 'unary';
   readonly operator: 'not';
+  readonly range?: FdqlSourceRange | undefined;
 }
 
 export interface FdqlBinaryExpression {
   readonly kind: 'binary';
   readonly left: FdqlExpression;
   readonly operator: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'and' | 'in' | 'or';
+  readonly range?: FdqlSourceRange | undefined;
   readonly right: FdqlExpression;
 }
 
