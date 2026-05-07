@@ -7,6 +7,7 @@ import {
 import type {
   EvalRows,
   FdqlAggregateStage,
+  FdqlCacheMode,
   FdqlDiagnostic,
   FdqlExecutionEvent,
   FdqlExecutionOptions,
@@ -538,7 +539,9 @@ async function executeLookup(
   );
   const documents: FdqlProviderRow[] = [];
   const events: FdqlExecutionEvent[] = [];
-  const cacheKey = plan.settings.cache === 'run' ? lookupCacheKey(request, runtime) : undefined;
+  const cacheKey = lookupCacheMode(stage, plan) === 'run'
+    ? lookupCacheKey(request, runtime)
+    : undefined;
   const cachedDocuments = cacheKey ? lookupCache.get(cacheKey) : undefined;
   if (cachedDocuments) {
     stats.cacheHits += 1;
@@ -573,6 +576,13 @@ async function executeLookup(
     events,
     row: lookupRow(stage, row, documents),
   };
+}
+
+function lookupCacheMode(
+  stage: FdqlLookupPlanStage,
+  plan: FdqlSingleReadPlan,
+): FdqlCacheMode {
+  return stage.cache ?? plan.settings.cache;
 }
 
 function lookupRow(

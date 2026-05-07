@@ -212,7 +212,7 @@ function parseLookup(
 ): { readonly nextIndex: number; readonly stage?: FdqlStage | undefined; } {
   const start = lines[startIndex]!;
   const match =
-    /^then\s+lookup\s+(one|many)\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)$/i
+    /^then\s+lookup\s+(one|many)\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+cache\s+(off|run|session))?$/i
       .exec(start.text);
   const clauses: FdqlLookupClause[] = [];
   let nextIndex = startIndex;
@@ -233,6 +233,17 @@ function parseLookup(
   }
 
   if (!match) {
+    if (isMalformedLookupCache(start.text)) {
+      diagnostics.push(
+        error(
+          'FDQL_INVALID_LOOKUP_CACHE',
+          '`lookup` cache must use `cache run`, `cache off`, or `cache session`.',
+          start.line,
+          start.column,
+        ),
+      );
+      return { nextIndex };
+    }
     diagnostics.push(
       error(
         'FDQL_UNKNOWN_STAGE',
@@ -247,6 +258,7 @@ function parseLookup(
   return {
     nextIndex,
     stage: {
+      ...(match[4] ? { cache: match[4].toLowerCase() as 'off' | 'run' | 'session' } : {}),
       clauses,
       column: start.column,
       kind: 'lookup',
@@ -257,6 +269,11 @@ function parseLookup(
       sourceAlias: match[2]!,
     },
   };
+}
+
+function isMalformedLookupCache(text: string): boolean {
+  return /^then\s+lookup\s+(one|many)\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+cache(?:\s|=|$)/i
+    .test(text);
 }
 
 function parseLookupClause(
@@ -508,9 +525,23 @@ function parseSet(
   }
   const key = text.slice('set '.length, separator).trim();
   const valueSource = expressionSlice(text, column, separator + 1);
+  if (key === 'fdql.timeout' && looksLikeDurationLiteral(valueSource.text)) {
+    return { column, key, line, range, rawValue: valueSource.text };
+  }
   const parsed = parseExpression(valueSource.text, line, valueSource.column);
   diagnostics.push(...parsed.diagnostics);
-  return parsed.expression ? { column, key, line, range, value: parsed.expression } : null;
+  return {
+    column,
+    key,
+    line,
+    range,
+    rawValue: valueSource.text,
+    ...(parsed.expression ? { value: parsed.expression } : {}),
+  };
+}
+
+function looksLikeDurationLiteral(value: string): boolean {
+  return /^\d+[smhd]$/i.test(value.trim());
 }
 
 function parseAlias(

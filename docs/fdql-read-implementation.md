@@ -65,8 +65,8 @@ Current implementation does not parse or execute:
 
 ```fdql
 set fdql.readBudget = 5000
-set fdql.timeout = "60s"
-set fdql.cache = "run"
+set fdql.timeout = 60s
+set fdql.cache = run
 set fdql.allowUnboundedReads = false
 
 alias $drivers = fs.project("prod").db("db2").collection("drivers", ["firstName", "teamId", "metadata"])
@@ -82,10 +82,10 @@ fs limit 25
 
 then filter lower(d.firstName) = "vini"
 
-then lookup one $teams as team
+then lookup one $teams as team cache run
   fs where fs.id(team) = d.teamId
 
-then lookup many $rounds as rounds
+then lookup many $rounds as rounds cache off
   fs where rounds.driverId = fs.id(d)
   fs order by rounds.createdAt desc
   fs limit 20
@@ -175,27 +175,27 @@ These block the read implementation from being honest at production scale.
 | Read budget in live repo         | Done    | Runtime read requests cap Firestore page reads before docs are fetched.                                                            |
 | Cancel in live repo              | Partial | Cancel is observed between pages/rows, but not while a Firestore page request is already in flight.                                |
 | Timeout in live repo             | Partial | Same issue as cancel.                                                                                                              |
-| Cache modes                      | Partial | `set fdql.cache = "run"` dedupes repeated lookup reads per execution and reports cache stats. `session` is reserved/unsupported.   |
+| Cache modes                      | Partial | `set fdql.cache = run` dedupes repeated lookup reads per execution and reports cache stats. `session` is reserved/unsupported.     |
 | Output row streaming             | Partial | Read events stream as provider rows arrive, but final row events are emitted after the branch source read and local stages finish. |
 | Provider query validation parity | Partial | Firestore dialect validates simple provider shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.               |
 | Field path fidelity              | Partial | Live field masks split on `.`, so literal dotted field names are not represented yet. Need explicit field-path segment handling.   |
 
 ## P1 Spec Features Not Implemented
 
-| Feature                                   | Status  | Notes                                                                        |
-| ----------------------------------------- | ------- | ---------------------------------------------------------------------------- |
-| `lookup one`                              | Done    | Attaches one document or `null`; reports an error if multiple docs are read. |
-| `lookup many`                             | Done    | Attaches an array and counts lookup reads separately.                        |
-| `lookup expand`                           | Missing | Needs row multiplication and lineage.                                        |
-| `lookup aggregate`                        | Missing | Needs provider aggregate execution.                                          |
-| `fs.subcollection(parent, name, fields?)` | Missing | Needed for document-relative reads.                                          |
-| `fs.subcollections(parent)`               | Missing | Needed for subcollection discovery.                                          |
-| `unwind array`                            | Done    | Expands arrays into one row per item.                                        |
-| `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.          |
-| `union all`                               | Done    | Executes top-level branches with shared preamble aliases/settings.           |
-| `sort by`                                 | Done    | Local row sort before later local stages or return.                          |
-| `aggregate`                               | Done    | Local grouping with count/sum/avg/min/max.                                   |
-| Firestore aggregations                    | Missing | `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max` not implemented.          |
+| Feature                                   | Status  | Notes                                                                                 |
+| ----------------------------------------- | ------- | ------------------------------------------------------------------------------------- |
+| `lookup one`                              | Done    | Attaches one document or `null`; supports lookup-local `cache run` / `cache off`.     |
+| `lookup many`                             | Done    | Attaches an array, counts lookup reads separately, and supports cache local override. |
+| `lookup expand`                           | Missing | Needs row multiplication and lineage.                                                 |
+| `lookup aggregate`                        | Missing | Needs provider aggregate execution.                                                   |
+| `fs.subcollection(parent, name, fields?)` | Missing | Needed for document-relative reads.                                                   |
+| `fs.subcollections(parent)`               | Missing | Needed for subcollection discovery.                                                   |
+| `unwind array`                            | Done    | Expands arrays into one row per item.                                                 |
+| `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.                   |
+| `union all`                               | Done    | Executes top-level branches with shared preamble aliases/settings.                    |
+| `sort by`                                 | Done    | Local row sort before later local stages or return.                                   |
+| `aggregate`                               | Done    | Local grouping with count/sum/avg/min/max.                                            |
+| Firestore aggregations                    | Missing | `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max` not implemented.                   |
 
 ## P2 Expression Gaps
 

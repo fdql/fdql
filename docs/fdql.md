@@ -189,7 +189,7 @@ Rules:
 
 ```sql
 set fdql.readBudget = 5000
-set fdql.timeout = "60s"
+set fdql.timeout = 60s
 
 alias $drivers = fs.collection("drivers", ["firstName"])
 
@@ -506,7 +506,7 @@ from $drivers as d
 fs where d.active = true
 fs limit 100
 
-then lookup one $teams as team
+then lookup one $teams as team cache run
   fs where fs.id(team) = d.teamId
 
 return fs.id(d), d.firstName, team.name as teamName
@@ -575,6 +575,8 @@ Rules:
 - Lookup clauses are provider-native.
 - Lookup row aliases are available inside their provider clauses.
 - Correlated references must use previous row fields or metadata functions such as `fs.id(d)`.
+- `cache run` or `cache off` on a lookup overrides `set fdql.cache` for that lookup only.
+- Lookup cache defaults to the query-level `set fdql.cache` value when omitted.
 - `lookup one` must produce at most one value or report a diagnostic.
 - `lookup many` attaches an array and preserves the input row.
 - `lookup expand` emits one row per matched value.
@@ -1162,7 +1164,7 @@ Write controls use query preamble `set` declarations.
 ```sql
 set fdql.readBudget = 5000
 set fdql.writeBudget = 1000
-set fdql.timeout = "60s"
+set fdql.timeout = 60s
 set fdql.writeBatchSize = 400
 set fdql.writeMode = "batch"
 set fdql.stopOnWriteError = false
@@ -1191,8 +1193,8 @@ Example query:
 
 ```sql
 set fdql.readBudget = 5000
-set fdql.timeout = "60s"
-set fdql.cache = "run"
+set fdql.timeout = 60s
+set fdql.cache = run
 set fdql.allowUnboundedReads = false
 
 alias $events = fs.collection("events")
@@ -1230,6 +1232,7 @@ off
 Rules:
 
 - Run cache dedupes repeated lookup reads during one query run.
+- Lookup stages can override query-level cache with `cache run` or `cache off`.
 - Session cache is reserved and must return an unsupported diagnostic until implemented.
 - Cache must be visible in execution stats.
 - Provider-native results and lookup results must not silently come from stale cache.

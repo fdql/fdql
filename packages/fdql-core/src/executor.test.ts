@@ -182,7 +182,7 @@ return mem.id(p) as id, p.name, team.name as teamName`);
   });
 
   it('dedupes repeated lookup reads when run cache is enabled', async () => {
-    const events = await run(`set fdql.cache = "run"
+    const events = await run(`set fdql.cache = run
 alias $assignments = mem.collection("assignments")
 alias $teams = mem.collection("teams")
 from $assignments as assignment
@@ -209,7 +209,7 @@ return mem.id(assignment) as id, team.name as teamName`);
   });
 
   it('runs repeated lookup reads when run cache is off', async () => {
-    const events = await run(`set fdql.cache = "off"
+    const events = await run(`set fdql.cache = off
 alias $assignments = mem.collection("assignments")
 alias $teams = mem.collection("teams")
 from $assignments as assignment
@@ -230,8 +230,56 @@ return mem.id(assignment) as id, team.name as teamName`);
     });
   });
 
+  it('uses lookup cache run when global cache is off', async () => {
+    const events = await run(`set fdql.cache = off
+alias $assignments = mem.collection("assignments")
+alias $teams = mem.collection("teams")
+from $assignments as assignment
+mem limit 3
+
+then lookup one $teams as team cache run
+  mem where team.id = assignment.teamId
+
+return mem.id(assignment) as id, team.name as teamName`);
+
+    expect(rows(events)).toEqual([
+      { id: 'a1', teamName: 'Orange' },
+      { id: 'a2', teamName: 'Orange' },
+      { id: 'a3', teamName: 'Blue' },
+    ]);
+    expect(completed(events)).toMatchObject({
+      cacheHits: 1,
+      cacheMisses: 2,
+      lookupReads: 2,
+      reads: 5,
+      rowsScanned: 5,
+    });
+  });
+
+  it('uses lookup cache off when global cache is run', async () => {
+    const events = await run(`set fdql.cache = run
+alias $assignments = mem.collection("assignments")
+alias $teams = mem.collection("teams")
+from $assignments as assignment
+mem limit 3
+
+then lookup one $teams as team cache off
+  mem where team.id = assignment.teamId
+
+return mem.id(assignment) as id, team.name as teamName`);
+
+    expect(rows(events)).toHaveLength(3);
+    expect(completed(events)).toMatchObject({
+      cacheHits: 0,
+      cacheMisses: 0,
+      lookupReads: 3,
+      reads: 6,
+      rowsScanned: 6,
+    });
+  });
+
   it('keeps lookup cache keys separate by field mask, limit, and correlated values', async () => {
-    const events = await run(`set fdql.cache = "run"
+    const events = await run(`set fdql.cache = run
 alias $assignments = mem.collection("assignments")
 alias $teamNames = mem.collection("teams", ["name"])
 alias $teamIds = mem.collection("teams", ["id"])

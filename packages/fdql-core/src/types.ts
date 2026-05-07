@@ -87,8 +87,9 @@ export interface FdqlSetDeclaration {
   readonly column: number;
   readonly key: string;
   readonly line: number;
+  readonly rawValue: string;
   readonly range: FdqlSourceRange;
-  readonly value: FdqlExpression;
+  readonly value?: FdqlExpression | undefined;
 }
 
 export interface FdqlAliasDeclaration {
@@ -185,10 +186,12 @@ export interface FdqlAggregateStage {
 }
 
 export type FdqlLookupMode = 'many' | 'one';
+export type FdqlCacheMode = 'off' | 'run' | 'session';
 
 export type FdqlLookupClause = FdqlWhereStage | FdqlOrderByStage | FdqlLimitStage;
 
 export interface FdqlLookupStage {
+  readonly cache?: FdqlCacheMode | undefined;
   readonly clauses: readonly FdqlLookupClause[];
   readonly column: number;
   readonly kind: 'lookup';
@@ -269,7 +272,7 @@ export type FdqlParseResult =
 
 export interface FdqlExecutionSettings {
   readonly allowUnboundedReads: boolean;
-  readonly cache: 'off' | 'run' | 'session';
+  readonly cache: FdqlCacheMode;
   readonly pageSize: number;
   readonly readBudget: number;
   readonly timeoutMs: number;
@@ -327,6 +330,7 @@ export type FdqlLocalPlanStage =
   | FdqlWithStage;
 
 export interface FdqlLookupPlanStage {
+  readonly cache?: FdqlCacheMode | undefined;
   readonly column: number;
   readonly kind: 'lookup';
   readonly line: number;

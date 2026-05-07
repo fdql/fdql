@@ -180,6 +180,18 @@ function thenCompletions(
   model: QueryModel,
   line: string,
 ): readonly FdqlCompletionItem[] {
+  if (
+    /^then\s+lookup\s+(?:one|many)\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+cache\s*$/i
+      .test(line)
+  ) {
+    return lookupCacheModeCompletions();
+  }
+  if (
+    /^then\s+lookup\s+(?:one|many)\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s*$/i
+      .test(line)
+  ) {
+    return lookupCacheCompletions();
+  }
   if (/^then\s+lookup\s+(?:one|many)\s+\$/i.test(line)) return sourceAliasCompletions(model);
   if (
     /^then\s+(?:filter|sort by|unwind|with)\s+/i.test(line)
@@ -189,6 +201,40 @@ function thenCompletions(
   }
   if (/^then\s+take\s+/i.test(line)) return [];
   return sortCompletions([...metadata.snippets, ...metadata.providerClauses]);
+}
+
+function lookupCacheCompletions(): readonly FdqlCompletionItem[] {
+  return [
+    {
+      detail: 'Enable lookup dedupe for this lookup',
+      insertText: 'cache run',
+      kind: 'keyword',
+      label: 'cache run',
+    },
+    {
+      detail: 'Disable lookup dedupe for this lookup',
+      insertText: 'cache off',
+      kind: 'keyword',
+      label: 'cache off',
+    },
+  ];
+}
+
+function lookupCacheModeCompletions(): readonly FdqlCompletionItem[] {
+  return [
+    {
+      detail: 'Enable lookup dedupe for this lookup',
+      insertText: 'run',
+      kind: 'keyword',
+      label: 'run',
+    },
+    {
+      detail: 'Disable lookup dedupe for this lookup',
+      insertText: 'off',
+      kind: 'keyword',
+      label: 'off',
+    },
+  ];
 }
 
 function providerCompletions(

@@ -49,7 +49,12 @@ describe('FDQL language service', () => {
       expect.arrayContaining(['fs.collection', 'fs.collectionGroup']),
     );
     expect(completionLabels(service, 'then ', 1, 6)).toEqual(
-      expect.arrayContaining(['then filter', 'then lookup one', 'fs where']),
+      expect.arrayContaining([
+        'then filter',
+        'then lookup one',
+        'then lookup one cache',
+        'fs where',
+      ]),
     );
     expect(completionLabels(service, 'return ', 1, 8)).toEqual(
       expect.arrayContaining(['timestamp', 'entries', 'fs.id']),
@@ -76,6 +81,20 @@ then filter `;
       expect.arrayContaining(['o', 'entries']),
     );
     expect(completionLabelsAtEnd(service, localSource)).not.toContain('then filter');
+  });
+
+  it('suggests lookup cache overrides in lookup headers', () => {
+    const service = createFdqlLanguageService();
+    const source = `alias $teams = fs.collection("teams")
+from $teams as t
+then lookup one $teams as team `;
+    const cacheSource = `${source}cache `;
+
+    expect(completionLabelsAtEnd(service, source)).toEqual([
+      'cache run',
+      'cache off',
+    ]);
+    expect(completionLabelsAtEnd(service, cacheSource)).toEqual(['run', 'off']);
   });
 
   it('suggests source aliases and masked row fields from the current query', () => {

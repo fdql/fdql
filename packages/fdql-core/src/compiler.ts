@@ -351,6 +351,15 @@ function compileLookupStage(
 
   const sourceProvider = sourceAlias.source.provider;
   const sourceDialect = providers[sourceProvider];
+  if (stage.cache === 'session') {
+    diagnostics.push(
+      error(
+        'FDQL_UNSUPPORTED_CACHE_MODE',
+        'lookup cache session is not supported yet.',
+        stage.line,
+      ),
+    );
+  }
   let providerPredicate: FdqlExpression | undefined;
   let providerOrderBy: FdqlProviderOrderByClause | undefined;
   let providerOrderByLine: number | undefined;
@@ -428,6 +437,7 @@ function compileLookupStage(
   }
 
   return {
+    ...(stage.cache ? { cache: stage.cache } : {}),
     column: stage.column,
     kind: 'lookup',
     line: stage.line,
@@ -495,12 +505,12 @@ function resolveSettings(
       continue;
     }
     seenKeys.set(declaration.key, declaration.line);
-    const value = evaluateSetValue(declaration, diagnostics);
-    if (!value) continue;
     if (parsedKey.namespace === 'fdql') {
-      settings = applyFdqlSetting(parsedKey.key, value, settings, declaration.line, diagnostics);
+      settings = applyFdqlSetting(parsedKey.key, declaration, settings, diagnostics);
       continue;
     }
+    const value = evaluateSetValue(declaration, diagnostics);
+    if (!value) continue;
     const provider = providers[parsedKey.namespace];
     if (!provider) {
       diagnostics.push(
@@ -528,7 +538,7 @@ function resolveSettings(
   }
   if (settings.cache === 'session') {
     diagnostics.push(
-      error('FDQL_UNSUPPORTED_CACHE_MODE', 'fdql.cache = "session" is not supported yet.'),
+      error('FDQL_UNSUPPORTED_CACHE_MODE', 'fdql.cache = session is not supported yet.'),
     );
     settings = { ...settings, cache: 'off' };
   }
@@ -554,6 +564,16 @@ function evaluateSetValue(
   declaration: FdqlSetDeclaration,
   diagnostics: FdqlDiagnostic[],
 ): FdqlValue | null {
+  if (!declaration.value) {
+    diagnostics.push(
+      error(
+        'FDQL_INVALID_SET',
+        `Invalid value for set ${declaration.key}.`,
+        declaration.line,
+      ),
+    );
+    return null;
+  }
   if (!isSetValueExpression(declaration.value)) {
     diagnostics.push(
       error(
@@ -594,38 +614,62 @@ function isSetValueExpression(expression: FdqlExpression): boolean {
 
 function applyFdqlSetting(
   key: string,
-  value: FdqlValue,
+  declaration: FdqlSetDeclaration,
   settings: FdqlExecutionSettings,
-  line: number,
   diagnostics: FdqlDiagnostic[],
 ): FdqlExecutionSettings {
-  const scalar = scalarValue(value);
-  if (
-    key === 'readBudget' && typeof scalar === 'number' && Number.isInteger(scalar) && scalar > 0
-  ) {
-    return { ...settings, readBudget: scalar };
-  } else if (key === 'timeout' && typeof scalar === 'string') {
-    const timeoutMs = parseDurationMs(scalar);
+  const line = declaration.line;
+  const rawValue = declaration.rawValue.trim();
+  if (key === 'readBudget') {
+    const value = numericSetValue(declaration, diagnostics);
+    if (value && Number.isInteger(value) && value > 0) return { ...settings, readBudget: value };
+    diagnostics.push(error('FDQL_INVALID_SET', 'Invalid value for set fdql.readBudget.', line));
+  } else if (key === 'timeout') {
+    const timeoutMs = parseDurationMs(rawValue);
     if (timeoutMs) return { ...settings, timeoutMs };
     else diagnostics.push(error('FDQL_INVALID_SET', 'Invalid value for set fdql.timeout.', line));
-  } else if (key === 'cache' && (scalar === 'off' || scalar === 'run')) {
-    return { ...settings, cache: scalar };
-  } else if (key === 'cache' && scalar === 'session') {
+  } else if (key === 'cache') {
+    const cacheMode = rawValue.toLowerCase();
+    if (cacheMode === 'off' || cacheMode === 'run') return { ...settings, cache: cacheMode };
+    if (cacheMode === 'session') {
+      diagnostics.push(
+        error(
+          'FDQL_UNSUPPORTED_CACHE_MODE',
+          'set fdql.cache = session is not supported yet.',
+          line,
+        ),
+      );
+    } else {
+      diagnostics.push(error('FDQL_INVALID_SET', 'Invalid value for set fdql.cache.', line));
+    }
+  } else if (key === 'allowUnboundedReads') {
+    const value = scalarSetValue(declaration, diagnostics);
+    if (typeof value === 'boolean') return { ...settings, allowUnboundedReads: value };
     diagnostics.push(
-      error(
-        'FDQL_UNSUPPORTED_CACHE_MODE',
-        'set fdql.cache = "session" is not supported yet.',
-        line,
-      ),
+      error('FDQL_INVALID_SET', 'Invalid value for set fdql.allowUnboundedReads.', line),
     );
-  } else if (key === 'allowUnboundedReads' && typeof scalar === 'boolean') {
-    return { ...settings, allowUnboundedReads: scalar };
   } else if (!['allowUnboundedReads', 'cache', 'readBudget', 'timeout'].includes(key)) {
     diagnostics.push(error('FDQL_UNKNOWN_SET_KEY', `Unknown set key fdql.${key}.`, line));
   } else {
     diagnostics.push(error('FDQL_INVALID_SET', `Invalid value for set fdql.${key}.`, line));
   }
   return settings;
+}
+
+function numericSetValue(
+  declaration: FdqlSetDeclaration,
+  diagnostics: FdqlDiagnostic[],
+): number | undefined {
+  const value = scalarSetValue(declaration, diagnostics);
+  return typeof value === 'number' ? value : undefined;
+}
+
+function scalarSetValue(
+  declaration: FdqlSetDeclaration,
+  diagnostics: FdqlDiagnostic[],
+): ReturnType<typeof scalarValue> | undefined {
+  const value = evaluateSetValue(declaration, diagnostics);
+  return value ? scalarValue(value) : undefined;
 }
 
 function cloneProviderContext(context: FdqlDefaultProviderContext): FdqlDefaultProviderContext {
@@ -821,13 +865,15 @@ function validateExpressionCall(
 }
 
 function parseDurationMs(value: string): number | undefined {
-  const match = /^(\d+)(ms|s|m)?$/.exec(value.trim());
+  const match = /^(\d+)(s|m|h|d)$/i.exec(value.trim());
   if (!match) return undefined;
   const amount = Number(match[1]);
   if (!Number.isInteger(amount) || amount <= 0) return undefined;
-  if (match[2] === 'ms') return amount;
-  if (match[2] === 'm') return amount * 60_000;
-  return amount * 1000;
+  const unit = match[2]!.toLowerCase();
+  if (unit === 's') return amount * 1000;
+  if (unit === 'm') return amount * 60_000;
+  if (unit === 'h') return amount * 3_600_000;
+  return amount * 86_400_000;
 }
 
 function walkExpression(

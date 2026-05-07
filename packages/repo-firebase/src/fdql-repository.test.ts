@@ -98,7 +98,7 @@ return fs.id(d) as id, team.name as teamName`,
     });
   });
 
-  it('dedupes repeated correlated lookup reads in run cache mode', async () => {
+  it('dedupes repeated correlated lookup reads with lookup-local run cache', async () => {
     const driversQuery = fakeQuery([
       fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' }),
       fakeSnapshot('drv_2', 'drivers/drv_2', { firstName: 'Alex', teamId: 'team_1' }),
@@ -112,12 +112,12 @@ return fs.id(d) as id, team.name as teamName`,
     const result = await repository.run({
       connectionId: 'local',
       runId: 'run_1',
-      source: `set fdql.cache = "run"
+      source: `set fdql.cache = off
 alias $drivers = fs.collection("drivers", ["firstName", "teamId"])
 alias $teams = fs.collection("teams", ["name"])
 from $drivers as d
 fs limit 2
-then lookup one $teams as team
+then lookup one $teams as team cache run
   fs where fs.id(team) = d.teamId
 return fs.id(d) as id, team.name as teamName`,
     });

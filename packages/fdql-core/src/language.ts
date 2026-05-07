@@ -24,7 +24,7 @@ const fdqlCoreSettingByName = {
   },
   'fdql.cache': {
     detail: 'Read cache mode',
-    insertText: 'set fdql.cache = "${1|off,run|}"',
+    insertText: 'set fdql.cache = ${1|off,run|}',
   },
   'fdql.readBudget': {
     detail: 'Maximum documents read by this query',
@@ -32,7 +32,7 @@ const fdqlCoreSettingByName = {
   },
   'fdql.timeout': {
     detail: 'Maximum query runtime',
-    insertText: 'set fdql.timeout = "${1:60s}"',
+    insertText: 'set fdql.timeout = ${1:60s}',
   },
 } as const;
 
@@ -104,8 +104,14 @@ const fdqlCoreSnippetByName = {
   'then lookup many': {
     insertText: 'then lookup many $${1:source} as ${2:rows}',
   },
+  'then lookup many cache': {
+    insertText: 'then lookup many $${1:source} as ${2:rows} cache ${3|run,off|}',
+  },
   'then lookup one': {
     insertText: 'then lookup one $${1:source} as ${2:row}',
+  },
+  'then lookup one cache': {
+    insertText: 'then lookup one $${1:source} as ${2:row} cache ${3|run,off|}',
   },
   'then sort by': {
     insertText: 'then sort by ${1:field} ${2|asc,desc|}',

@@ -6,7 +6,7 @@ const validFixtures: readonly { readonly name: string; readonly source: string; 
   {
     name: 'basic bounded read',
     source: `set fdql.readBudget = 5000
-set fdql.timeout = "60s"
+set fdql.timeout = 60s
 
 alias $drivers = mem.collection("drivers", ["firstName"])
 
@@ -64,7 +64,7 @@ describe('FDQL parser', () => {
 alias $teams = mem.collection("teams")
 
 from $drivers as d
-then lookup one $teams as team
+then lookup one $teams as team cache run
   mem where mem.id(team) = d.teamId
   mem limit 1
 return *`);
@@ -72,6 +72,7 @@ return *`);
     expect(result).toMatchObject({ ok: true });
     expect(pipelineAst(result).stages).toContainEqual(
       expect.objectContaining({
+        cache: 'run',
         clauses: [
           expect.objectContaining({ kind: 'providerWhere', provider: 'mem' }),
           expect.objectContaining({ kind: 'providerLimit', provider: 'mem', value: 1 }),
@@ -83,6 +84,23 @@ return *`);
       }),
     );
   });
+
+  it.each(['cache "run"', 'cache = run', 'cache = "run"', 'cache forever'])(
+    'rejects malformed lookup cache suffix %s',
+    (suffix) => {
+      const result = parseFdql(`alias $drivers = mem.collection("drivers")
+alias $teams = mem.collection("teams")
+from $drivers as d
+then lookup one $teams as team ${suffix}
+  mem where mem.id(team) = d.teamId
+return *`);
+
+      expect(result).toMatchObject({ ok: false });
+      expect(result.diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'FDQL_INVALID_LOOKUP_CACHE', line: 4 }),
+      );
+    },
+  );
 
   it('parses unwind stages', () => {
     const result = parseFdql(`alias $games = mem.collection("games")

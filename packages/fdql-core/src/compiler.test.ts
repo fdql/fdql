@@ -38,8 +38,8 @@ return mem.id(p) as id, p.name`,
   it('plans namespaced engine settings', () => {
     const result = compileFdqlRead(
       `set fdql.readBudget = 7
-set fdql.timeout = "2s"
-set fdql.cache = "run"
+set fdql.timeout = 2s
+set fdql.cache = run
 set fdql.allowUnboundedReads = true
 alias $people = mem.collection("people")
 from $people as p
@@ -119,7 +119,8 @@ return p.name`,
   it('rejects invalid set values', () => {
     const result = compileFdqlRead(
       `set fdql.readBudget = count()
-set fdql.timeout = "soon"
+set fdql.timeout = "2s"
+set fdql.cache = "run"
 alias $people = mem.collection("people")
 from $people as p
 mem limit 1
@@ -132,13 +133,14 @@ return p.name`,
       expect.arrayContaining([
         expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 1 }),
         expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 2 }),
+        expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 3 }),
       ]),
     );
   });
 
   it('rejects session cache until session runtime semantics exist', () => {
     const result = compileFdqlRead(
-      `set fdql.cache = "session"
+      `set fdql.cache = session
 alias $people = mem.collection("people")
 from $people as p
 mem limit 1
@@ -231,6 +233,46 @@ return p.name, team.name as teamName`,
       rowAlias: 'team',
       sourceAlias: '$teams',
     });
+  });
+
+  it('plans lookup cache overrides', () => {
+    const result = compileFdqlRead(
+      `set fdql.cache = off
+alias $people = mem.collection("people")
+alias $teams = mem.collection("teams")
+from $people as p
+mem limit 10
+then lookup one $teams as team cache run
+  mem where team.id = p.teamId
+return p.name, team.name as teamName`,
+      options,
+    );
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    if (!result.ok) throw new Error('expected compile success');
+    if (result.plan.kind !== 'read') throw new Error('expected read plan');
+    expect(result.plan.localStages[0]).toMatchObject({
+      cache: 'run',
+      kind: 'lookup',
+    });
+  });
+
+  it('rejects session cache on lookup stages', () => {
+    const result = compileFdqlRead(
+      `alias $people = mem.collection("people")
+alias $teams = mem.collection("teams")
+from $people as p
+mem limit 10
+then lookup one $teams as team cache session
+  mem where team.id = p.teamId
+return p.name, team.name as teamName`,
+      options,
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNSUPPORTED_CACHE_MODE', line: 5 }),
+    );
   });
 
   it('plans provider-neutral local stages', () => {

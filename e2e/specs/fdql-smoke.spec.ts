@@ -216,7 +216,7 @@ return fs.path(o) as path, o.status`,
     await test.step('nested map and array workflow dedupes repeated lookup reads', async () => {
       await runFdql(
         page,
-        `set fdql.cache = "run"
+        `set fdql.cache = off
 
 alias $events = fs.collection("${data.events}", ["name", "slug", "schedule", "entriesById"])
 alias $drivers = fs.collection("${data.eventDrivers}", ["firstName", "steamId"])
@@ -227,7 +227,7 @@ fs limit 20
 then unwind entries(event.entriesById) as entry
 then unwind entry.value.drivers as eventDriver
 then take 3
-then lookup one $drivers as driver
+then lookup one $drivers as driver cache run
   fs where fs.id(driver) = eventDriver.steamId
 return eventDriver.steamId, driver.firstName, event.slug, event.name, event.schedule.startsAt`,
       );
