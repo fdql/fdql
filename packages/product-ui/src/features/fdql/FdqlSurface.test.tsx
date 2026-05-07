@@ -126,6 +126,58 @@ describe('FdqlSurface', () => {
     expect(json).toHaveProperty('value', expect.stringContaining('"__fdqlType": "timestamp"'));
   });
 
+  it('preserves tree expansion while rows stream for the same run', () => {
+    const { rerender } = render(
+      <FdqlSurface
+        result={result}
+        runId='run-1'
+        source='return version'
+        onCancel={() => undefined}
+        onRun={() => undefined}
+        onSourceChange={() => undefined}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /Tree/ }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(screen.getByRole('treeitem', { name: /metadata/ }));
+    expect(within(screen.getByRole('tree')).getByText('channel')).toBeTruthy();
+
+    rerender(
+      <FdqlSurface
+        result={{
+          ...result,
+          rows: [
+            ...result.rows,
+            { id: 'next', metadata: { channel: 'beta' }, version: 3167 },
+          ],
+        }}
+        runId='run-1'
+        source='return version'
+        onCancel={() => undefined}
+        onRun={() => undefined}
+        onSourceChange={() => undefined}
+      />,
+    );
+
+    expect(within(screen.getByRole('tree')).getByText('channel')).toBeTruthy();
+
+    rerender(
+      <FdqlSurface
+        result={result}
+        runId='run-2'
+        source='return version'
+        onCancel={() => undefined}
+        onRun={() => undefined}
+        onSourceChange={() => undefined}
+      />,
+    );
+
+    expect(within(screen.getByRole('tree')).queryByText('channel')).toBeNull();
+  });
+
   it('uses the FDQL editor language', () => {
     render(
       <FdqlSurface

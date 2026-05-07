@@ -54,6 +54,7 @@ export interface FdqlSurfaceProps {
   readonly onRun: () => void;
   readonly onSourceChange: (source: string) => void;
   readonly result?: FdqlRunResult | null;
+  readonly runId?: string | null | undefined;
   readonly source: string;
 }
 
@@ -65,6 +66,7 @@ export function FdqlSurface(
     onRun,
     onSourceChange,
     result = null,
+    runId = null,
     source,
   }: FdqlSurfaceProps,
 ) {
@@ -124,6 +126,7 @@ export function FdqlSurface(
             durationMs={result?.durationMs ?? 0}
             isRunning={isRunning}
             rows={rows}
+            runId={runId}
             stats={result?.stats ?? null}
           />
         </ResizablePanel>
@@ -133,12 +136,13 @@ export function FdqlSurface(
 }
 
 function FdqlOutputPanel(
-  { command, diagnostics, durationMs, isRunning, rows, stats }: {
+  { command, diagnostics, durationMs, isRunning, rows, runId, stats }: {
     readonly command: FdqlRunCommandResult | null;
     readonly diagnostics: readonly FdqlDiagnostic[];
     readonly durationMs: number;
     readonly isRunning: boolean;
     readonly rows: readonly Record<string, unknown>[];
+    readonly runId: string | null;
     readonly stats: FdqlStats | null;
   },
 ) {
@@ -178,6 +182,7 @@ function FdqlOutputPanel(
             durationMs={durationMs}
             isRunning={isRunning}
             rows={rows}
+            runId={runId}
             stats={stats}
           />
         </TabsContent>
@@ -190,11 +195,12 @@ function FdqlOutputPanel(
 }
 
 function ResultsView(
-  { command, durationMs, isRunning, rows, stats }: {
+  { command, durationMs, isRunning, rows, runId, stats }: {
     readonly command: FdqlRunCommandResult | null;
     readonly durationMs: number;
     readonly isRunning: boolean;
     readonly rows: readonly Record<string, unknown>[];
+    readonly runId: string | null;
     readonly stats: FdqlStats | null;
   },
 ) {
@@ -202,27 +208,55 @@ function ResultsView(
   const [resultView, setResultView] = useState<FdqlResultView>('table');
   const treeRows = useMemo(() => treeDocumentsForRows(rows), [rows]);
   const defaultExpandedTreeIds = useMemo(() => defaultFdqlTreeExpansion(treeRows), [treeRows]);
-  const [expandedTreeIds, setExpandedTreeIds] = useState<ReadonlySet<string>>(
-    () => defaultExpandedTreeIds,
-  );
-  const [treeValueChildLimits, setTreeValueChildLimits] = useState<ReadonlyMap<string, number>>(
-    () => new Map(),
-  );
+  const treeResetKey = runId ?? 'idle';
+  const [treeState, setTreeState] = useState(() => ({
+    expandedIds: defaultExpandedTreeIds,
+    resetKey: treeResetKey,
+    seededRows: rows.length > 0,
+    userTouched: false,
+    valueChildLimits: new Map<string, number>(),
+  }));
 
   useEffect(() => {
-    setExpandedTreeIds(defaultExpandedTreeIds);
-    setTreeValueChildLimits(new Map());
-  }, [defaultExpandedTreeIds]);
+    setTreeState((current) =>
+      current.resetKey === treeResetKey
+        ? current
+        : {
+          expandedIds: defaultExpandedTreeIds,
+          resetKey: treeResetKey,
+          seededRows: rows.length > 0,
+          userTouched: false,
+          valueChildLimits: new Map(),
+        }
+    );
+  }, [defaultExpandedTreeIds, rows.length, treeResetKey]);
+
+  useEffect(() => {
+    if (rows.length === 0) return;
+    setTreeState((current) =>
+      current.resetKey === treeResetKey && !current.seededRows && !current.userTouched
+        ? { ...current, expandedIds: defaultExpandedTreeIds, seededRows: true }
+        : current
+    );
+  }, [defaultExpandedTreeIds, rows.length, treeResetKey]);
 
   function toggleTreeNode(id: string) {
-    setExpandedTreeIds((current) => toggleSet(current, id));
+    setTreeState((current) => ({
+      ...current,
+      expandedIds: toggleSet(current.expandedIds, id),
+      userTouched: true,
+    }));
   }
 
   function showMoreTreeValueChildren(id: string) {
-    setTreeValueChildLimits((current) => {
-      const next = new Map(current);
-      next.set(id, (current.get(id) ?? TREE_VALUE_CHILD_BATCH_SIZE) + TREE_VALUE_CHILD_BATCH_SIZE);
-      return next;
+    setTreeState((current) => {
+      const next = new Map(current.valueChildLimits);
+      next.set(
+        id,
+        (current.valueChildLimits.get(id) ?? TREE_VALUE_CHILD_BATCH_SIZE)
+          + TREE_VALUE_CHILD_BATCH_SIZE,
+      );
+      return { ...current, userTouched: true, valueChildLimits: next };
     });
   }
 
@@ -306,13 +340,13 @@ function ResultsView(
                 value='tree'
               >
                 <ResultTreeView
-                  expandedIds={expandedTreeIds}
+                  expandedIds={treeState.expandedIds}
                   hasMore={false}
                   isFetchingMore={false}
                   queryPath={FDQL_TREE_QUERY_PATH}
                   rows={treeRows}
                   subcollectionStates={{}}
-                  valueChildLimits={treeValueChildLimits}
+                  valueChildLimits={treeState.valueChildLimits}
                   onLoadMore={() => undefined}
                   onShowMoreValueChildren={showMoreTreeValueChildren}
                   onToggleNode={toggleTreeNode}

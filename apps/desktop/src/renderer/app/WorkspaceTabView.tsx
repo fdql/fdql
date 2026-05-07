@@ -220,6 +220,7 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
         compileResult={fdql.compileResult ?? null}
         isRunning={fdql.isRunning}
         result={fdql.result ?? null}
+        runId={fdql.runId}
         source={fdql.source}
         onCancel={fdql.onCancel}
         onRun={fdql.onRun}
