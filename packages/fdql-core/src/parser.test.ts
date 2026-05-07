@@ -104,6 +104,27 @@ return *`);
     );
   });
 
+  it('parses required lookup one stages', () => {
+    const result = parseFdql(`alias $drivers = mem.collection("drivers")
+alias $teams = mem.collection("teams")
+
+from $drivers as d
+then lookup required one $teams as team cache persistent 10m
+  mem where mem.id(team) = d.teamId
+return *`);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(pipelineAst(result).stages).toContainEqual(
+      expect.objectContaining({
+        cache: 'persistent',
+        cacheTtlRaw: '10m',
+        kind: 'lookup',
+        mode: 'one',
+        required: true,
+      }),
+    );
+  });
+
   it.each([
     'cache "run"',
     'cache = run',

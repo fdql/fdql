@@ -38,6 +38,13 @@ const runtime = createTestProviderRuntime({
       name: 'Vini',
       tags: ['admin'],
     },
+    p4: {
+      active: false,
+      createdAt: '2025-10-04T00:00:00.000Z',
+      name: 'No Match',
+      tags: [],
+      teamId: 'team_missing',
+    },
   },
   rounds: {
     round_1: { createdAt: '2025-10-05T00:00:00.000Z', driverId: 'p1', status: 'done' },
@@ -183,6 +190,115 @@ return mem.id(p) as id, p.name, team.name as teamName`);
       reads: 2,
       rowsOutput: 1,
       rowsScanned: 2,
+    });
+  });
+
+  it('keeps lookup one rows when correlated values are missing', async () => {
+    const events = await run(`set fdql.cache = run
+alias $people = mem.collection("people")
+alias $teams = mem.collection("teams")
+from $people as p
+mem where p.active = false
+mem limit 1
+
+then lookup one $teams as team
+  mem where team.id = p.teamId
+
+return mem.id(p) as id, team`);
+
+    expect(rows(events)).toEqual([{ id: 'p3', team: null }]);
+    expect(completed(events)).toMatchObject({
+      cacheMisses: 0,
+      lookupReads: 0,
+      reads: 1,
+      rowsOutput: 1,
+      rowsScanned: 1,
+    });
+  });
+
+  it('drops required lookup one rows when correlated values are missing', async () => {
+    const events = await run(`alias $people = mem.collection("people")
+alias $teams = mem.collection("teams")
+from $people as p
+mem where p.active = false
+mem limit 1
+
+then lookup required one $teams as team
+  mem where team.id = p.teamId
+
+return mem.id(p) as id, team`);
+
+    expect(rows(events)).toEqual([]);
+    expect(completed(events)).toMatchObject({
+      lookupReads: 0,
+      reads: 1,
+      rowsOutput: 0,
+      rowsScanned: 1,
+    });
+  });
+
+  it('keeps lookup one rows when there is no match', async () => {
+    const events = await run(`alias $people = mem.collection("people")
+alias $teams = mem.collection("teams")
+from $people as p
+mem where p.name = "No Match"
+mem limit 1
+
+then lookup one $teams as team
+  mem where team.id = p.teamId
+
+return mem.id(p) as id, team`);
+
+    expect(rows(events)).toEqual([{ id: 'p4', team: null }]);
+    expect(completed(events)).toMatchObject({
+      lookupReads: 0,
+      reads: 1,
+      rowsOutput: 1,
+      rowsScanned: 1,
+    });
+  });
+
+  it('drops required lookup one rows when there is no match', async () => {
+    const events = await run(`alias $people = mem.collection("people")
+alias $teams = mem.collection("teams")
+from $people as p
+mem where p.name = "No Match"
+mem limit 1
+
+then lookup required one $teams as team
+  mem where team.id = p.teamId
+
+return mem.id(p) as id, team`);
+
+    expect(rows(events)).toEqual([]);
+    expect(completed(events)).toMatchObject({
+      lookupReads: 0,
+      reads: 1,
+      rowsOutput: 0,
+      rowsScanned: 1,
+    });
+  });
+
+  it('keeps lookup many rows when correlated values are missing', async () => {
+    const events = await run(`set fdql.cache = run
+alias $people = mem.collection("people")
+alias $teams = mem.collection("teams")
+from $people as p
+mem where p.active = false
+mem limit 1
+
+then lookup many $teams as teams
+  mem where teams.id = p.teamId
+
+return mem.id(p) as id, teams`);
+
+    expect(rows(events)).toEqual([{ id: 'p3', teams: [] }]);
+    expect(completed(events)).toMatchObject({
+      cacheMisses: 0,
+      lookupReads: 0,
+      reads: 1,
+      rowsOutput: 1,
+      rowsScanned: 1,
     });
   });
 
@@ -421,6 +537,26 @@ return mem.id(p) as id, rounds`);
       },
     ]);
     expect(completed(events)).toMatchObject({ lookupReads: 2, reads: 3, rowsOutput: 1 });
+  });
+
+  it('reports lookup one matches above one row', async () => {
+    const events = await run(`alias $people = mem.collection("people")
+alias $rounds = mem.collection("rounds")
+from $people as p
+mem where p.name = "Vini"
+mem limit 1
+
+then lookup one $rounds as round
+  mem where round.driverId = mem.id(p)
+
+return mem.id(p) as id, round`);
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        diagnostic: expect.objectContaining({ code: 'FDQL_LOOKUP_ONE_TOO_MANY' }),
+        kind: 'failed',
+      }),
+    );
   });
 
   it('unwinds array fields into separate rows', async () => {

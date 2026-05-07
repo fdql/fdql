@@ -13,7 +13,7 @@ describe('FDQL core language metadata', () => {
       expect.arrayContaining(['timestamp', 'entries', 'mapGet']),
     );
     expect(names(fdqlCoreLanguageMetadata.snippets)).toEqual(
-      expect.arrayContaining(['from', 'then filter', 'union all']),
+      expect.arrayContaining(['from', 'then filter', 'then lookup required one', 'union all']),
     );
   });
 });

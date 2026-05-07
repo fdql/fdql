@@ -338,6 +338,29 @@ return p.name, team.name as teamName`,
     });
   });
 
+  it('plans required lookup one stages', () => {
+    const result = compileFdqlRead(
+      `alias $people = mem.collection("people")
+alias $teams = mem.collection("teams")
+from $people as p
+mem limit 10
+then lookup required one $teams as team cache run
+  mem where team.id = p.teamId
+return p.name, team.name as teamName`,
+      options,
+    );
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    if (!result.ok) throw new Error('expected compile success');
+    if (result.plan.kind !== 'read') throw new Error('expected read plan');
+    expect(result.plan.localStages[0]).toMatchObject({
+      cache: 'run',
+      kind: 'lookup',
+      mode: 'one',
+      required: true,
+    });
+  });
+
   it('plans persistent lookup cache overrides with TTL', () => {
     const result = compileFdqlRead(
       `alias $people = mem.collection("people")

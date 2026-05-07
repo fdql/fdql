@@ -208,6 +208,7 @@ export interface FdqlLookupStage {
   readonly line: number;
   readonly mode: FdqlLookupMode;
   readonly range: FdqlSourceRange;
+  readonly required: boolean;
   readonly rowAlias: string;
   readonly sourceAlias: string;
 }
@@ -357,6 +358,7 @@ export interface FdqlLookupPlanStage {
   readonly mode: FdqlLookupMode;
   readonly provider: FdqlProviderReadPlan;
   readonly range: FdqlSourceRange;
+  readonly required: boolean;
   readonly rowAlias: string;
   readonly sourceAlias: string;
 }

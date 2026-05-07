@@ -11,6 +11,7 @@ import {
   literalToValue,
   mapValue,
   missingValue,
+  nullValue,
   numberScalar,
   stringScalar,
   stringValue,
@@ -62,7 +63,8 @@ function evaluateField(
   context: EvalContext,
 ): FdqlValue {
   const root = context.rows?.[path[0] ?? ''];
-  if (root === null || root === undefined) return missingValue;
+  if (root === undefined) return missingValue;
+  if (root === null) return path.length === 1 ? nullValue : missingValue;
   if (path.length === 1) {
     if (isDocument(root)) return mapValue(root.data);
     if (Array.isArray(root)) {

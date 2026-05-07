@@ -188,18 +188,20 @@ function thenCompletions(
   line: string,
 ): readonly FdqlCompletionItem[] {
   if (
-    /^then\s+lookup\s+(?:one|many)\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+cache\s*$/i
+    /^then\s+lookup\s+(?:required\s+one|one|many)\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+cache\s*$/i
       .test(line)
   ) {
     return lookupCacheModeCompletions();
   }
   if (
-    /^then\s+lookup\s+(?:one|many)\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s*$/i
+    /^then\s+lookup\s+(?:required\s+one|one|many)\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s*$/i
       .test(line)
   ) {
     return lookupCacheCompletions();
   }
-  if (/^then\s+lookup\s+(?:one|many)\s+\$/i.test(line)) return sourceAliasCompletions(model);
+  if (/^then\s+lookup\s+(?:required\s+one|one|many)\s+\$/i.test(line)) {
+    return sourceAliasCompletions(model);
+  }
   if (
     /^then\s+(?:filter|sort by|unwind|with)\s+/i.test(line)
     || line === 'then with'

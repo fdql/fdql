@@ -55,7 +55,7 @@ Current Firestore dialect accepts:
 Current implementation does not parse or execute:
 
 - FDQL writes.
-- `lookup expand` or `lookup aggregate`.
+- `lookup aggregate`.
 - `fs.subcollection(...)` or `fs.subcollections(...)`.
 - Firestore aggregate helpers such as `fs.count()`.
 - Dynamic field masks.
@@ -182,20 +182,20 @@ These block the read implementation from being honest at production scale.
 
 ## P1 Spec Features Not Implemented
 
-| Feature                                   | Status  | Notes                                                                                                      |
-| ----------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------- |
-| `lookup one`                              | Done    | Attaches one document or `null`; supports lookup-local `cache off` / `cache run` / `cache persistent 60s`. |
-| `lookup many`                             | Done    | Attaches an array, counts lookup reads separately, and supports cache local override.                      |
-| `lookup expand`                           | Missing | Needs row multiplication and lineage.                                                                      |
-| `lookup aggregate`                        | Missing | Needs provider aggregate execution.                                                                        |
-| `fs.subcollection(parent, name, fields?)` | Missing | Needed for document-relative reads.                                                                        |
-| `fs.subcollections(parent)`               | Missing | Needed for subcollection discovery.                                                                        |
-| `unwind array`                            | Done    | Expands arrays into one row per item.                                                                      |
-| `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.                                        |
-| `union all`                               | Done    | Executes top-level branches with shared preamble aliases/settings.                                         |
-| `sort by`                                 | Done    | Local row sort before later local stages or return.                                                        |
-| `aggregate`                               | Done    | Local grouping with count/sum/avg/min/max.                                                                 |
-| Firestore aggregations                    | Missing | `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max` not implemented.                                        |
+| Feature                                   | Status  | Notes                                                                                                     |
+| ----------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------- |
+| `lookup one`                              | Done    | Optional; missing correlated values/no match attach `null`; supports lookup-local cache override.         |
+| `lookup required one`                     | Done    | Drops rows when correlated values are missing or no match exists.                                         |
+| `lookup many`                             | Done    | Optional; missing correlated values attach `[]`, counts lookup reads separately, supports cache override. |
+| `lookup aggregate`                        | Missing | Needs provider aggregate execution.                                                                       |
+| `fs.subcollection(parent, name, fields?)` | Missing | Needed for document-relative reads.                                                                       |
+| `fs.subcollections(parent)`               | Missing | Needed for subcollection discovery.                                                                       |
+| `unwind array`                            | Done    | Expands arrays into one row per item.                                                                     |
+| `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.                                       |
+| `union all`                               | Done    | Executes top-level branches with shared preamble aliases/settings.                                        |
+| `sort by`                                 | Done    | Local row sort before later local stages or return.                                                       |
+| `aggregate`                               | Done    | Local grouping with count/sum/avg/min/max.                                                                |
+| Firestore aggregations                    | Missing | `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max` not implemented.                                       |
 
 ## P2 Expression Gaps
 

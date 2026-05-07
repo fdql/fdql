@@ -118,6 +118,12 @@ const fdqlCoreSnippetByName = {
   'then lookup one cache': {
     insertText: 'then lookup one $${1:source} as ${2:row} cache ${3|run,persistent,off|}',
   },
+  'then lookup required one': {
+    insertText: 'then lookup required one $${1:source} as ${2:row}',
+  },
+  'then lookup required one cache': {
+    insertText: 'then lookup required one $${1:source} as ${2:row} cache ${3|run,persistent,off|}',
+  },
   'then sort by': {
     insertText: 'then sort by ${1:field} ${2|asc,desc|}',
   },

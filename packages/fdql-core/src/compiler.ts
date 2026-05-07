@@ -403,6 +403,16 @@ function compileLookupStage(
     );
     return null;
   }
+  if (stage.required && stage.mode !== 'one') {
+    diagnostics.push(
+      error(
+        'FDQL_INVALID_LOOKUP_REQUIRED',
+        '`lookup required` is only valid with `one`.',
+        stage.line,
+      ),
+    );
+    return null;
+  }
 
   const sourceProvider = sourceAlias.source.provider;
   const sourceDialect = providers[sourceProvider];
@@ -498,6 +508,7 @@ function compileLookupStage(
       source: sourceAlias.source,
     },
     range: stage.range,
+    required: stage.required,
     rowAlias: stage.rowAlias,
     sourceAlias: stage.sourceAlias,
   };

@@ -492,7 +492,7 @@ Rules:
 
 ## Lookup
 
-`lookup` runs provider-native work from each input row and attaches or expands the result.
+`lookup` runs provider-native work from each input row and attaches the result.
 
 ### Lookup One
 
@@ -532,25 +532,6 @@ then lookup many $roundsSource as rounds
 return fs.id(d), d.firstName, rounds
 ```
 
-### Lookup Expand
-
-Multiply rows directly:
-
-```sql
-alias $drivers = fs.collection("drivers")
-alias $roundsSource = fs.collection("rounds")
-
-from $drivers as d
-fs where d.active = true
-fs limit 100
-
-then lookup expand $roundsSource as round
-  fs where round.driverId = fs.id(d)
-  fs limit 20
-
-return fs.id(d) as driverId, fs.id(round) as roundId
-```
-
 ### Lookup Aggregate
 
 Attach an aggregate object:
@@ -573,13 +554,14 @@ return fs.id(d), d.firstName, roundStats.total, roundStats.lastRoundAt
 Rules:
 
 - Lookup clauses are provider-native.
+- Valid lookup headers are `then lookup one`, `then lookup required one`, and `then lookup many`.
 - Lookup row aliases are available inside their provider clauses.
 - Correlated references must use previous row fields or metadata functions such as `fs.id(d)`.
 - `cache run`, `cache persistent`, `cache persistent 60s`, or `cache off` on a lookup overrides `set fdql.cache` for that lookup only.
 - Lookup cache defaults to the query-level `set fdql.cache` value when omitted.
-- `lookup one` must produce at most one value or report a diagnostic.
+- `lookup one` is optional: missing correlated values skip the provider read, no match sets the lookup alias to `null`, and more than one match reports a diagnostic.
+- `lookup required one` drops rows when the correlated value is missing or no match is found, and still reports a diagnostic for more than one match.
 - `lookup many` attaches an array and preserves the input row.
-- `lookup expand` emits one row per matched value.
 - `lookup aggregate $source as outputAlias from rowAlias` attaches one object.
 - `yield` is the aggregate projection inside `lookup aggregate`; it is not the final query output.
 

@@ -550,6 +550,9 @@ async function executeLookup(
     row as EvalRows,
     Math.min(remainingBudget, lookupOneCap ?? remainingBudget),
   );
+  if (lookupHasMissingCorrelatedValue(request, runtime)) {
+    return { events: [], row: lookupRow(stage, row, []) };
+  }
   const documents: FdqlProviderRow[] = [];
   const events: FdqlExecutionEvent[] = [];
   const cachePolicy = lookupCachePolicy(stage, plan, request, runtime, options);
@@ -680,11 +683,95 @@ function lookupRow(
   stage: FdqlLookupPlanStage,
   row: RowRecord,
   documents: readonly FdqlProviderRow[],
-): RowRecord {
+): RowRecord | null {
+  if (stage.required && documents.length === 0) return null;
   return {
     ...row,
     [stage.rowAlias]: stage.mode === 'one' ? documents[0] ?? null : documents,
   };
+}
+
+function lookupHasMissingCorrelatedValue(
+  request: FdqlProviderReadRequest,
+  runtime: FdqlProviderRuntimeRegistry,
+): boolean {
+  if (!request.predicate || !request.rows) return false;
+  const context = {
+    aliases: request.aliases,
+    providers: providerDialects(runtime),
+    rows: request.rows,
+  } satisfies EvalContext;
+  return expressionHasMissingCorrelatedValue(request.predicate, request, context);
+}
+
+function expressionHasMissingCorrelatedValue(
+  expression: FdqlExpression,
+  request: FdqlProviderReadRequest,
+  context: EvalContext,
+): boolean {
+  if (expression.kind === 'field') {
+    const head = expression.path[0];
+    if (head && head !== request.rowAlias && Object.hasOwn(request.rows ?? {}, head)) {
+      return isMissingValue(evaluateExpression(expression, context));
+    }
+    return false;
+  }
+  if (expression.kind === 'call') {
+    const hasMissingArg = expression.args.some((arg) =>
+      expressionHasMissingCorrelatedValue(arg, request, context)
+    );
+    return hasMissingArg
+      || (expressionContainsCorrelatedReference(expression, request)
+        && isMissingValue(evaluateExpression(expression, context)));
+  }
+  if (expression.kind === 'array') {
+    return expression.items.some((item) =>
+      expressionHasMissingCorrelatedValue(item, request, context)
+    );
+  }
+  if (expression.kind === 'map') {
+    return expression.entries.some((entry) =>
+      expressionHasMissingCorrelatedValue(entry.value, request, context)
+    );
+  }
+  if (expression.kind === 'unary') {
+    return expressionHasMissingCorrelatedValue(expression.expression, request, context);
+  }
+  if (expression.kind === 'binary') {
+    return expressionHasMissingCorrelatedValue(expression.left, request, context)
+      || expressionHasMissingCorrelatedValue(expression.right, request, context);
+  }
+  return false;
+}
+
+function expressionContainsCorrelatedReference(
+  expression: FdqlExpression,
+  request: FdqlProviderReadRequest,
+): boolean {
+  if (!request.rows) return false;
+  if (expression.kind === 'field') {
+    const head = expression.path[0];
+    return Boolean(head && head !== request.rowAlias && Object.hasOwn(request.rows, head));
+  }
+  if (expression.kind === 'call') {
+    return expression.args.some((arg) => expressionContainsCorrelatedReference(arg, request));
+  }
+  if (expression.kind === 'array') {
+    return expression.items.some((item) => expressionContainsCorrelatedReference(item, request));
+  }
+  if (expression.kind === 'map') {
+    return expression.entries.some((entry) =>
+      expressionContainsCorrelatedReference(entry.value, request)
+    );
+  }
+  if (expression.kind === 'unary') {
+    return expressionContainsCorrelatedReference(expression.expression, request);
+  }
+  if (expression.kind === 'binary') {
+    return expressionContainsCorrelatedReference(expression.left, request)
+      || expressionContainsCorrelatedReference(expression.right, request);
+  }
+  return false;
 }
 
 function projectItems(

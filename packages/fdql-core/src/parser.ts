@@ -212,7 +212,7 @@ function parseLookup(
 ): { readonly nextIndex: number; readonly stage?: FdqlStage | undefined; } {
   const start = lines[startIndex]!;
   const match =
-    /^then\s+lookup\s+(one|many)\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+cache\s+(off|run|persistent)(?:\s+(\d+[smhd]))?)?$/i
+    /^then\s+lookup\s+(?:(required)\s+one|(one|many))\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+cache\s+(off|run|persistent)(?:\s+(\d+[smhd]))?)?$/i
       .exec(start.text);
   const clauses: FdqlLookupClause[] = [];
   let nextIndex = startIndex;
@@ -247,7 +247,7 @@ function parseLookup(
     diagnostics.push(
       error(
         'FDQL_UNKNOWN_STAGE',
-        '`lookup` must use `then lookup one|many $source as rowAlias`.',
+        '`lookup` must use `then lookup one|many $source as rowAlias` or `then lookup required one $source as rowAlias`.',
         start.line,
         start.column,
       ),
@@ -258,22 +258,23 @@ function parseLookup(
   return {
     nextIndex,
     stage: {
-      ...(match[4] ? { cache: match[4].toLowerCase() as 'off' | 'persistent' | 'run' } : {}),
-      ...(match[5] ? { cacheTtlRaw: match[5] } : {}),
+      ...(match[5] ? { cache: match[5].toLowerCase() as 'off' | 'persistent' | 'run' } : {}),
+      ...(match[6] ? { cacheTtlRaw: match[6] } : {}),
       clauses,
       column: start.column,
       kind: 'lookup',
       line: start.line,
-      mode: match[1]!.toLowerCase() as 'many' | 'one',
+      mode: match[1] ? 'one' : match[2]!.toLowerCase() as 'many' | 'one',
       range: span(start.range, endRange),
-      rowAlias: match[3]!,
-      sourceAlias: match[2]!,
+      required: Boolean(match[1]),
+      rowAlias: match[4]!,
+      sourceAlias: match[3]!,
     },
   };
 }
 
 function isMalformedLookupCache(text: string): boolean {
-  return /^then\s+lookup\s+(one|many)\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+cache(?:\s|=|$)/i
+  return /^then\s+lookup\s+(?:required\s+one|one|many)\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+cache(?:\s|=|$)/i
     .test(text);
 }
 

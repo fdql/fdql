@@ -225,7 +225,7 @@ fs order by event.schedule.startsAt desc
 fs limit 20
 then unwind entries(event.entriesById) as entry
 then unwind entry.value.drivers as eventDriver
-then take 3
+then take 4
 then lookup one $drivers as driver cache persistent
   fs where fs.id(driver) = eventDriver.steamId
 return eventDriver.steamId, driver.firstName, event.slug, event.name, event.schedule.startsAt`;
@@ -239,9 +239,10 @@ return eventDriver.steamId, driver.firstName, event.slug, event.name, event.sche
           ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
           ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
           ['steam_ben', 'Ben', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+          ['', '', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
         ],
       );
-      await expect(page.getByText('3 rows')).toBeVisible();
+      await expect(page.getByText('4 rows')).toBeVisible();
       await expect(page.getByText('3 reads')).toBeVisible();
       await expect(page.getByText('3 scanned')).toBeVisible();
       await expect(page.getByText('1 cache hit')).toBeVisible();
@@ -257,6 +258,7 @@ return eventDriver.steamId, driver.firstName, event.slug, event.name, event.sche
           ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
           ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
           ['steam_ben', 'Ben', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+          ['', '', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
         ],
       );
       await expect(page.getByText('3 cache hits')).toBeVisible();
@@ -277,9 +279,10 @@ return eventDriver.steamId, driver.firstName, event.slug, event.name, event.sche
           ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
           ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
           ['steam_ben', 'Ben', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+          ['', '', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
         ],
       );
-      await expect(page.getByText('3 rows')).toBeVisible();
+      await expect(page.getByText('4 rows')).toBeVisible();
       await expect(page.getByText('3 reads')).toBeVisible();
       await expect(page.getByText('1 cache hit')).toBeVisible();
       await expect(page.getByText('2 cache misses')).toBeVisible();
@@ -290,6 +293,37 @@ return eventDriver.steamId, driver.firstName, event.slug, event.name, event.sche
       await page.getByRole('tab', { name: 'JSON' }).click();
       await expect(page.getByLabel('FDQL JSON results')).toHaveValue(/"steamId": "steam_ada"/);
       await page.getByRole('tab', { name: 'Table' }).click();
+    });
+
+    await test.step('required lookup one drops missing correlated rows', async () => {
+      await runFdql(
+        page,
+        `set fdql.cache = off
+
+alias $events = fs.collection("${data.events}", ["name", "slug", "schedule", "entriesById"])
+alias $drivers = fs.collection("${data.eventDrivers}", ["firstName", "steamId"])
+
+from $events as event
+fs order by event.schedule.startsAt desc
+fs limit 20
+then unwind entries(event.entriesById) as entry
+then unwind entry.value.drivers as eventDriver
+then take 4
+then lookup required one $drivers as driver
+  fs where fs.id(driver) = eventDriver.steamId
+return eventDriver.steamId, driver.firstName, event.slug, event.name, event.schedule.startsAt`,
+      );
+
+      await expectFdqlTable(
+        page,
+        ['steamId', 'firstName', 'slug', 'name', 'startsAt'],
+        [
+          ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+          ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+          ['steam_ben', 'Ben', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+        ],
+      );
+      await expect(page.getByText('3 rows')).toBeVisible();
     });
 
     await test.step('duplicate fs limit is an issue and clears stale rows', async () => {
@@ -359,6 +393,7 @@ async function seedFdqlReadData(): Promise<{
             { steamId: 'steam_ada' },
             { steamId: 'steam_ada' },
             { steamId: 'steam_ben' },
+            {},
           ],
         },
       },

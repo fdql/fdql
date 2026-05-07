@@ -100,7 +100,7 @@ return fs.id(d) as id, team.name as teamName`,
     });
   });
 
-  it('reports missing correlated lookup values before Firestore receives them', async () => {
+  it('keeps optional lookup rows when correlated values are missing', async () => {
     const driversQuery = fakeQuery([
       fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini' }),
     ]);
@@ -123,16 +123,11 @@ return fs.id(d) as id, team.name as teamName`,
     });
 
     expect(teamsQuery.where).not.toHaveBeenCalled();
-    expect(result.rows).toEqual([]);
-    expect(result.diagnostics).toContainEqual(
-      expect.objectContaining({
-        column: 26,
-        code: 'FDQL_EXECUTION_FAILED',
-        line: 6,
-        message: expect.stringContaining('d.teamId'),
-      }),
-    );
-    expect(result.diagnostics[0]?.message).toContain('then filter d.teamId');
+    expect(result).toMatchObject({
+      diagnostics: [],
+      rows: [{ id: 'drv_1' }],
+      stats: { lookupReads: 0, reads: 1, rowsOutput: 1, rowsScanned: 1 },
+    });
   });
 
   it('dedupes repeated correlated lookup reads with lookup-local run cache', async () => {

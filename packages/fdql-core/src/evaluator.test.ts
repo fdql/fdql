@@ -6,6 +6,7 @@ import {
   geoPointValue,
   mapValue,
   missingValue,
+  nullValue,
   numberValue,
   stringValue,
   timestampValue,
@@ -21,6 +22,19 @@ describe('FDQL evaluator', () => {
     expect(
       evaluateExpression(parse('mapGet(d.metadata, "unknown")'), {
         rows: { d: { metadata: mapValue({ known: numberValue(1) }) } },
+      }),
+    ).toEqual(missingValue);
+  });
+
+  it('returns null for null row bindings', () => {
+    expect(
+      evaluateExpression(parse('team'), {
+        rows: { team: null },
+      }),
+    ).toEqual(nullValue);
+    expect(
+      evaluateExpression(parse('team.name'), {
+        rows: { team: null },
       }),
     ).toEqual(missingValue);
   });

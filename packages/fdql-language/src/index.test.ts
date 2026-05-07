@@ -57,6 +57,7 @@ describe('FDQL language service', () => {
         'then filter',
         'then lookup one',
         'then lookup one cache',
+        'then lookup required one',
         'fs where',
       ]),
     );
@@ -92,9 +93,17 @@ then filter `;
     const source = `alias $teams = fs.collection("teams")
 from $teams as t
 then lookup one $teams as team `;
+    const requiredSource = `alias $teams = fs.collection("teams")
+from $teams as t
+then lookup required one $teams as team `;
     const cacheSource = `${source}cache `;
 
     expect(completionLabelsAtEnd(service, source)).toEqual([
+      'cache run',
+      'cache persistent',
+      'cache off',
+    ]);
+    expect(completionLabelsAtEnd(service, requiredSource)).toEqual([
       'cache run',
       'cache persistent',
       'cache off',
