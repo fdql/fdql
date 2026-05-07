@@ -30,7 +30,7 @@ import { toggleSet, TREE_VALUE_CHILD_BATCH_SIZE } from '../firestore/resultModel
 import { ResultTreeView } from '../firestore/ResultTreeView.tsx';
 import { formatDuration } from '../js-query/duration.ts';
 
-export const FDQL_SAMPLE_SOURCE = `set readBudget = 5000
+export const FDQL_SAMPLE_SOURCE = `set fdql.readBudget = 5000
 
 alias $orders = fs.collection("orders", ["status", "total"])
 

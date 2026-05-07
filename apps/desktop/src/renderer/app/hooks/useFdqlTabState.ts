@@ -14,7 +14,7 @@ import { useAppCoreSelector } from '../../app-core/shared/reactStore.ts';
 import { useRepositories } from '../RepositoryProvider.tsx';
 import { activePath, tabActions, tabsStore, type WorkspaceTab } from '../stores/tabsStore.ts';
 
-const DEFAULT_FDQL_SOURCE = `set readBudget = 5000
+const DEFAULT_FDQL_SOURCE = `set fdql.readBudget = 5000
 
 alias $orders = fs.collection("orders", ["status", "total"])
 

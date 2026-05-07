@@ -32,10 +32,10 @@ Scope: read features only. Write operations are out of this tracker. This docume
 ## Implemented Read Syntax
 
 ```fdql
-set readBudget = 5000
-set timeout = "60s"
-set cache = "off"
-set allowUnboundedReads = false
+set fdql.readBudget = 5000
+set fdql.timeout = "60s"
+set fdql.cache = "off"
+set fdql.allowUnboundedReads = false
 
 alias $drivers = fs.project("prod").db("db2").collection("drivers", ["firstName"])
 alias $orders = fs.collectionGroup("orders", [])
@@ -117,7 +117,7 @@ These block the read implementation from being honest at production scale.
 | Read budget in live repo         | Done    | Runtime read requests cap Firestore page reads before docs are fetched.                                                          |
 | Cancel in live repo              | Partial | Cancel is observed between pages/rows, but not while a Firestore page request is already in flight.                              |
 | Timeout in live repo             | Partial | Same issue as cancel.                                                                                                            |
-| Cache modes                      | Missing | `set cache = ...` parses/compiles, but runtime does not dedupe or cache reads.                                                   |
+| Cache modes                      | Missing | `set fdql.cache = ...` parses/compiles, but runtime does not dedupe or cache reads.                                              |
 | Provider query validation parity | Partial | Firestore dialect validates simple provider shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.             |
 | Field path fidelity              | Partial | Live field masks split on `.`, so literal dotted field names are not represented yet. Need explicit field-path segment handling. |
 

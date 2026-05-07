@@ -4,6 +4,7 @@ import {
   type FdqlProviderEvaluationContext,
   type FdqlProviderOrderByValidationInput,
   type FdqlProviderPredicateValidationInput,
+  type FdqlProviderSettingResolveInput,
   type FdqlProviderSourceAlias,
   type FdqlProviderSourceResolveInput,
   providerContextValue,
@@ -64,6 +65,9 @@ export const firestoreProviderDialect: FdqlProviderDialect = {
   resolveSourceAlias(input) {
     return resolveFirestoreSourceAlias(input);
   },
+  resolveSetting(input) {
+    return resolveFirestoreSetting(input);
+  },
   validateOrderBy(input) {
     validateFirestoreOrderBy(input);
   },
@@ -80,7 +84,7 @@ function resolveFirestoreSourceAlias(
   const parts = declaration.value.name.split('.').slice(1);
   const args = [...declaration.value.args];
   let projectId = stringContextValue(input.defaultProviderContext['fs']?.['projectId']);
-  let databaseId: string | undefined;
+  let databaseId = stringContextValue(input.defaultProviderContext['fs']?.['databaseId']);
   let source: FdqlProviderSourceAlias | null = null;
 
   for (const part of parts) {
@@ -115,7 +119,7 @@ function resolveFirestoreSourceAlias(
         diagnostics.push(
           error(
             'FDQL_MISSING_PROVIDER_CONTEXT',
-            'fs source needs fs.project(...) or defaultProviderContext.fs.projectId.',
+            'fs source needs fs.project(...), set fs.projectId, or defaultProviderContext.fs.projectId.',
             declaration.line,
           ),
         );
@@ -151,6 +155,30 @@ function resolveFirestoreSourceAlias(
     );
   }
   return source;
+}
+
+function resolveFirestoreSetting(
+  input: FdqlProviderSettingResolveInput,
+): Readonly<Record<string, unknown>> | null {
+  const value = stringScalar(input.value);
+  if (input.key === 'projectId') {
+    if (value) return { projectId: value };
+    input.diagnostics.push(
+      error('FDQL_INVALID_SET', 'Invalid value for set fs.projectId.', input.line),
+    );
+    return null;
+  }
+  if (input.key === 'databaseId') {
+    if (value) return { databaseId: value };
+    input.diagnostics.push(
+      error('FDQL_INVALID_SET', 'Invalid value for set fs.databaseId.', input.line),
+    );
+    return null;
+  }
+  input.diagnostics.push(
+    error('FDQL_UNKNOWN_SET_KEY', `Unknown set key fs.${input.key}.`, input.line),
+  );
+  return null;
 }
 
 function stringContextValue(value: unknown): string | undefined {

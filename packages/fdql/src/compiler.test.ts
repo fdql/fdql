@@ -78,7 +78,44 @@ return d.firstName`,
     );
   });
 
-  it('rejects unknown set keys', () => {
+  it('plans namespaced engine and provider settings', () => {
+    const result = compileFdqlRead(
+      `set fdql.readBudget = 7
+set fdql.timeout = "2s"
+set fdql.cache = "run"
+set fdql.allowUnboundedReads = true
+set fs.projectId = "query-project"
+set fs.databaseId = "query-db"
+alias $drivers = fs.collection("drivers")
+from $drivers as d
+return d.firstName`,
+      { providers: [firestoreProviderDialect] },
+    );
+
+    expect(result).toMatchObject({
+      diagnostics: [],
+      ok: true,
+      plan: {
+        provider: {
+          source: {
+            target: {
+              collectionPath: 'drivers',
+              databaseId: 'query-db',
+              projectId: 'query-project',
+            },
+          },
+        },
+        settings: {
+          allowUnboundedReads: true,
+          cache: 'run',
+          readBudget: 7,
+          timeoutMs: 2000,
+        },
+      },
+    });
+  });
+
+  it('rejects unscoped set keys', () => {
     const result = compileFdqlRead(
       `set pageSize = 100
 alias $drivers = fs.collection("drivers")
@@ -90,13 +127,69 @@ return d.firstName`,
 
     expect(result).toMatchObject({ ok: false });
     expect(result.diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'FDQL_UNKNOWN_SET_KEY' }),
+      expect.objectContaining({ code: 'FDQL_INVALID_SET_KEY' }),
+    );
+  });
+
+  it('rejects unknown namespaced set keys', () => {
+    const result = compileFdqlRead(
+      `set fdql.pageSize = 100
+set fb.region = "us"
+set fs.region = "us"
+alias $drivers = fs.collection("drivers")
+from $drivers as d
+fs limit 1
+return d.firstName`,
+      options,
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'FDQL_UNKNOWN_SET_KEY', line: 1 }),
+        expect.objectContaining({ code: 'FDQL_UNKNOWN_NAMESPACE', line: 2 }),
+        expect.objectContaining({ code: 'FDQL_UNKNOWN_SET_KEY', line: 3 }),
+      ]),
+    );
+  });
+
+  it('rejects duplicate set keys', () => {
+    const result = compileFdqlRead(
+      `set fdql.readBudget = 10
+set fdql.readBudget = 20
+alias $drivers = fs.collection("drivers")
+from $drivers as d
+fs limit 1
+return d.firstName`,
+      options,
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_DUPLICATE_SET', line: 2 }),
+    );
+  });
+
+  it('rejects set values that are not literals, arrays, or maps', () => {
+    const result = compileFdqlRead(
+      `set fdql.readBudget = count()
+alias $drivers = fs.collection("drivers")
+from $drivers as d
+fs limit 1
+return d.firstName`,
+      options,
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 1 }),
     );
   });
 
   it('rejects invalid read bounds', () => {
     const result = compileFdqlRead(
-      `set readBudget = 0
+      `set fdql.readBudget = 0
+set fdql.timeout = "soon"
 alias $drivers = fs.collection("drivers")
 from $drivers as d
 fs limit 0
@@ -107,7 +200,8 @@ return d.firstName`,
     expect(result).toMatchObject({ ok: false });
     expect(result.diagnostics).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: 'FDQL_INVALID_SET' }),
+        expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 1 }),
+        expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 2 }),
         expect.objectContaining({ code: 'FDQL_PARSE_ERROR' }),
       ]),
     );
@@ -334,7 +428,7 @@ return d.lastName`,
 
   it('rejects unknown return function namespaces', () => {
     const result = compileFdqlRead(
-      `set readBudget = 5000
+      `set fdql.readBudget = 5000
 
 alias $orders = fs.collection("public")
 from $orders as o
@@ -396,7 +490,9 @@ return d.firstName`,
 
   it('accepts explicit Firestore projects without provider context', () => {
     const result = compileFdqlRead(
-      `alias $drivers = fs.project("prod").collection("drivers")
+      `set fs.projectId = "default"
+set fs.databaseId = "default-db"
+alias $drivers = fs.project("prod").db("db2").collection("drivers")
 from $drivers as d
 fs limit 1
 return fs.id(d)`,
@@ -409,7 +505,7 @@ return fs.id(d)`,
       plan: {
         provider: {
           source: {
-            target: { projectId: 'prod' },
+            target: { databaseId: 'db2', projectId: 'prod' },
           },
         },
       },

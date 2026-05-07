@@ -38,6 +38,29 @@ describe('Firestore FDQL dialect', () => {
     });
   });
 
+  it('resolves Firestore provider settings', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+
+    expect(
+      firestoreProviderDialect.resolveSetting?.({
+        diagnostics,
+        key: 'projectId',
+        line: 1,
+        value: stringValue('query-project'),
+      }),
+    ).toEqual({ projectId: 'query-project' });
+    expect(
+      firestoreProviderDialect.resolveSetting?.({
+        diagnostics,
+        key: 'databaseId',
+        line: 2,
+        value: stringValue('query-db'),
+      }),
+    ).toEqual({ databaseId: 'query-db' });
+
+    expect(diagnostics).toEqual([]);
+  });
+
   it('resolves project and database collection group sources', () => {
     const diagnostics: FdqlDiagnostic[] = [];
     const source = firestoreProviderDialect.resolveSourceAlias({

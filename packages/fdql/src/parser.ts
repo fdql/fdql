@@ -50,6 +50,7 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
   const settings: FdqlSetDeclaration[] = [];
   const stages: FdqlStage[] = [];
   let from: FdqlFromStage | undefined;
+  let seenAlias = false;
   let seenPipeline = false;
   const lines = createSourceLines(source);
 
@@ -60,6 +61,12 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
       if (seenPipeline) {
         diagnostics.push(
           error('FDQL_INVALID_SET', '`set` must appear before the pipeline.', line, column),
+        );
+        continue;
+      }
+      if (seenAlias) {
+        diagnostics.push(
+          error('FDQL_INVALID_SET', '`set` must appear before `alias`.', line, column),
         );
         continue;
       }
@@ -81,6 +88,7 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
       }
       const alias = parseAlias(text, line, column, range, diagnostics);
       if (alias) aliases.push(alias);
+      seenAlias = true;
       continue;
     }
     seenPipeline = true;

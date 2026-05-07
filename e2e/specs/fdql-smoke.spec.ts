@@ -42,7 +42,7 @@ return fs.id(o) as id`,
     await test.step('field projection shows exact result cells and result views', async () => {
       await runFdql(
         page,
-        `set readBudget = 5000
+        `set fdql.readBudget = 5000
 
 alias $versions = fs.collection("public-versions", ["version"])
 
@@ -69,7 +69,7 @@ return fs.id(v) as id, v.version`,
     await test.step('read budget stops after partial rows', async () => {
       await runFdql(
         page,
-        `set readBudget = 1
+        `set fdql.readBudget = 1
 
 alias $orders = fs.collection("orders", [])
 

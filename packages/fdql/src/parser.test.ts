@@ -5,8 +5,8 @@ import type { FdqlAst, FdqlProgram, FdqlUnionProgram } from './types.ts';
 const validFixtures: readonly { readonly name: string; readonly source: string; }[] = [
   {
     name: 'basic bounded read',
-    source: `set readBudget = 5000
-set timeout = "60s"
+    source: `set fdql.readBudget = 5000
+set fdql.timeout = "60s"
 
 alias $drivers = fs.collection("drivers", ["firstName"])
 
@@ -169,6 +169,18 @@ return d.firstName`);
     expect(result).toMatchObject({ ok: false });
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({ code: 'FDQL_PARSE_ERROR', column: 3, line: 2 }),
+    );
+  });
+
+  it('rejects set declarations after aliases', () => {
+    const result = parseFdql(`alias $drivers = fs.collection("drivers")
+set fdql.readBudget = 5000
+from $drivers as d
+return d.firstName`);
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 2 }),
     );
   });
 

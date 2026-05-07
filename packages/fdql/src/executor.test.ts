@@ -131,7 +131,7 @@ return fs.id(o) as id, o.status`);
   });
 
   it('stops at the read budget without over-reading rows', async () => {
-    const events = await run(`set readBudget = 1
+    const events = await run(`set fdql.readBudget = 1
 alias $drivers = fs.collection("drivers", ["firstName"])
 
 from $drivers as d
@@ -149,7 +149,7 @@ return fs.id(d) as id, d.firstName`);
 
   it('emits cancelled when the signal is aborted', async () => {
     const result = compileFdqlRead(
-      `set allowUnboundedReads = true
+      `set fdql.allowUnboundedReads = true
 alias $drivers = fs.collection("drivers")
 from $drivers as d
 return d.firstName`,

@@ -49,6 +49,15 @@ export interface FdqlProviderOrderByValidationInput {
   readonly rowAlias: string;
 }
 
+export interface FdqlProviderSettingResolveInput {
+  readonly diagnostics: FdqlDiagnostic[];
+  readonly key: string;
+  readonly line: number;
+  readonly value: FdqlValue;
+}
+
+export type FdqlProviderSettingResolution = Readonly<Record<string, unknown>>;
+
 export interface FdqlProviderCallEvaluationInput {
   readonly args: readonly FdqlExpression[];
   readonly context: FdqlProviderEvaluationContext;
@@ -79,6 +88,9 @@ export interface FdqlProviderDialect {
   resolveSourceAlias: (
     input: FdqlProviderSourceResolveInput,
   ) => FdqlProviderSourceAlias | null;
+  resolveSetting?:
+    | ((input: FdqlProviderSettingResolveInput) => FdqlProviderSettingResolution | null)
+    | undefined;
   validateOrderBy: (input: FdqlProviderOrderByValidationInput) => void;
   validateWhere: (input: FdqlProviderPredicateValidationInput) => void;
 }

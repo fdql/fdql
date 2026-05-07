@@ -148,9 +148,11 @@ pipeline
 Rules:
 
 - `set` changes engine context values for the query.
-- `set` is only valid before the first pipeline or write stage.
+- `set` is only valid before aliases, the first pipeline, or a write stage.
+- `set` keys must use `namespace.key` syntax.
 - `set` values are not row fields and are not emitted in results.
 - `set` keys are not visible as `$` aliases.
+- `set` values must be literals, arrays, or maps.
 - Aliases cannot reference `set` values. Declare an `alias` for values used in query expressions.
 - The write `set` clause in `fs update` is not a query preamble declaration.
 
@@ -184,8 +186,8 @@ Rules:
 ## Basic Shape
 
 ```sql
-set readBudget = 5000
-set timeout = "60s"
+set fdql.readBudget = 5000
+set fdql.timeout = "60s"
 
 alias $drivers = fs.collection("drivers", ["firstName"])
 
@@ -1099,26 +1101,26 @@ Rules:
 Write controls use query preamble `set` declarations.
 
 ```sql
-set readBudget = 5000
-set writeBudget = 1000
-set timeout = "60s"
-set writeBatchSize = 400
-set writeMode = "batch"
-set stopOnWriteError = false
+set fdql.readBudget = 5000
+set fdql.writeBudget = 1000
+set fdql.timeout = "60s"
+set fdql.writeBatchSize = 400
+set fdql.writeMode = "batch"
+set fdql.stopOnWriteError = false
 ```
 
 Rules:
 
-- `readBudget` caps source reads.
-- `writeBudget` caps attempted write operations.
-- `timeout` stops reads and writes with a clear stopped status.
-- `writeBatchSize` controls commit chunking where the runtime supports batches.
-- `writeMode` can be `"batch"` or `"bulkWriter"`.
+- `fdql.readBudget` caps source reads.
+- `fdql.writeBudget` caps attempted write operations.
+- `fdql.timeout` stops reads and writes with a clear stopped status.
+- `fdql.writeBatchSize` controls commit chunking where the runtime supports batches.
+- `fdql.writeMode` can be `"batch"` or `"bulkWriter"`.
 - `batch` commits sequential Firestore write batches.
 - `bulkWriter` uses provider/runtime controlled concurrency and retry behavior when available.
 - Batch size must respect Firestore limits.
-- `stopOnWriteError = true` stops after the first write failure.
-- `stopOnWriteError = false` continues where the runtime can safely continue.
+- `fdql.stopOnWriteError = true` stops after the first write failure.
+- `fdql.stopOnWriteError = false` continues where the runtime can safely continue.
 - Partial completion is possible after any committed batch or successful BulkWriter write.
 - Stats must show read pages, write batches, attempted writes, committed writes, failed writes, skipped writes, retries, and stop reason.
 
@@ -1129,10 +1131,10 @@ Execution controls come from Firebase Desk runtime context and optional pre-pipe
 Example query:
 
 ```sql
-set readBudget = 5000
-set timeout = "60s"
-set cache = "run"
-set allowUnboundedReads = false
+set fdql.readBudget = 5000
+set fdql.timeout = "60s"
+set fdql.cache = "run"
+set fdql.allowUnboundedReads = false
 
 alias $events = fs.collection("events")
 
@@ -1147,10 +1149,11 @@ Rules:
 - `set` overrides runtime context defaults for one query.
 - `set` must be declared before aliases and before the pipeline.
 - `set` cannot appear after `from`, `then`, `lookup`, `unwind`, `aggregate`, `return`, or a write command.
-- Supported `set` keys are engine-defined.
-- Initial read keys: `readBudget`, `timeout`, `cache`, and `allowUnboundedReads`.
-- Initial write keys: `writeBudget`, `writeBatchSize`, `writeMode`, and `stopOnWriteError`.
+- Supported `set` keys are namespace-defined.
+- Initial read keys: `fdql.readBudget`, `fdql.timeout`, `fdql.cache`, `fdql.allowUnboundedReads`, `fs.projectId`, and `fs.databaseId`.
+- Initial write keys: `fdql.writeBudget`, `fdql.writeBatchSize`, `fdql.writeMode`, and `fdql.stopOnWriteError`.
 - Unknown `set` keys are diagnostics, not ignored.
+- Unscoped `set` keys are invalid; use `namespace.key`.
 - `set` values do not need `$` prefixes because they are not aliases.
 - Read budget, timeout, cache mode, and provider scan permissions are internal execution context values.
 - Read budget stops execution and returns partial results with a clear stopped state.

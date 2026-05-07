@@ -40,6 +40,11 @@ const defaultSettings: FdqlExecutionSettings = {
 
 type ResolvedAliasValue = FdqlResolvedAliasValue;
 
+interface ResolvedPreambleSettings {
+  readonly providerContext: FdqlDefaultProviderContext;
+  readonly settings: FdqlExecutionSettings;
+}
+
 export function compileFdqlRead(
   source: string,
   options: FdqlCompileOptions,
@@ -54,7 +59,7 @@ function providerRegistry(options: FdqlCompileOptions): FdqlProviderDialectRegis
 }
 
 function defaultProviderContext(options: FdqlCompileOptions): FdqlDefaultProviderContext {
-  return options.defaultProviderContext ?? {};
+  return cloneProviderContext(options.defaultProviderContext ?? {});
 }
 
 function compileUnionRead(
@@ -97,7 +102,6 @@ function compileSingleFdqlRead(
   options: FdqlCompileOptions,
 ): FdqlReadCompileResult {
   const providers = providerRegistry(options);
-  const providerContext = defaultProviderContext(options);
   const parsed = parseFdql(source);
   const diagnostics: FdqlDiagnostic[] = [...parsed.diagnostics];
   const ast = parsed.ast;
@@ -107,8 +111,8 @@ function compileSingleFdqlRead(
     return { ast, diagnostics, ok: false };
   }
 
-  const settings = resolveSettings(ast.settings, options, diagnostics);
-  const aliases = resolveAliases(ast.aliases, providerContext, providers, diagnostics);
+  const preamble = resolveSettings(ast.settings, options, providers, diagnostics);
+  const aliases = resolveAliases(ast.aliases, preamble.providerContext, providers, diagnostics);
   const scalarAliases = Object.fromEntries(
     Object.entries(aliases).flatMap(([name, value]) =>
       value.kind === 'value' ? [[name, value.value] as const] : []
@@ -278,12 +282,12 @@ function compileSingleFdqlRead(
   }
 
   if (
-    !providerLimit && !settings.allowUnboundedReads
+    !providerLimit && !preamble.settings.allowUnboundedReads
     && !sourceDialect?.hasBoundedPredicate?.(providerPredicate, rowAlias)
   ) {
     diagnostics.push(error(
       'FDQL_UNBOUNDED_PROVIDER_READ',
-      'Add provider limit, query by document id, or set allowUnboundedReads = true.',
+      'Add provider limit, query by document id, or set fdql.allowUnboundedReads = true.',
       ast.from.line,
     ));
   }
@@ -310,7 +314,7 @@ function compileSingleFdqlRead(
       },
       returnStage,
       rowAlias,
-      settings,
+      settings: preamble.settings,
     },
   };
 }
@@ -470,40 +474,164 @@ function validateStageProvider(
 function resolveSettings(
   declarations: readonly FdqlSetDeclaration[],
   options: FdqlCompileOptions,
+  providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
-): FdqlExecutionSettings {
-  const settings = { ...defaultSettings, ...options.executionDefaults };
-  const keys = new Set(['allowUnboundedReads', 'cache', 'readBudget', 'timeout']);
+): ResolvedPreambleSettings {
+  let settings: FdqlExecutionSettings = { ...defaultSettings, ...options.executionDefaults };
+  let providerContext = defaultProviderContext(options);
+  const seenKeys = new Map<string, number>();
   for (const declaration of declarations) {
-    if (!keys.has(declaration.key)) {
+    const parsedKey = parseSettingKey(declaration.key, declaration.line, diagnostics);
+    if (!parsedKey) continue;
+    const firstLine = seenKeys.get(declaration.key);
+    if (firstLine !== undefined) {
       diagnostics.push(
-        error('FDQL_UNKNOWN_SET_KEY', `Unknown set key ${declaration.key}.`, declaration.line),
+        error(
+          'FDQL_DUPLICATE_SET',
+          `set ${declaration.key} can only appear once. First used on line ${firstLine}.`,
+          declaration.line,
+        ),
       );
       continue;
     }
-    const value = scalarValue(evaluateExpression(declaration.value));
-    if (
-      declaration.key === 'readBudget'
-      && typeof value === 'number'
-      && Number.isInteger(value)
-      && value > 0
-    ) {
-      settings.readBudget = value;
-    } else if (declaration.key === 'timeout' && typeof value === 'string') {
-      settings.timeoutMs = parseDurationMs(value);
-    } else if (
-      declaration.key === 'cache' && (value === 'off' || value === 'run' || value === 'session')
-    ) {
-      settings.cache = value;
-    } else if (declaration.key === 'allowUnboundedReads' && typeof value === 'boolean') {
-      settings.allowUnboundedReads = value;
-    } else {
+    seenKeys.set(declaration.key, declaration.line);
+    const value = evaluateSetValue(declaration, diagnostics);
+    if (!value) continue;
+    if (parsedKey.namespace === 'fdql') {
+      settings = applyFdqlSetting(parsedKey.key, value, settings, declaration.line, diagnostics);
+      continue;
+    }
+    const provider = providers[parsedKey.namespace];
+    if (!provider) {
       diagnostics.push(
-        error('FDQL_INVALID_SET', `Invalid value for set ${declaration.key}.`, declaration.line),
+        error(
+          'FDQL_UNKNOWN_NAMESPACE',
+          `Unknown provider namespace ${parsedKey.namespace}.`,
+          declaration.line,
+        ),
+      );
+      continue;
+    }
+    const resolved = provider.resolveSetting?.({
+      diagnostics,
+      key: parsedKey.key,
+      line: declaration.line,
+      value,
+    });
+    if (resolved) {
+      providerContext = mergeProviderContext(providerContext, parsedKey.namespace, resolved);
+    } else if (!provider.resolveSetting) {
+      diagnostics.push(
+        error('FDQL_UNKNOWN_SET_KEY', `Unknown set key ${declaration.key}.`, declaration.line),
       );
     }
   }
+  return { providerContext, settings };
+}
+
+function parseSettingKey(
+  key: string,
+  line: number,
+  diagnostics: FdqlDiagnostic[],
+): { readonly key: string; readonly namespace: string; } | null {
+  const match = /^([A-Za-z][A-Za-z0-9]*)\.([A-Za-z][A-Za-z0-9]*)$/.exec(key);
+  if (!match) {
+    diagnostics.push(
+      error('FDQL_INVALID_SET_KEY', 'set keys must use namespace.key syntax.', line),
+    );
+    return null;
+  }
+  return { key: match[2]!, namespace: match[1]! };
+}
+
+function evaluateSetValue(
+  declaration: FdqlSetDeclaration,
+  diagnostics: FdqlDiagnostic[],
+): FdqlValue | null {
+  if (!isSetValueExpression(declaration.value)) {
+    diagnostics.push(
+      error(
+        'FDQL_INVALID_SET',
+        `set ${declaration.key} values must be literals, arrays, or maps.`,
+        declaration.line,
+      ),
+    );
+    return null;
+  }
+  if (declaration.value.kind === 'literal') return literalToValue(declaration.value.value);
+  if (declaration.value.kind === 'array') {
+    return arrayValue(
+      declaration.value.items.map((item) =>
+        evaluateSetValue({ ...declaration, value: item }, diagnostics) ?? missingValue
+      ),
+    );
+  }
+  if (declaration.value.kind === 'map') {
+    return mapValue(Object.fromEntries(
+      declaration.value.entries.map((entry) => [
+        entry.key,
+        evaluateSetValue({ ...declaration, value: entry.value }, diagnostics) ?? missingValue,
+      ]),
+    ));
+  }
+  return null;
+}
+
+function isSetValueExpression(expression: FdqlExpression): boolean {
+  if (expression.kind === 'literal') return true;
+  if (expression.kind === 'array') return expression.items.every(isSetValueExpression);
+  if (expression.kind === 'map') {
+    return expression.entries.every((entry) => isSetValueExpression(entry.value));
+  }
+  return false;
+}
+
+function applyFdqlSetting(
+  key: string,
+  value: FdqlValue,
+  settings: FdqlExecutionSettings,
+  line: number,
+  diagnostics: FdqlDiagnostic[],
+): FdqlExecutionSettings {
+  const scalar = scalarValue(value);
+  if (
+    key === 'readBudget' && typeof scalar === 'number' && Number.isInteger(scalar) && scalar > 0
+  ) {
+    return { ...settings, readBudget: scalar };
+  } else if (key === 'timeout' && typeof scalar === 'string') {
+    const timeoutMs = parseDurationMs(scalar);
+    if (timeoutMs) return { ...settings, timeoutMs };
+    else diagnostics.push(error('FDQL_INVALID_SET', 'Invalid value for set fdql.timeout.', line));
+  } else if (key === 'cache' && (scalar === 'off' || scalar === 'run' || scalar === 'session')) {
+    return { ...settings, cache: scalar };
+  } else if (key === 'allowUnboundedReads' && typeof scalar === 'boolean') {
+    return { ...settings, allowUnboundedReads: scalar };
+  } else if (!['allowUnboundedReads', 'cache', 'readBudget', 'timeout'].includes(key)) {
+    diagnostics.push(error('FDQL_UNKNOWN_SET_KEY', `Unknown set key fdql.${key}.`, line));
+  } else {
+    diagnostics.push(error('FDQL_INVALID_SET', `Invalid value for set fdql.${key}.`, line));
+  }
   return settings;
+}
+
+function cloneProviderContext(context: FdqlDefaultProviderContext): FdqlDefaultProviderContext {
+  return Object.fromEntries(
+    Object.entries(context).map(([namespace, values]) => [namespace, { ...values }]),
+  );
+}
+
+function mergeProviderContext(
+  context: FdqlDefaultProviderContext,
+  namespace: string,
+  values: Readonly<Record<string, unknown>>,
+): FdqlDefaultProviderContext {
+  return {
+    ...context,
+    [namespace]: {
+      ...context[namespace],
+      ...values,
+    },
+  };
 }
 
 function resolveAliases(
@@ -678,10 +806,11 @@ function validateExpressionCall(
   diagnostics.push(error('FDQL_UNKNOWN_FUNCTION', `Unknown FDQL function ${name}.`, line));
 }
 
-function parseDurationMs(value: string): number {
+function parseDurationMs(value: string): number | undefined {
   const match = /^(\d+)(ms|s|m)?$/.exec(value.trim());
-  if (!match) return defaultSettings.timeoutMs;
+  if (!match) return undefined;
   const amount = Number(match[1]);
+  if (!Number.isInteger(amount) || amount <= 0) return undefined;
   if (match[2] === 'ms') return amount;
   if (match[2] === 'm') return amount * 60_000;
   return amount * 1000;
