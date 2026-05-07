@@ -1,3 +1,4 @@
+import { fdqlCoreLanguageMetadata } from '@firebase-desk/fdql-core';
 import { describe, expect, it } from 'vitest';
 import { createFdqlLanguageService, FDQL_LANGUAGE_ID } from './index.ts';
 
@@ -18,6 +19,23 @@ describe('FDQL language service', () => {
     );
     expect(labels(service.metadata.expressionFunctions)).toEqual(
       expect.arrayContaining(['timestamp', 'fs.id']),
+    );
+  });
+
+  it('composes core metadata from fdql-core', () => {
+    const service = createFdqlLanguageService();
+
+    expect(labels(service.metadata.settings)).toEqual(
+      expect.arrayContaining(names(fdqlCoreLanguageMetadata.settings)),
+    );
+    expect(labels(service.metadata.expressionFunctions)).toEqual(
+      expect.arrayContaining(names(fdqlCoreLanguageMetadata.expressionFunctions)),
+    );
+    expect(labels(service.metadata.snippets)).toEqual(
+      expect.arrayContaining(names(fdqlCoreLanguageMetadata.snippets)),
+    );
+    expect(service.metadata.keywords).toEqual(
+      expect.arrayContaining([...fdqlCoreLanguageMetadata.keywords]),
     );
   });
 
@@ -87,6 +105,10 @@ function completionLabels(
   return labels(service.getCompletions({ column, line, source }));
 }
 
-function labels(items: readonly { readonly label: string; }[]): readonly string[] {
+function labels(items: readonly { readonly label: string; }[]): string[] {
   return items.map((item) => item.label);
+}
+
+function names(items: readonly { readonly name: string; }[]): string[] {
+  return items.map((item) => item.name);
 }

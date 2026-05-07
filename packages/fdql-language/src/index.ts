@@ -1,5 +1,8 @@
 import { builtinProviderDialects } from '@firebase-desk/fdql';
-import { compileFdqlRead as compileFdqlReadCore } from '@firebase-desk/fdql-core';
+import {
+  compileFdqlRead as compileFdqlReadCore,
+  fdqlCoreLanguageMetadata,
+} from '@firebase-desk/fdql-core';
 import type {
   FdqlCompileOptions,
   FdqlDefaultProviderContext,
@@ -66,81 +69,6 @@ export interface FdqlLanguageDiagnosticOptions {
   readonly defaultProviderContext?: FdqlDefaultProviderContext | undefined;
 }
 
-const coreKeywords = [
-  'alias',
-  'and',
-  'as',
-  'by',
-  'desc',
-  'from',
-  'in',
-  'or',
-  'return',
-  'set',
-  'then',
-  'union all',
-] as const;
-
-const coreSettings: readonly FdqlCompletionItem[] = [
-  {
-    detail: 'Maximum documents read by this query',
-    insertText: 'set fdql.readBudget = ${1:5000}',
-    kind: 'setting',
-    label: 'fdql.readBudget',
-  },
-  {
-    detail: 'Maximum query runtime',
-    insertText: 'set fdql.timeout = "${1:60s}"',
-    kind: 'setting',
-    label: 'fdql.timeout',
-  },
-  {
-    detail: 'Read cache mode',
-    insertText: 'set fdql.cache = "${1|off,run,session|}"',
-    kind: 'setting',
-    label: 'fdql.cache',
-  },
-  {
-    detail: 'Allow provider reads that are not bounded by provider clauses',
-    insertText: 'set fdql.allowUnboundedReads = ${1:false}',
-    kind: 'setting',
-    label: 'fdql.allowUnboundedReads',
-  },
-];
-
-const coreExpressionFunctions: readonly FdqlCompletionItem[] = [
-  functionCompletion('timestamp', 'timestamp("${1:2026-01-01T00:00:00.000Z}")'),
-  functionCompletion('bytes', 'bytes("${1:base64:SGVsbG8=}")'),
-  functionCompletion('geoPoint', 'geoPoint(${1:0}, ${2:0})'),
-  functionCompletion('lower', 'lower(${1:value})'),
-  functionCompletion('entries', 'entries(${1:map})'),
-  functionCompletion('mapGet', 'mapGet(${1:map}, ${2:key})'),
-  functionCompletion('count', 'count()'),
-  functionCompletion('sum', 'sum(${1:value})'),
-  functionCompletion('avg', 'avg(${1:value})'),
-  functionCompletion('min', 'min(${1:value})'),
-  functionCompletion('max', 'max(${1:value})'),
-];
-
-const coreSnippets: readonly FdqlCompletionItem[] = [
-  snippetCompletion('set', 'set fdql.readBudget = ${1:5000}'),
-  snippetCompletion('alias', 'alias $${1:source} = ${2:fs.collection("${3:collection}")}'),
-  snippetCompletion('from', 'from $${1:source} as ${2:row}'),
-  snippetCompletion('then filter', 'then filter ${1:expression}'),
-  snippetCompletion('then take', 'then take ${1:25}'),
-  snippetCompletion('then with', 'then with ${1:expression} as ${2:name}'),
-  snippetCompletion('then sort by', 'then sort by ${1:field} ${2|asc,desc|}'),
-  snippetCompletion('then lookup one', 'then lookup one $${1:source} as ${2:row}'),
-  snippetCompletion('then lookup many', 'then lookup many $${1:source} as ${2:rows}'),
-  snippetCompletion('then unwind', 'then unwind ${1:expression} as ${2:item}'),
-  snippetCompletion(
-    'then aggregate',
-    'then aggregate\n  by ${1:field} as ${2:key}\n  count() as total',
-  ),
-  snippetCompletion('return', 'return ${1:*}'),
-  snippetCompletion('union all', 'union all'),
-];
-
 export function createFdqlLanguageService(
   options: FdqlLanguageServiceOptions = {},
 ): FdqlLanguageService {
@@ -165,6 +93,15 @@ export function createFdqlLanguageService(
 }
 
 function buildMetadata(providers: readonly FdqlProviderDialect[]): FdqlLanguageMetadata {
+  const coreSettings = fdqlCoreLanguageMetadata.settings.map((item) =>
+    itemCompletion(item, 'setting')
+  );
+  const coreExpressionFunctions = fdqlCoreLanguageMetadata.expressionFunctions.map((item) =>
+    itemCompletion(item, 'function')
+  );
+  const coreSnippets = fdqlCoreLanguageMetadata.snippets.map((item) =>
+    itemCompletion(item, 'snippet')
+  );
   const providerSettings = providers.flatMap((provider) =>
     (provider.language?.settings ?? []).map((item) => itemCompletion(item, 'setting'))
   );
@@ -173,7 +110,7 @@ function buildMetadata(providers: readonly FdqlProviderDialect[]): FdqlLanguageM
   const providerClauses = providers.flatMap(providerClauseCompletions);
   return {
     expressionFunctions: sortCompletions([...coreExpressionFunctions, ...valueFunctions]),
-    keywords: [...coreKeywords],
+    keywords: [...fdqlCoreLanguageMetadata.keywords],
     providerClauses: sortCompletions(providerClauses),
     settings: sortCompletions([...coreSettings, ...providerSettings]),
     snippets: [...coreSnippets],
@@ -262,10 +199,6 @@ function itemCompletion(
 
 function functionCompletion(label: string, insertText: string): FdqlCompletionItem {
   return { insertText, kind: 'function', label };
-}
-
-function snippetCompletion(label: string, insertText: string): FdqlCompletionItem {
-  return { insertText, kind: 'snippet', label };
 }
 
 function sortCompletions(items: readonly FdqlCompletionItem[]): readonly FdqlCompletionItem[] {

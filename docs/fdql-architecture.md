@@ -39,6 +39,8 @@ This document defines implementation constraints for FDQL. The language spec is 
 
 `packages/fdql-language` owns editor-agnostic language services. It may import the FDQL facade for built-in provider metadata, but it must not import React, Monaco, VS Code, Electron, Firebase SDKs, Admin SDKs, repo packages, IPC schemas, or apps. Monaco and future VS Code adapters should consume this package instead of reimplementing FDQL keywords, completions, snippets, and diagnostics.
 
+Core FDQL language metadata lives in `packages/fdql-core`. Provider language metadata lives on provider dialects. `packages/fdql-language` composes those sources so editor support stays aligned with core syntax and registered providers.
+
 Provider SDK code belongs in provider repository packages. For Firestore, live Admin SDK code belongs in `packages/repo-firebase`.
 
 ## File Layout
