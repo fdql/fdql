@@ -10,6 +10,8 @@ Initial provider namespace:
 
 - `fs`: Firestore-native reads, filters, ordering, limits, metadata predicates, supported Firestore aggregations, and explicit Firestore writes.
 
+Implementation status is tracked separately in [FDQL Read Implementation](./fdql-read-implementation.md). The current product slice is read-only; write syntax and Firestore aggregate helpers remain spec work until implemented there.
+
 Reserved provider namespaces:
 
 - `ddb`: DynamoDB
@@ -318,9 +320,6 @@ Field masks are part of source creation.
 ```sql
 alias $drivers = fs.collection("drivers", ["firstName", "lastName", "steamId"])
 alias $metadataOnlyDrivers = fs.collection("drivers", [])
-alias $driverFields = ["firstName", "lastName", "steamId"]
-
-then lookup many fs.subcollection(c, "orders", c.orderFields) as orders
 ```
 
 Rules:
@@ -328,8 +327,8 @@ Rules:
 - Field mask entries are strings, so dotted or awkward field paths do not need identifier escaping.
 - Top-level source alias field masks must be literal arrays.
 - Field masks can include at most 150 fields.
-- Primary aliases can hold field arrays, but top-level source aliases must not use dynamic field masks.
-- Source functions used inside the pipeline may use current row expressions for field masks.
+- Current read implementation does not support dynamic field masks.
+- Planned pipeline source functions may use current row expressions for field masks when those source functions are implemented.
 - Field masks apply to the documents loaded by that source.
 - Metadata functions still work when no document fields are loaded.
 - Fields used only by Firestore-native `fs where` or `fs order by` do not need to be in the field mask.
@@ -704,7 +703,67 @@ Rules:
 - Missing keys return missing.
 - `mapGet` does not scan or fetch provider data.
 
+## Nested Map And Array Pipelines
+
+FDQL can combine bounded provider reads with local map entry expansion, array expansion, local caps, and correlated lookups.
+
+```sql
+alias $events = fs.collection("admin-events", ["name", "slug", "schedule", "entriesById"])
+alias $drivers = fs.collection("drivers", ["firstName", "lastName", "steamId"])
+
+from $events as event
+fs order by event.schedule.startsAt desc
+fs limit 20
+
+then unwind entries(event.entriesById) as entry
+then unwind entry.value.drivers as eventDriver
+then take 25
+then lookup one $drivers as driver
+  fs where fs.id(driver) = eventDriver.steamId
+
+return
+  eventDriver.steamId,
+  driver,
+  event.slug,
+  event.name,
+  event.schedule.startsAt
+```
+
+Execution shape:
+
+```text
+Firestore:
+  read 20 admin-events ordered by schedule.startsAt desc
+  load only name, slug, schedule, entriesById
+
+Firebase Desk:
+  expand entriesById into entry rows
+  expand each entry.value.drivers array into eventDriver rows
+  keep the first 25 expanded rows
+
+Firestore per expanded row:
+  lookup one drivers document by document id
+
+Firebase Desk:
+  return event, nested driver entry, and lookup data
+```
+
+Rules:
+
+- `entries(event.entriesById)` returns local `{ key, value }` map-entry values.
+- `then unwind entry.value.drivers as eventDriver` expands an array from each map entry.
+- `then take 25` caps expanded local rows before lookup reads.
+- `lookup one` runs after the local expansions and can reference `eventDriver`.
+- If the related `drivers` document id is not the Steam ID, use a provider field predicate instead:
+
+```sql
+then lookup one $drivers as driver
+  fs where driver.steamId = eventDriver.steamId
+```
+
 ## Subcollections
+
+This is target syntax, not current read implementation.
 
 Lookup subcollection documents:
 

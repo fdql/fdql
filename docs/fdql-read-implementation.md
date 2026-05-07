@@ -25,19 +25,53 @@ Scope: read features only. Write operations are out of this tracker. This docume
 | Live repository | Partial | Uses paged Admin SDK collection/collection group reads for the first read source shape.                                                                     |
 | Parser          | Partial | Statement grammar keeps existing syntax and now records source columns/ranges.                                                                              |
 | Compiler        | Partial | Builds provider read sources plus provider-neutral local stages with explicit provider registration.                                                        |
-| Executor        | Partial | Dispatches reads through explicit provider/dialect registries, then streams rows through local stages.                                                      |
+| Executor        | Partial | Dispatches reads through explicit provider/dialect registries. Read events stream during provider reads; output rows are currently buffered per branch.     |
 | Providers       | Partial | Firestore is registered at repo/test boundaries; a test-only `mem` provider proves non-Firestore compile/execute dispatch.                                  |
 | E2E             | Partial | Covers bounded reads, field projection, result views, budget stop, lookup, unwind, aggregate, union, collection group, and duplicate singleton diagnostics. |
+
+## Source-Verified Current Surface
+
+Checked against `packages/fdql-core`, `packages/fdql-firestore`, `packages/repo-firebase`, `packages/repo-mocks`, and FDQL E2E coverage.
+
+Current parser/compiler accepts:
+
+- `set*`, then `alias*`, then one read pipeline.
+- Line-oriented `set`, `alias`, `from`, and provider clause statements. Source alias declarations must fit on one line today.
+- Top-level `union all` between read pipelines, with the first branch preamble shared into later branches.
+- Source aliases only through declared `$` aliases.
+- `from $source as rowAlias`.
+- Provider clauses: `namespace where`, `namespace order by`, `namespace limit`.
+- Local stages: `then filter`, `then take`, `then sort by`, `then with`, `then lookup one`, `then lookup many`, `then unwind`, `then aggregate`, `return`.
+- Expressions: literals, arrays, maps, `$aliases`, qualified fields, function calls, `=`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `and`, `or`, unary `not`, parentheses, and `*`.
+
+Current Firestore dialect accepts:
+
+- Source functions: `fs.collection(...)`, `fs.collectionGroup(...)`, `fs.project(...)`, `fs.db(...)`.
+- Source field masks as literal string arrays on source alias declarations.
+- Settings: `set fs.projectId = "..."`, `set fs.databaseId = "..."`.
+- Value/metadata functions: `fs.id(row)`, `fs.path(row)`, `fs.projectId(row)`, `fs.ref(rowOrPath)`, `fs.arrayContains(field, value)`.
+- Provider predicates with provider field/id on the left. Lookup predicates may reference previous row bindings on the value side.
+
+Current implementation does not parse or execute:
+
+- FDQL writes.
+- `lookup expand` or `lookup aggregate`.
+- `fs.subcollection(...)` or `fs.subcollections(...)`.
+- Firestore aggregate helpers such as `fs.count()`.
+- Dynamic field masks.
+- Final global stages after `union all`.
 
 ## Implemented Read Syntax
 
 ```fdql
 set fdql.readBudget = 5000
 set fdql.timeout = "60s"
-set fdql.cache = "off"
+set fdql.cache = "off" // accepted, runtime cache semantics missing
 set fdql.allowUnboundedReads = false
 
-alias $drivers = fs.project("prod").db("db2").collection("drivers", ["firstName"])
+alias $drivers = fs.project("prod").db("db2").collection("drivers", ["firstName", "teamId", "metadata"])
+alias $teams = fs.project("prod").db("db2").collection("teams", ["name"])
+alias $rounds = fs.project("prod").db("db2").collection("rounds", ["driverId", "createdAt"])
 alias $orders = fs.collectionGroup("orders", [])
 
 from $drivers as d
@@ -47,8 +81,6 @@ fs order by d.createdAt desc
 fs limit 25
 
 then filter lower(d.firstName) = "vini"
-then take 10
-then with fs.id(d) as id, d.firstName
 
 then lookup one $teams as team
   fs where fs.id(team) = d.teamId
@@ -60,8 +92,34 @@ then lookup many $rounds as rounds
 
 then unwind entries(d.metadata) as entry
 then sort by d.firstName asc
+then take 10
+then with
+  fs.id(d) as id,
+  d.firstName,
+  team.name as teamName,
+  rounds,
+  entry.key as metadataKey
 
-return id, d.firstName, entry.key
+return id, firstName, teamName, metadataKey, rounds
+```
+
+Representative nested map/array workflow:
+
+```fdql
+alias $events = fs.collection("admin-events", ["name", "slug", "schedule", "entriesById"])
+alias $drivers = fs.collection("drivers", ["firstName", "lastName", "steamId"])
+
+from $events as event
+fs order by event.schedule.startsAt desc
+fs limit 20
+
+then unwind entries(event.entriesById) as entry
+then unwind entry.value.drivers as eventDriver
+then take 25
+then lookup one $drivers as driver
+  fs where fs.id(driver) = eventDriver.steamId
+
+return eventDriver.steamId, driver, event.slug, event.name, event.schedule.startsAt
 ```
 
 ```fdql
@@ -111,15 +169,16 @@ Implemented expression/runtime basics:
 
 These block the read implementation from being honest at production scale.
 
-| Feature                          | Status  | Notes                                                                                                                            |
-| -------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Live streaming/pages             | Done    | Live repo uses cursor pages and caps each page by configured page size and remaining read budget/provider limit.                 |
-| Read budget in live repo         | Done    | Runtime read requests cap Firestore page reads before docs are fetched.                                                          |
-| Cancel in live repo              | Partial | Cancel is observed between pages/rows, but not while a Firestore page request is already in flight.                              |
-| Timeout in live repo             | Partial | Same issue as cancel.                                                                                                            |
-| Cache modes                      | Missing | `set fdql.cache = ...` parses/compiles, but runtime does not dedupe or cache reads.                                              |
-| Provider query validation parity | Partial | Firestore dialect validates simple provider shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.             |
-| Field path fidelity              | Partial | Live field masks split on `.`, so literal dotted field names are not represented yet. Need explicit field-path segment handling. |
+| Feature                          | Status  | Notes                                                                                                                              |
+| -------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Live streaming/pages             | Done    | Live repo uses cursor pages and caps each page by configured page size and remaining read budget/provider limit.                   |
+| Read budget in live repo         | Done    | Runtime read requests cap Firestore page reads before docs are fetched.                                                            |
+| Cancel in live repo              | Partial | Cancel is observed between pages/rows, but not while a Firestore page request is already in flight.                                |
+| Timeout in live repo             | Partial | Same issue as cancel.                                                                                                              |
+| Cache modes                      | Missing | `set fdql.cache = ...` parses/compiles, but runtime does not dedupe or cache reads.                                                |
+| Output row streaming             | Partial | Read events stream as provider rows arrive, but final row events are emitted after the branch source read and local stages finish. |
+| Provider query validation parity | Partial | Firestore dialect validates simple provider shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.               |
+| Field path fidelity              | Partial | Live field masks split on `.`, so literal dotted field names are not represented yet. Need explicit field-path segment handling.   |
 
 ## P1 Spec Features Not Implemented
 
@@ -175,6 +234,6 @@ These block the read implementation from being honest at production scale.
 
 ## Suggested Next Order
 
-1. Implement Firestore aggregation lookups.
-2. Add missing read syntax from P1/P2.
-3. Add E2E per completed feature.
+1. Add a combined E2E for the real nested map/array plus lookup workflow.
+2. Implement run-cache lookup dedupe and expose cache hit/miss stats.
+3. Implement missing read syntax from P1/P2.
