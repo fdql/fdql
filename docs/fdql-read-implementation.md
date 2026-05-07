@@ -140,19 +140,23 @@ These block the read implementation from being honest at production scale.
 
 ## P2 Expression Gaps
 
-| Expression                | Status  | Notes                                                      |
-| ------------------------- | ------- | ---------------------------------------------------------- |
-| `not in`                  | Missing | Parser supports unary `not`, not `not in` as one operator. |
-| `is null` / `is not null` | Missing | Needs parser and Firestore/local semantics.                |
-| `exists` / `missing`      | Missing | Needs clear distinction between missing and null.          |
-| `fs.arrayContainsAny`     | Missing | Firestore-native operator.                                 |
-| `case`                    | Missing | Local expression only.                                     |
-| math expressions          | Missing | `+`, `-`, `*`, `/`, `%` not parsed.                        |
-| `mapGet(map, key)`        | Done    | Local dynamic map lookup; missing keys return `null`.      |
-| `entries(map)`            | Done    | Local helper for map-entry unwind.                         |
-| `fs.ref(row)`             | Missing | Metadata function from spec.                               |
-| `fs.parentPath(row)`      | Missing | Metadata function from spec.                               |
-| `fs.databaseId(row)`      | Missing | Useful with named database reads.                          |
+| Expression                | Status  | Notes                                                                 |
+| ------------------------- | ------- | --------------------------------------------------------------------- |
+| `not in`                  | Missing | Parser supports unary `not`, not `not in` as one operator.            |
+| `is null` / `is not null` | Missing | Needs parser and Firestore/local semantics.                           |
+| `exists` / `missing`      | Missing | Needs clear distinction between missing and null.                     |
+| `fs.arrayContainsAny`     | Missing | Firestore-native operator.                                            |
+| `case`                    | Missing | Local expression only.                                                |
+| math expressions          | Missing | `+`, `-`, `*`, `/`, `%` not parsed.                                   |
+| `mapGet(map, key)`        | Done    | Local dynamic map lookup; missing keys return `null`.                 |
+| `entries(map)`            | Done    | Local helper for map-entry unwind.                                    |
+| `timestamp(value)`        | Missing | Spec core constructor; implementation only has `fs.timestamp(value)`. |
+| `bytes(value)`            | Missing | Spec core constructor.                                                |
+| `geoPoint(lat, lng)`      | Missing | Spec core constructor.                                                |
+| `fs.ref(row)`             | Missing | Metadata function from spec.                                          |
+| `fs.ref(path)`            | Missing | Firestore reference value constructor.                                |
+| `fs.parentPath(row)`      | Missing | Metadata function from spec.                                          |
+| `fs.databaseId(row)`      | Missing | Useful with named database reads.                                     |
 
 ## P3 Product/Quality Gaps
 
@@ -161,6 +165,9 @@ These block the read implementation from being honest at production scale.
 | Full grammar       | Partial                    | Parser now uses source-located statements, but expression and pipeline grammar still need broader syntax coverage.             |
 | Source-located AST | Done                       | Top-level declarations and stages carry source columns/ranges; parser expression diagnostics use source columns.               |
 | Editor language    | Missing                    | Monaco treats FDQL as plain text. Needs language id, syntax highlighting, bracket/comment rules, completions, and diagnostics. |
+| FDQL type model    | Missing                    | Core value kinds are specified, but runtime values are still plain JS/provider-shaped values.                                  |
+| Provider adapters  | Missing                    | Provider value normalization/encoding is not isolated behind dialect/runtime adapters yet.                                     |
+| Type inference     | Missing                    | Compiler does not infer expression, stage, or result column types.                                                             |
 | Row-shape analysis | Missing                    | Unknown fields are mostly runtime `undefined`; compiler does not prove row shape.                                              |
 | Lineage UI         | Partial                    | Events carry basic document lineage, but UI does not expose source exploration.                                                |
 | More E2E           | Partial                    | Covers main read paths. Still needs deterministic cancel/timeout and named DB coverage.                                        |
@@ -169,5 +176,6 @@ These block the read implementation from being honest at production scale.
 ## Suggested Next Order
 
 1. Add FDQL editor language support.
-2. Implement Firestore aggregation lookups.
-3. Add E2E per completed feature.
+2. Implement FDQL value model and provider type adapters.
+3. Implement Firestore aggregation lookups.
+4. Add E2E per completed feature.

@@ -78,6 +78,27 @@ Runtime responsibilities:
 
 The executor dispatches provider reads through a provider runtime registry keyed by namespace.
 
+## Provider Type Adapters
+
+FDQL has one shared value model. Providers adapt their SDK/database values into that model.
+
+Dialect responsibilities:
+
+- declare supported value kinds for provider clauses
+- validate provider filters, ordering, aggregates, and writes against those value kinds
+- define provider-specific constructors, for example `fs.ref(...)`
+- expose provider metadata functions, for example `fs.id(row)`
+- reject values the provider cannot compile instead of falling back to local work
+
+Runtime responsibilities:
+
+- normalize provider rows into FDQL values before local stages run
+- preserve provider context needed by references and metadata functions
+- encode FDQL values back to provider values only inside provider runtime code
+- avoid leaking SDK classes into executor, evaluator, UI, or IPC contracts
+
+Core FDQL constructors such as `timestamp(...)`, `bytes(...)`, and `geoPoint(...)` belong to the local evaluator. Provider-prefixed constructors belong to dialects.
+
 ## Parser Rules
 
 The parser should stay mostly provider-neutral.

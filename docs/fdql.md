@@ -35,24 +35,25 @@ Provider namespaces own:
 
 - source functions such as `fs.collection(...)`
 - provider commands such as `fs where`, `fs order by`, and `fs limit`
-- provider metadata/value functions such as `fs.id(row)` and `fs.timestamp(...)`
+- provider metadata/value functions such as `fs.id(row)` and `fs.ref(...)`
 - provider-specific diagnostics for clauses that cannot compile to that provider
 
 Firebase Desk owns:
 
 - query preamble rules
 - local stages such as `then filter`, `then with`, `then unwind`, `then aggregate`, `then sort by`, `then take`, and `return`
-- local functions such as `lower(...)`, `entries(...)`, `mapGet(...)`, and aggregate helpers
+- local functions such as `timestamp(...)`, `lower(...)`, `entries(...)`, `mapGet(...)`, and aggregate helpers
 - execution stats, read budgets, timeout, cancellation, lineage, and result shaping
 
 Rules:
 
 - Provider commands use spaced syntax: `fs where`, `fs order by`, `fs limit`.
-- Provider functions use dot-call syntax: `fs.collection(...)`, `fs.id(...)`, `fs.timestamp(...)`.
+- Provider functions use dot-call syntax: `fs.collection(...)`, `fs.id(...)`, `fs.ref(...)`.
 - A provider source alias can only be produced by that provider dialect.
 - A provider command applies to the current provider source or lookup source.
 - A provider command must compile to provider-native work. FDQL must not silently convert `fs where` into local `filter`.
 - Local stages operate on rows already loaded or produced by earlier stages.
+- Core value constructors are unprefixed.
 - Provider metadata functions are valid local expressions when the row binding belongs to that provider.
 - Provider field validation belongs to the provider dialect. Firestore rules do not automatically apply to future providers.
 - Unknown provider namespaces and unknown provider functions are diagnostics.
@@ -83,6 +84,52 @@ Firebase Desk:
   evaluate lower(firstName) == "vini"
   emit id and firstName
 ```
+
+## FDQL Type System
+
+FDQL has a provider-neutral value model. Providers map native values into this model before local stages run.
+
+Core value kinds:
+
+| Kind        | Notes                                                                |
+| ----------- | -------------------------------------------------------------------- |
+| `missing`   | Field or path does not exist. Distinct from `null`. No literal form. |
+| `null`      | Explicit null value.                                                 |
+| `boolean`   | `true` or `false`.                                                   |
+| `number`    | FDQL numeric value. Providers may restrict precision or range.       |
+| `string`    | Text value.                                                          |
+| `array`     | Ordered values.                                                      |
+| `map`       | String-keyed object values.                                          |
+| `timestamp` | Instant value. Construct with `timestamp(...)`.                      |
+| `bytes`     | Binary value. Construct with `bytes(...)`.                           |
+| `reference` | Provider document/object reference. Providers own native conversion. |
+| `geoPoint`  | Latitude/longitude value. Construct with `geoPoint(lat, lng)`.       |
+
+Core constructors:
+
+```sql
+timestamp("2025-10-01T00:00:00.000Z")
+bytes("base64:SGVsbG8=")
+geoPoint(-37.8136, 144.9631)
+```
+
+Provider-specific constructors:
+
+```sql
+fs.ref("drivers/driver_1")
+ddb.binary("base64:SGVsbG8=")
+s3.etag("686897696a7c876b7e")
+```
+
+Rules:
+
+- Core literals and constructors can be used in local expressions and provider clauses.
+- Provider dialects decide which core values can compile to native filters, ordering, writes, and aggregates.
+- Provider-specific constructors must stay namespace-prefixed.
+- Provider runtimes must normalize native values into FDQL values before local stages evaluate them.
+- Local comparison, grouping, sorting, rendering, and result JSON use FDQL value semantics, not provider SDK classes.
+- `missing` is produced by field access and map lookup. It is not equal to `null`.
+- Provider references must carry enough provider context to render and compare them consistently.
 
 ## Query Preamble
 
@@ -187,7 +234,7 @@ Provider stages must compile to that provider. If they cannot, the query is inva
 Rules:
 
 - Provider commands use spaced syntax, for example `fs where`, `fs order by`, and `fs limit`.
-- Provider functions use dot-call syntax, for example `fs.collection(...)`, `fs.id(...)`, and `fs.timestamp(...)`.
+- Provider functions use dot-call syntax, for example `fs.collection(...)`, `fs.id(...)`, and `fs.ref(...)`.
 - A provider command must not be written as a dot-call, so `fs.orderBy` is invalid.
 - Write commands are provider commands and must be terminal.
 
@@ -320,7 +367,7 @@ fs where d.active = true
 fs where d.status in ("active", "pending")
 fs where d.status = "active" or d.status = "pending"
 fs where d.active = true and (d.status = "active" or d.status = "pending")
-fs where d.createdAt >= fs.timestamp("2025-10-01T00:00:00.000Z")
+fs where d.createdAt >= timestamp("2025-10-01T00:00:00.000Z")
 fs where fs.arrayContains(d.tags, "admin")
 fs where fs.id(d) = $driverId
 ```
@@ -565,7 +612,7 @@ Local aggregation uses `aggregate`.
 alias $rounds = fs.collection("rounds")
 
 from $rounds as r
-fs where r.createdAt >= fs.timestamp("2025-10-01T00:00:00.000Z")
+fs where r.createdAt >= timestamp("2025-10-01T00:00:00.000Z")
 fs limit 5000
 
 then aggregate
@@ -586,7 +633,7 @@ Rules:
 - Multiple `by` fields form a composite group key tuple in written order.
 - `null` groups with `null`.
 - Missing and `null` are distinct group key values.
-- Group key expressions must produce primitive/group-safe values: string, number, boolean, timestamp, reference, `null`, or missing.
+- Group key expressions must produce primitive/group-safe FDQL values: string, number, boolean, timestamp, reference, `null`, or missing.
 - Arrays and maps are invalid group keys.
 - Local aggregate stages should stream by default.
 - Pre-aggregate rows must not be retained unless source exploration requires them.
@@ -957,7 +1004,7 @@ Pipeline delete:
 alias $sessions = fs.collection("sessions")
 
 from $sessions as s
-fs where s.expiresAt < fs.timestamp("2026-01-01T00:00:00.000Z")
+fs where s.expiresAt < timestamp("2026-01-01T00:00:00.000Z")
 fs limit 1000
 
 fs delete s
