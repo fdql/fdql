@@ -564,11 +564,12 @@ async function collectionJobs(page: Page, suffix: string, exportPath: string): P
   await setFirestoreEmulatorDocument(docsOnlyParent, { mode: 'docs-only' });
   await setFirestoreEmulatorDocument(docsOnlyChild, { kept: true });
   await runCollectionQuery(page, docsOnlyCollection);
-  page.once('dialog', (dialog) => dialog.accept());
   await openCollectionJob(page, 'Delete collection');
   const docsOnlyDialog = page.getByRole('dialog', { name: 'Collection job' });
   await expect(docsOnlyDialog.getByText(/Subcollections may remain/)).toBeVisible();
   await docsOnlyDialog.getByRole('button', { name: 'Start job' }).click();
+  await expect(docsOnlyDialog.getByText(`Delete collection ${docsOnlyCollection}?`)).toBeVisible();
+  await docsOnlyDialog.getByRole('button', { name: 'Delete collection' }).click();
   await expectDialogHidden(docsOnlyDialog, 'Docs-only delete job dialog stayed open');
   await expect.poll(async () => await listFirestoreEmulatorCollection(docsOnlyCollection))
     .toHaveLength(0);
@@ -582,11 +583,14 @@ async function collectionJobs(page: Page, suffix: string, exportPath: string): P
   await setFirestoreEmulatorDocument(recursiveParent, { mode: 'recursive' });
   await setFirestoreEmulatorDocument(recursiveChild, { deleted: true });
   await runCollectionQuery(page, recursiveCollection);
-  page.once('dialog', (dialog) => dialog.accept());
   await openCollectionJob(page, 'Delete collection');
   const recursiveDialog = page.getByRole('dialog', { name: 'Collection job' });
   await recursiveDialog.getByRole('checkbox', { name: 'Include subcollections' }).check();
   await recursiveDialog.getByRole('button', { name: 'Start job' }).click();
+  await expect(recursiveDialog.getByText(
+    `Delete collection ${recursiveCollection} including subcollections?`,
+  )).toBeVisible();
+  await recursiveDialog.getByRole('button', { name: 'Delete collection' }).click();
   await expectDialogHidden(recursiveDialog, 'Recursive delete job dialog stayed open');
   await expect.poll(async () => await getFirestoreEmulatorDocument(recursiveParent)).toBeNull();
   await expect.poll(async () => await getFirestoreEmulatorDocument(recursiveChild)).toBeNull();

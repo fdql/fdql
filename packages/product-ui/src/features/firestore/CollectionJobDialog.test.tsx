@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 describe('CollectionJobDialog', () => {
-  it('confirms delete once and passes subcollection choice', async () => {
+  it('uses in-app confirmation for delete jobs', async () => {
     const confirm = vi.fn(() => true);
     vi.stubGlobal('confirm', confirm);
     const onStartJob = vi.fn();
@@ -27,6 +27,12 @@ describe('CollectionJobDialog', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Include subcollections' }));
     fireEvent.click(screen.getByRole('button', { name: 'Start job' }));
+
+    expect(screen.getByText('Delete collection orders including subcollections?')).toBeTruthy();
+    expect(onStartJob).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete collection' }));
 
     await waitFor(() =>
       expect(onStartJob).toHaveBeenCalledWith({
@@ -36,11 +42,10 @@ describe('CollectionJobDialog', () => {
         type: 'firestore.deleteCollection',
       })
     );
-    expect(confirm).toHaveBeenCalledWith('Delete collection orders including subcollections?');
-    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).not.toHaveBeenCalled();
   });
 
-  it('confirms overwrite-capable jobs once before queueing', async () => {
+  it('uses in-app confirmation for overwrite-capable jobs', async () => {
     const confirm = vi.fn(() => true);
     vi.stubGlobal('confirm', confirm);
     const onStartJob = vi.fn();
@@ -51,6 +56,12 @@ describe('CollectionJobDialog', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Start job' }));
 
+    expect(screen.getByText('Overwrite existing target documents?')).toBeTruthy();
+    expect(onStartJob).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Overwrite and start' }));
+
     await waitFor(() =>
       expect(onStartJob).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -60,8 +71,7 @@ describe('CollectionJobDialog', () => {
         }),
       )
     );
-    expect(confirm).toHaveBeenCalledWith('Overwrite existing target documents?');
-    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it('imports encoded JSONL into the edited target collection path', async () => {
