@@ -3,9 +3,9 @@ import {
   executeFdql,
   type FdqlExecutionEvent,
   type FdqlExpression,
-  type FdqlReadRequest,
-  type FdqlRuntime,
-  type FdqlRuntimeDocument,
+  type FdqlProviderReadRequest,
+  type FdqlProviderRow,
+  type FdqlProviderRuntimeRegistry,
 } from '@firebase-desk/fdql';
 import type {
   FdqlCompileRequest,
@@ -122,39 +122,47 @@ export function createFirebaseFdqlRepository(provider: AdminFirestoreProvider): 
   };
 }
 
-function createAdminFdqlRuntime(provider: AdminFirestoreProvider): FdqlRuntime {
+function createAdminFdqlRuntime(provider: AdminFirestoreProvider): FdqlProviderRuntimeRegistry {
   return {
-    async *read(request) {
-      const { db } = await provider.getFirestoreConnection(request.projectId, request.databaseId);
-      const base = request.collectionPath
-        ? db.collection(request.collectionPath)
-        : db.collectionGroup(request.collectionGroup ?? '');
-      const query = applyNativeQuery(base, request);
-      let readCount = 0;
-      let lastDocument: QueryDocumentSnapshot | null = null;
-      // oxlint-disable no-await-in-loop -- Each page depends on the previous cursor.
-      while (readCount < request.maxDocuments) {
-        const pageLimit = Math.min(request.pageSize, request.maxDocuments - readCount);
-        let pageQuery = query.limit(pageLimit);
-        if (lastDocument) pageQuery = pageQuery.startAfter(lastDocument);
-        const snapshot = await pageQuery.get();
-        if (!snapshot.docs.length) break;
-        for (const doc of snapshot.docs) {
-          readCount += 1;
-          lastDocument = doc;
-          yield documentFromSnapshot(request.projectId, request.databaseId, doc);
-          if (readCount >= request.maxDocuments) break;
-        }
-        if (snapshot.docs.length < pageLimit) break;
-      }
-      // oxlint-enable no-await-in-loop
+    providers: {
+      fs: {
+        async *read(request) {
+          const projectId = stringTarget(request, 'projectId');
+          const databaseId = optionalStringTarget(request, 'databaseId');
+          const { db } = await provider.getFirestoreConnection(projectId, databaseId);
+          const collectionPath = optionalStringTarget(request, 'collectionPath');
+          const collectionGroup = optionalStringTarget(request, 'collectionGroup');
+          const base = collectionPath
+            ? db.collection(collectionPath)
+            : db.collectionGroup(collectionGroup ?? '');
+          const query = applyProviderQuery(base, request);
+          let readCount = 0;
+          let lastDocument: QueryDocumentSnapshot | null = null;
+          // oxlint-disable no-await-in-loop -- Each page depends on the previous cursor.
+          while (readCount < request.maxDocuments) {
+            const pageLimit = Math.min(request.pageSize, request.maxDocuments - readCount);
+            let pageQuery = query.limit(pageLimit);
+            if (lastDocument) pageQuery = pageQuery.startAfter(lastDocument);
+            const snapshot = await pageQuery.get();
+            if (!snapshot.docs.length) break;
+            for (const doc of snapshot.docs) {
+              readCount += 1;
+              lastDocument = doc;
+              yield rowFromSnapshot(request, doc);
+              if (readCount >= request.maxDocuments) break;
+            }
+            if (snapshot.docs.length < pageLimit) break;
+          }
+          // oxlint-enable no-await-in-loop
+        },
+      },
     },
   };
 }
 
-function applyNativeQuery(
+function applyProviderQuery(
   query: Query,
-  request: FdqlReadRequest,
+  request: FdqlProviderReadRequest,
 ): Query {
   let next = query;
   const filter = request.predicate ? filterFromExpression(request.predicate, request) : null;
@@ -173,7 +181,7 @@ function applyNativeQuery(
 
 function filterFromExpression(
   expression: FdqlExpression,
-  request: FdqlReadRequest,
+  request: FdqlProviderReadRequest,
 ): Filter | null {
   if (expression.kind === 'binary' && expression.operator === 'and') {
     return Filter.and(
@@ -218,6 +226,19 @@ function fieldPathFromExpression(expression: FdqlExpression, rowAlias: string): 
   return new FieldPath('__unsupported__');
 }
 
+function stringTarget(request: FdqlProviderReadRequest, key: string): string {
+  const value = request.source.target[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function optionalStringTarget(
+  request: FdqlProviderReadRequest,
+  key: string,
+): string | undefined {
+  const value = stringTarget(request, key);
+  return value ? value : undefined;
+}
+
 function operatorFor(
   operator: Extract<FdqlExpression, { readonly kind: 'binary'; }>['operator'],
 ): WhereFilterOp {
@@ -232,7 +253,7 @@ function operatorFor(
 
 function valueFor(
   expression: FdqlExpression,
-  request: FdqlReadRequest,
+  request: FdqlProviderReadRequest,
 ): unknown {
   if (expression.kind === 'literal') return expression.value;
   if (expression.kind === 'alias') return request.aliases?.[expression.name];
@@ -254,7 +275,7 @@ function valueFor(
   return undefined;
 }
 
-function rowFieldValue(expression: FdqlExpression, request: FdqlReadRequest): unknown {
+function rowFieldValue(expression: FdqlExpression, request: FdqlProviderReadRequest): unknown {
   if (expression.kind !== 'field') return undefined;
   const row = request.rows?.[expression.path[0] ?? ''];
   if (!row) return undefined;
@@ -267,19 +288,20 @@ function rowFieldValue(expression: FdqlExpression, request: FdqlReadRequest): un
 
 function rowFromExpression(
   expression: FdqlExpression | undefined,
-  request: FdqlReadRequest,
-): FdqlRuntimeDocument | Record<string, unknown> | null | undefined {
+  request: FdqlProviderReadRequest,
+): FdqlProviderRow | Record<string, unknown> | null | undefined {
   if (!expression || expression.kind !== 'field' || expression.path.length !== 1) return undefined;
   return request.rows?.[expression.path[0] ?? ''];
 }
 
-function isRuntimeDocument(value: unknown): value is FdqlRuntimeDocument {
+function isRuntimeDocument(value: unknown): value is FdqlProviderRow {
   return value !== null
     && value !== undefined
     && typeof value === 'object'
+    && 'context' in value
     && 'id' in value
     && 'data' in value
-    && 'projectId' in value;
+    && 'provider' in value;
 }
 
 function compileOptions(request: FdqlCompileRequest) {
@@ -314,18 +336,23 @@ function createFdqlRunController(): FdqlRunController {
   };
 }
 
-function documentFromSnapshot(
-  projectId: string,
-  databaseId: string | undefined,
+function rowFromSnapshot(
+  request: FdqlProviderReadRequest,
   snapshot: QueryDocumentSnapshot,
-): FdqlRuntimeDocument {
+): FdqlProviderRow {
+  const projectId = stringTarget(request, 'projectId');
+  const databaseId = optionalStringTarget(request, 'databaseId');
   return {
-    collectionPath: snapshot.ref.parent.path,
+    context: {
+      ...(databaseId ? { databaseId } : {}),
+      collectionPath: snapshot.ref.parent.path,
+      projectId,
+    },
     data: encodeAdminData(snapshot.data()),
-    ...(databaseId ? { databaseId } : {}),
     id: snapshot.id,
     path: snapshot.ref.path,
-    projectId,
+    provider: request.source.provider,
+    source: request.source,
   };
 }
 
@@ -341,11 +368,10 @@ function eventToRunEvent(runId: string, event: FdqlExecutionEvent): FdqlRunEvent
       return { diagnostic: event.diagnostic, runId, type: 'diagnostic' };
     case 'read':
       return {
-        ...(event.collectionGroup === undefined ? {} : { collectionGroup: event.collectionGroup }),
-        ...(event.collectionPath === undefined ? {} : { collectionPath: event.collectionPath }),
         count: event.count,
-        projectId: event.projectId,
+        provider: event.provider,
         runId,
+        source: event.source,
         type: 'read',
       };
     case 'row':

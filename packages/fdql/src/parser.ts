@@ -94,48 +94,9 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
       from = parseFrom(text, line, column, range, diagnostics);
       continue;
     }
-    if (text.startsWith('fs where ')) {
-      const expressionSource = expressionSlice(text, column, 'fs where '.length);
-      const parsed = parseExpression(expressionSource.text, line, expressionSource.column);
-      diagnostics.push(...parsed.diagnostics);
-      if (parsed.expression) {
-        stages.push({ column, expression: parsed.expression, kind: 'fsWhere', line, range });
-      }
-      continue;
-    }
-    if (text.startsWith('fs order by ')) {
-      const sourceBody = expressionSlice(text, column, 'fs order by '.length);
-      const body = sourceBody.text;
-      const direction = body.toLowerCase().endsWith(' desc')
-        ? 'desc'
-        : body.toLowerCase().endsWith(' asc')
-        ? 'asc'
-        : 'asc';
-      const expressionText = direction === 'asc' && !body.toLowerCase().endsWith(' asc')
-        ? body
-        : body.slice(0, Math.max(0, body.length - 4)).trim();
-      const parsed = parseExpression(expressionText, line, sourceBody.column);
-      diagnostics.push(...parsed.diagnostics);
-      if (parsed.expression) {
-        stages.push({
-          column,
-          direction,
-          expression: parsed.expression,
-          kind: 'fsOrderBy',
-          line,
-          range,
-        });
-      }
-      continue;
-    }
-    if (text.startsWith('fs limit ')) {
-      stages.push({
-        column,
-        kind: 'fsLimit',
-        line,
-        range,
-        value: Number(text.slice('fs limit '.length).trim()),
-      });
+    const providerClause = parseProviderClause({ column, line, range, text }, diagnostics);
+    if (providerClause) {
+      stages.push(providerClause);
       continue;
     }
     if (text.startsWith('then filter ')) {
@@ -256,7 +217,7 @@ function parseLookup(
       endRange = line.range;
       continue;
     }
-    if (!line.text.startsWith('fs ')) break;
+    if (!isProviderClauseStart(line.text)) break;
     const clause = parseLookupClause(line, diagnostics);
     if (clause) clauses.push(clause);
     nextIndex = index;
@@ -295,16 +256,32 @@ function parseLookupClause(
   diagnostics: FdqlDiagnostic[],
 ): FdqlLookupClause | null {
   const { column, range, text } = line;
-  if (text.startsWith('fs where ')) {
-    const expressionSource = expressionSlice(text, column, 'fs where '.length);
+  const provider = providerFromStatement(text);
+  if (!provider) {
+    diagnostics.push(
+      error('FDQL_UNKNOWN_STAGE', `Unsupported lookup clause: ${text}.`, line.line, column),
+    );
+    return null;
+  }
+  if (text.startsWith(`${provider} where `)) {
+    const prefix = `${provider} where `;
+    const expressionSource = expressionSlice(text, column, prefix.length);
     const parsed = parseExpression(expressionSource.text, line.line, expressionSource.column);
     diagnostics.push(...parsed.diagnostics);
     return parsed.expression
-      ? { column, expression: parsed.expression, kind: 'fsWhere', line: line.line, range }
+      ? {
+        column,
+        expression: parsed.expression,
+        kind: 'providerWhere',
+        line: line.line,
+        provider,
+        range,
+      }
       : null;
   }
-  if (text.startsWith('fs order by ')) {
-    const sourceBody = expressionSlice(text, column, 'fs order by '.length);
+  if (text.startsWith(`${provider} order by `)) {
+    const prefix = `${provider} order by `;
+    const sourceBody = expressionSlice(text, column, prefix.length);
     const body = sourceBody.text;
     const direction = body.toLowerCase().endsWith(' desc')
       ? 'desc'
@@ -321,19 +298,21 @@ function parseLookupClause(
         column,
         direction,
         expression: parsed.expression,
-        kind: 'fsOrderBy',
+        kind: 'providerOrderBy',
         line: line.line,
+        provider,
         range,
       }
       : null;
   }
-  if (text.startsWith('fs limit ')) {
+  if (text.startsWith(`${provider} limit `)) {
     return {
       column,
-      kind: 'fsLimit',
+      kind: 'providerLimit',
       line: line.line,
+      provider,
       range,
-      value: Number(text.slice('fs limit '.length).trim()),
+      value: Number(text.slice(`${provider} limit `.length).trim()),
     };
   }
   diagnostics.push(
@@ -364,6 +343,65 @@ function parseSortBy(
   return parsed.expression
     ? { column, direction, expression: parsed.expression, kind: 'sortBy', line, range }
     : null;
+}
+
+function parseProviderClause(line: SourceLine, diagnostics: FdqlDiagnostic[]): FdqlStage | null {
+  const { column, range, text } = line;
+  const provider = providerFromStatement(text);
+  if (!provider) return null;
+  if (text.startsWith(`${provider} where `)) {
+    const prefix = `${provider} where `;
+    const expressionSource = expressionSlice(text, column, prefix.length);
+    const parsed = parseExpression(expressionSource.text, line.line, expressionSource.column);
+    diagnostics.push(...parsed.diagnostics);
+    return parsed.expression
+      ? {
+        column,
+        expression: parsed.expression,
+        kind: 'providerWhere',
+        line: line.line,
+        provider,
+        range,
+      }
+      : null;
+  }
+  if (text.startsWith(`${provider} order by `)) {
+    const prefix = `${provider} order by `;
+    const sourceBody = expressionSlice(text, column, prefix.length);
+    const body = sourceBody.text;
+    const direction = body.toLowerCase().endsWith(' desc')
+      ? 'desc'
+      : body.toLowerCase().endsWith(' asc')
+      ? 'asc'
+      : 'asc';
+    const expressionText = direction === 'asc' && !body.toLowerCase().endsWith(' asc')
+      ? body
+      : body.slice(0, Math.max(0, body.length - 4)).trim();
+    const parsed = parseExpression(expressionText, line.line, sourceBody.column);
+    diagnostics.push(...parsed.diagnostics);
+    return parsed.expression
+      ? {
+        column,
+        direction,
+        expression: parsed.expression,
+        kind: 'providerOrderBy',
+        line: line.line,
+        provider,
+        range,
+      }
+      : null;
+  }
+  if (text.startsWith(`${provider} limit `)) {
+    return {
+      column,
+      kind: 'providerLimit',
+      line: line.line,
+      provider,
+      range,
+      value: Number(text.slice(`${provider} limit `.length).trim()),
+    };
+  }
+  return null;
 }
 
 function parseAggregate(
@@ -664,6 +702,15 @@ function stripComment(line: string): string {
   return marker < 0 ? line : line.slice(0, marker);
 }
 
+function providerFromStatement(text: string): string | null {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)\s+(where|order by|limit)\b/i.exec(text);
+  return match?.[1] ?? null;
+}
+
+function isProviderClauseStart(text: string): boolean {
+  return Boolean(providerFromStatement(text));
+}
+
 function isEscaped(source: string, index: number): boolean {
   let slashCount = 0;
   for (let cursor = index - 1; cursor >= 0 && source[cursor] === '\\'; cursor -= 1) {
@@ -673,7 +720,7 @@ function isEscaped(source: string, index: number): boolean {
 }
 
 function isStatementStart(text: string): boolean {
-  return /^(set|alias|from|fs |then |return|union all)\b/.test(text);
+  return /^(set|alias|from|then |return|union all)\b/.test(text) || isProviderClauseStart(text);
 }
 
 function isUnionAst(ast: FdqlAst): ast is FdqlUnionProgram {

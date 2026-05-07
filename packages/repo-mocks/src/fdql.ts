@@ -171,11 +171,10 @@ function eventToRunEvent(runId: string, event: FdqlExecutionEvent): FdqlRunEvent
       return { diagnostic: event.diagnostic, runId, type: 'diagnostic' };
     case 'read':
       return {
-        ...(event.collectionGroup === undefined ? {} : { collectionGroup: event.collectionGroup }),
-        ...(event.collectionPath === undefined ? {} : { collectionPath: event.collectionPath }),
         count: event.count,
-        projectId: event.projectId,
+        provider: event.provider,
         runId,
+        source: event.source,
         type: 'read',
       };
     case 'row':

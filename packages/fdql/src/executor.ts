@@ -1,4 +1,11 @@
 import { type EvalContext, evaluateExpression, truthy } from './evaluator.ts';
+import { firestoreProviderDialect } from './fs-dialect.ts';
+import {
+  createProviderDialectRegistry,
+  type FdqlProviderDialectRegistry,
+  type FdqlProviderRuntimeRegistry,
+  providerKey,
+} from './provider.ts';
 import type {
   EvalRows,
   FdqlAggregateStage,
@@ -8,12 +15,11 @@ import type {
   FdqlExpression,
   FdqlFilterStage,
   FdqlLookupPlanStage,
-  FdqlNativeReadPlan,
   FdqlProjectionItem,
+  FdqlProviderReadPlan,
+  FdqlProviderReadRequest,
+  FdqlProviderRow,
   FdqlReadPlan,
-  FdqlReadRequest,
-  FdqlRuntime,
-  FdqlRuntimeDocument,
   FdqlSingleReadPlan,
   FdqlSortByStage,
   FdqlStats,
@@ -24,7 +30,7 @@ import type {
 
 export async function* executeFdql(
   plan: FdqlReadPlan,
-  runtime: FdqlRuntime,
+  runtime: FdqlProviderRuntimeRegistry,
   options: FdqlExecutionOptions = {},
 ): AsyncIterable<FdqlExecutionEvent> {
   const startedAt = options.now?.() ?? Date.now();
@@ -65,18 +71,18 @@ export async function* executeFdql(
 
 async function* executeReadBranch(
   plan: FdqlSingleReadPlan,
-  runtime: FdqlRuntime,
+  runtime: FdqlProviderRuntimeRegistry,
   options: FdqlExecutionOptions,
   stats: MutableStats,
   startedAt: number,
   unionBranch?: number | undefined,
 ): AsyncGenerator<FdqlExecutionEvent, 'done' | 'stopped', unknown> {
-  const request = createReadRequest(plan.native, plan, plan.rowAlias, stats);
+  const request = createReadRequest(plan.provider, plan, plan.rowAlias, stats);
   const sourceRows: RowRecord[] = [];
-  const sourceLineage = new WeakMap<RowRecord, FdqlRuntimeDocument>();
+  const sourceLineage = new WeakMap<RowRecord, FdqlProviderRow>();
   let readStopReason: NonNullable<FdqlStats['stoppedReason']> | undefined;
 
-  for await (const document of runtime.read(request)) {
+  for await (const document of readProvider(runtime, request)) {
     yield recordRead(document, request, stats, false);
     const beforeRowStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
     if (beforeRowStop) {
@@ -115,7 +121,7 @@ async function* executeReadBranch(
   for (const row of localResult.rows) {
     const document = localResult.lineage.get(row)
       ?? sourceRows.flatMap((item) => sourceLineage.get(item) ? [sourceLineage.get(item)!] : [])[0];
-    const projected = projectItems(plan.returnStage.items, plan, row);
+    const projected = projectItems(plan.returnStage.items, plan, row, runtime);
     stats.rowsOutput += 1;
     yield {
       kind: 'row',
@@ -123,8 +129,8 @@ async function* executeReadBranch(
         documentPath: document?.path ?? '',
         readContribution: 1,
         source: unionBranch === undefined
-          ? plan.native.source.sourceAlias
-          : `${plan.native.source.sourceAlias}#${unionBranch + 1}`,
+          ? plan.provider.source.sourceAlias
+          : `${plan.provider.source.sourceAlias}#${unionBranch + 1}`,
       },
       row: projected,
     };
@@ -145,75 +151,81 @@ async function* executeReadBranch(
   return 'done';
 }
 
-export function createInMemoryFdqlRuntime(input: InMemoryFdqlRuntimeInput): FdqlRuntime {
+export function createInMemoryFdqlRuntime(
+  input: InMemoryFdqlRuntimeInput,
+): FdqlProviderRuntimeRegistry {
   return {
-    async *read(request) {
-      const project = input.projects[request.projectId] ?? {};
-      const documents = readDocuments(project, request);
-      const filtered = documents.filter((document) =>
-        !request.predicate
-        || truthy(evaluateExpression(request.predicate, {
-          aliases: request.aliases,
-          rows: { ...request.rows, [request.rowAlias]: document },
-        }))
-      );
-      const ordered = orderDocuments(filtered, request);
-      const limited = ordered.slice(0, request.maxDocuments);
-      for (const document of limited) {
-        yield applyFieldMask(document, request);
-      }
+    dialects: createProviderDialectRegistry([firestoreProviderDialect]),
+    providers: {
+      fs: {
+        async *read(request) {
+          const projectId = String(request.source.target.projectId ?? '');
+          const project = input.projects[projectId] ?? {};
+          const documents = readDocuments(project, request);
+          const filtered = documents.filter((document) =>
+            !request.predicate
+            || truthy(evaluateExpression(request.predicate, {
+              aliases: request.aliases,
+              providers: { fs: firestoreProviderDialect },
+              rows: { ...request.rows, [request.rowAlias]: document },
+            }))
+          );
+          const ordered = orderDocuments(filtered, request);
+          const limited = ordered.slice(0, request.maxDocuments);
+          for (const document of limited) {
+            yield applyFieldMask(document, request);
+          }
+        },
+      },
     },
   };
 }
 
 function createReadRequest(
-  native: FdqlNativeReadPlan,
+  provider: FdqlProviderReadPlan,
   plan: FdqlSingleReadPlan,
   rowAlias: string,
   stats: MutableStats,
   rows?: EvalRows,
   maxOverride?: number,
-): FdqlReadRequest {
-  const source = native.source;
+): FdqlProviderReadRequest {
+  const source = provider.source;
   const remainingBudget = Math.max(0, plan.settings.readBudget - stats.reads);
   const maxDocuments = Math.min(
-    native.limit ?? remainingBudget,
+    provider.limit ?? remainingBudget,
     remainingBudget,
     maxOverride ?? remainingBudget,
   );
   return {
     aliases: plan.aliases,
-    ...(source.collectionGroup ? { collectionGroup: source.collectionGroup } : {}),
-    ...(source.collectionPath ? { collectionPath: source.collectionPath } : {}),
-    ...(source.databaseId ? { databaseId: source.databaseId } : {}),
-    ...(native.fieldMask ? { fieldMask: native.fieldMask } : {}),
-    ...(native.limit === undefined ? {} : { limit: native.limit }),
+    ...(provider.fieldMask ? { fieldMask: provider.fieldMask } : {}),
+    ...(provider.limit === undefined ? {} : { limit: provider.limit }),
     maxDocuments,
-    ...(native.orderBy ? { orderBy: native.orderBy } : {}),
+    ...(provider.orderBy ? { orderBy: provider.orderBy } : {}),
     pageSize: Math.min(plan.settings.pageSize, maxDocuments),
-    ...(native.predicate ? { predicate: native.predicate } : {}),
-    projectId: source.projectId,
+    ...(provider.predicate ? { predicate: provider.predicate } : {}),
     rowAlias,
     ...(rows ? { rows } : {}),
+    source,
   };
 }
 
 function recordRead(
-  document: FdqlRuntimeDocument,
-  request: FdqlReadRequest,
+  document: FdqlProviderRow,
+  request: FdqlProviderReadRequest,
   stats: MutableStats,
   lookup: boolean,
 ): Extract<FdqlExecutionEvent, { readonly kind: 'read'; }> {
   stats.reads += 1;
   if (lookup) stats.lookupReads += 1;
   stats.rowsScanned += 1;
-  stats.perProjectReads[document.projectId] = (stats.perProjectReads[document.projectId] ?? 0) + 1;
+  const key = providerKey(document.provider, String(document.context.projectId ?? ''));
+  stats.providerReads[key] = (stats.providerReads[key] ?? 0) + 1;
   return {
-    collectionGroup: request.collectionGroup,
-    collectionPath: request.collectionPath,
     count: 1,
     kind: 'read',
-    projectId: document.projectId,
+    provider: document.provider,
+    source: request.source.sourceAlias,
   };
 }
 
@@ -223,7 +235,7 @@ function createStats(readBudget: number): MutableStats {
     cacheHits: 0,
     cacheMisses: 0,
     lookupReads: 0,
-    perProjectReads: {},
+    providerReads: {},
     readBudget,
     reads: 0,
     rowsOutput: 0,
@@ -259,9 +271,14 @@ function stopEvents(
   ];
 }
 
-function contextFor(plan: FdqlSingleReadPlan, row: RowRecord): EvalContext {
+function contextFor(
+  plan: FdqlSingleReadPlan,
+  row: RowRecord,
+  runtime: FdqlProviderRuntimeRegistry,
+): EvalContext {
   return {
     aliases: plan.aliases,
+    providers: providerDialects(runtime),
     rows: row as EvalRows,
   };
 }
@@ -269,8 +286,8 @@ function contextFor(plan: FdqlSingleReadPlan, row: RowRecord): EvalContext {
 async function* applyLocalStages(
   plan: FdqlSingleReadPlan,
   sourceRows: readonly RowRecord[],
-  sourceLineage: WeakMap<RowRecord, FdqlRuntimeDocument>,
-  runtime: FdqlRuntime,
+  sourceLineage: WeakMap<RowRecord, FdqlProviderRow>,
+  runtime: FdqlProviderRuntimeRegistry,
   stats: MutableStats,
   startedAt: number,
   options: FdqlExecutionOptions,
@@ -279,7 +296,7 @@ async function* applyLocalStages(
   | { readonly kind: 'failed'; readonly diagnostic: FdqlDiagnostic; }
   | {
     readonly kind: 'rows';
-    readonly lineage: WeakMap<RowRecord, FdqlRuntimeDocument>;
+    readonly lineage: WeakMap<RowRecord, FdqlProviderRow>;
     readonly rows: readonly RowRecord[];
   }
   | { readonly kind: 'stopped'; readonly reason: NonNullable<FdqlStats['stoppedReason']>; },
@@ -292,10 +309,10 @@ async function* applyLocalStages(
   // oxlint-disable no-await-in-loop -- Local stages are ordered and lookup depends on current row values.
   for (const stage of plan.localStages) {
     if (stage.kind === 'filter') {
-      rows = filterRows(stage, plan, rows);
+      rows = filterRows(stage, plan, rows, runtime);
     } else if (stage.kind === 'lookup') {
       const nextRows: RowRecord[] = [];
-      const nextLineage = new WeakMap<RowRecord, FdqlRuntimeDocument>();
+      const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
       for (const row of rows) {
         const lookup = await executeLookup(stage, plan, row, runtime, stats, startedAt, options);
         for (const event of lookup.events) yield event;
@@ -309,12 +326,12 @@ async function* applyLocalStages(
       rows = nextRows;
       lineage = nextLineage;
     } else if (stage.kind === 'sortBy') {
-      rows = sortRows(stage, plan, rows);
+      rows = sortRows(stage, plan, rows, runtime);
     } else if (stage.kind === 'unwind') {
       const nextRows: RowRecord[] = [];
-      const nextLineage = new WeakMap<RowRecord, FdqlRuntimeDocument>();
+      const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
       for (const row of rows) {
-        for (const unwound of unwindRow(stage, plan, row)) {
+        for (const unwound of unwindRow(stage, plan, row, runtime)) {
           nextRows.push(unwound);
           copyLineage(lineage, nextLineage, row, unwound);
         }
@@ -322,15 +339,15 @@ async function* applyLocalStages(
       rows = nextRows;
       lineage = nextLineage;
     } else if (stage.kind === 'with') {
-      const nextLineage = new WeakMap<RowRecord, FdqlRuntimeDocument>();
+      const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
       rows = rows.map((row) => {
-        const projected = projectItems(stage.items, plan, row);
+        const projected = projectItems(stage.items, plan, row, runtime);
         copyLineage(lineage, nextLineage, row, projected);
         return projected;
       });
       lineage = nextLineage;
     } else if (stage.kind === 'aggregate') {
-      const aggregated = aggregateRows(stage, plan, rows, lineage, stats);
+      const aggregated = aggregateRows(stage, plan, rows, lineage, stats, runtime);
       rows = aggregated.rows;
       lineage = aggregated.lineage;
     } else if (stage.kind === 'take') {
@@ -347,22 +364,26 @@ function filterRows(
   stage: FdqlFilterStage,
   plan: FdqlSingleReadPlan,
   rows: readonly RowRecord[],
+  runtime: FdqlProviderRuntimeRegistry,
 ): RowRecord[] {
-  return rows.filter((row) => truthy(evaluateExpression(stage.expression, contextFor(plan, row))));
+  return rows.filter((row) =>
+    truthy(evaluateExpression(stage.expression, contextFor(plan, row, runtime)))
+  );
 }
 
 function sortRows(
   stage: FdqlSortByStage,
   plan: FdqlSingleReadPlan,
   rows: readonly RowRecord[],
+  runtime: FdqlProviderRuntimeRegistry,
 ): RowRecord[] {
   const direction = stage.direction === 'desc' ? -1 : 1;
   const sorted: RowRecord[] = [];
   for (const row of rows) {
     const index = sorted.findIndex((candidate) =>
       compareValues(
-            evaluateExpression(stage.expression, contextFor(plan, row)),
-            evaluateExpression(stage.expression, contextFor(plan, candidate)),
+            evaluateExpression(stage.expression, contextFor(plan, row, runtime)),
+            evaluateExpression(stage.expression, contextFor(plan, candidate, runtime)),
           ) * direction < 0
     );
     if (index < 0) sorted.push(row);
@@ -387,8 +408,9 @@ function unwindRow(
   stage: FdqlUnwindStage,
   plan: FdqlSingleReadPlan,
   row: RowRecord,
+  runtime: FdqlProviderRuntimeRegistry,
 ): RowRecord[] {
-  const value = evaluateExpression(stage.expression, contextFor(plan, row));
+  const value = evaluateExpression(stage.expression, contextFor(plan, row, runtime));
   return unwindItems(value).map((item) => ({ ...row, [stage.rowAlias]: item }));
 }
 
@@ -396,9 +418,10 @@ function aggregateRows(
   stage: FdqlAggregateStage,
   plan: FdqlSingleReadPlan,
   rows: readonly RowRecord[],
-  lineage: WeakMap<RowRecord, FdqlRuntimeDocument>,
+  lineage: WeakMap<RowRecord, FdqlProviderRow>,
   stats: MutableStats,
-): { readonly lineage: WeakMap<RowRecord, FdqlRuntimeDocument>; readonly rows: RowRecord[]; } {
+  runtime: FdqlProviderRuntimeRegistry,
+): { readonly lineage: WeakMap<RowRecord, FdqlProviderRow>; readonly rows: RowRecord[]; } {
   stats.aggregateSourceRows += rows.length;
   const groups = new Map<
     string,
@@ -406,7 +429,7 @@ function aggregateRows(
   >();
   for (const row of rows) {
     const keyValues = stage.groups.map((group) =>
-      evaluateExpression(group.expression, contextFor(plan, row))
+      evaluateExpression(group.expression, contextFor(plan, row, runtime))
     );
     const key = JSON.stringify(keyValues.map(groupKeyPart));
     const group = groups.get(key);
@@ -415,14 +438,14 @@ function aggregateRows(
   }
 
   const nextRows: RowRecord[] = [];
-  const nextLineage = new WeakMap<RowRecord, FdqlRuntimeDocument>();
+  const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
   for (const group of groups.values()) {
     const output: RowRecord = {};
     for (const [index, item] of stage.groups.entries()) {
       output[item.alias ?? item.label] = group.keyValues[index];
     }
     for (const item of stage.items) {
-      output[item.alias ?? item.label] = aggregateValue(item.expression, plan, group.rows);
+      output[item.alias ?? item.label] = aggregateValue(item.expression, plan, group.rows, runtime);
     }
     nextRows.push(output);
     const source = group.rows.flatMap((row) => lineage.get(row) ? [lineage.get(row)!] : [])[0];
@@ -435,10 +458,13 @@ function aggregateValue(
   expression: FdqlExpression,
   plan: FdqlSingleReadPlan,
   rows: readonly RowRecord[],
+  runtime: FdqlProviderRuntimeRegistry,
 ): unknown {
   if (expression.kind !== 'call') return null;
   if (expression.name === 'count') return rows.length;
-  const values = rows.map((row) => evaluateExpression(expression.args[0]!, contextFor(plan, row)))
+  const values = rows.map((row) =>
+    evaluateExpression(expression.args[0]!, contextFor(plan, row, runtime))
+  )
     .filter((value) => value !== null && value !== undefined);
   if (expression.name === 'sum') {
     return values.reduce<number>((total, value) => total + numericValue(value), 0);
@@ -479,8 +505,8 @@ function compareValues(left: unknown, right: unknown): number {
 }
 
 function copyLineage(
-  from: WeakMap<RowRecord, FdqlRuntimeDocument>,
-  to: WeakMap<RowRecord, FdqlRuntimeDocument>,
+  from: WeakMap<RowRecord, FdqlProviderRow>,
+  to: WeakMap<RowRecord, FdqlProviderRow>,
   oldRow: RowRecord,
   newRow: RowRecord,
 ): void {
@@ -498,7 +524,7 @@ async function executeLookup(
   stage: FdqlLookupPlanStage,
   plan: FdqlSingleReadPlan,
   row: RowRecord,
-  runtime: FdqlRuntime,
+  runtime: FdqlProviderRuntimeRegistry,
   stats: MutableStats,
   startedAt: number,
   options: FdqlExecutionOptions,
@@ -509,18 +535,18 @@ async function executeLookup(
   readonly stopReason?: NonNullable<FdqlStats['stoppedReason']> | undefined;
 }> {
   const remainingBudget = Math.max(0, plan.settings.readBudget - stats.reads);
-  const lookupOneCap = stage.mode === 'one' && stage.native.limit === undefined ? 2 : undefined;
+  const lookupOneCap = stage.mode === 'one' && stage.provider.limit === undefined ? 2 : undefined;
   const request = createReadRequest(
-    stage.native,
+    stage.provider,
     plan,
     stage.rowAlias,
     stats,
     row as EvalRows,
     Math.min(remainingBudget, lookupOneCap ?? remainingBudget),
   );
-  const documents: FdqlRuntimeDocument[] = [];
+  const documents: FdqlProviderRow[] = [];
   const events: FdqlExecutionEvent[] = [];
-  for await (const document of runtime.read(request)) {
+  for await (const document of readProvider(runtime, request)) {
     events.push(recordRead(document, request, stats, true));
     documents.push(document);
     const stopReason = stopReasonFor(plan, stats, startedAt, options, 'afterRow');
@@ -552,6 +578,7 @@ function projectItems(
   items: readonly FdqlProjectionItem[],
   plan: FdqlSingleReadPlan,
   row: RowRecord,
+  runtime: FdqlProviderRuntimeRegistry,
 ): RowRecord {
   const projected: RowRecord = {};
   for (const item of items) {
@@ -561,7 +588,7 @@ function projectItems(
     }
     projected[item.alias ?? labelFor(item.expression, item.label)] = evaluateExpression(
       item.expression,
-      contextFor(plan, row),
+      contextFor(plan, row, runtime),
     );
   }
   return projected;
@@ -581,32 +608,40 @@ function labelFor(expression: FdqlExpression, fallback: string): string {
 
 function readDocuments(
   project: Readonly<Record<string, Readonly<Record<string, Record<string, unknown>>>>>,
-  request: FdqlReadRequest,
-): readonly FdqlRuntimeDocument[] {
+  request: FdqlProviderReadRequest,
+): readonly FdqlProviderRow[] {
+  const collectionPathTarget = stringTarget(request, 'collectionPath');
+  const collectionGroupTarget = stringTarget(request, 'collectionGroup');
+  const projectId = stringTarget(request, 'projectId');
+  const databaseId = stringTarget(request, 'databaseId');
   const entries = Object.entries(project).filter(([collectionPath]) =>
-    request.collectionPath
-      ? collectionPath === request.collectionPath
-      : collectionPath.split('/').at(-1) === request.collectionGroup
+    collectionPathTarget
+      ? collectionPath === collectionPathTarget
+      : collectionPath.split('/').at(-1) === collectionGroupTarget
   );
   return entries.flatMap(([collectionPath, documents]) =>
     Object.entries(documents).map(([id, data]) => ({
-      collectionPath,
+      context: {
+        ...(databaseId ? { databaseId } : {}),
+        collectionPath,
+        projectId,
+      },
       data,
-      ...(request.databaseId ? { databaseId: request.databaseId } : {}),
       id,
       path: `${collectionPath}/${id}`,
-      projectId: request.projectId,
+      provider: request.source.provider,
+      source: request.source,
     }))
   );
 }
 
 function orderDocuments(
-  documents: readonly FdqlRuntimeDocument[],
-  request: FdqlReadRequest,
-): readonly FdqlRuntimeDocument[] {
+  documents: readonly FdqlProviderRow[],
+  request: FdqlProviderReadRequest,
+): readonly FdqlProviderRow[] {
   if (!request.orderBy) return documents;
   const direction = request.orderBy.direction === 'desc' ? -1 : 1;
-  const sorted: FdqlRuntimeDocument[] = [];
+  const sorted: FdqlProviderRow[] = [];
   for (const document of documents) {
     const index = sorted.findIndex((candidate) =>
       compareDocuments(document, candidate, request, direction) < 0
@@ -618,9 +653,9 @@ function orderDocuments(
 }
 
 function compareDocuments(
-  left: FdqlRuntimeDocument,
-  right: FdqlRuntimeDocument,
-  request: FdqlReadRequest,
+  left: FdqlProviderRow,
+  right: FdqlProviderRow,
+  request: FdqlProviderReadRequest,
   direction: number,
 ): number {
   if (!request.orderBy) return 0;
@@ -637,9 +672,9 @@ function compareDocuments(
 }
 
 function applyFieldMask(
-  document: FdqlRuntimeDocument,
-  request: FdqlReadRequest,
-): FdqlRuntimeDocument {
+  document: FdqlProviderRow,
+  request: FdqlProviderReadRequest,
+): FdqlProviderRow {
   if (!request.fieldMask) return document;
   const data: Record<string, unknown> = {};
   for (const field of request.fieldMask) {
@@ -650,6 +685,26 @@ function applyFieldMask(
     ...document,
     data,
   };
+}
+
+async function* readProvider(
+  runtime: FdqlProviderRuntimeRegistry,
+  request: FdqlProviderReadRequest,
+): AsyncIterable<FdqlProviderRow> {
+  const provider = runtime.providers[request.source.provider];
+  if (!provider) {
+    throw new Error(`No runtime registered for provider ${request.source.provider}.`);
+  }
+  yield* provider.read(request);
+}
+
+function providerDialects(runtime: FdqlProviderRuntimeRegistry): FdqlProviderDialectRegistry {
+  return runtime.dialects ?? createProviderDialectRegistry([firestoreProviderDialect]);
+}
+
+function stringTarget(request: FdqlProviderReadRequest, key: string): string {
+  const value = request.source.target[key];
+  return typeof value === 'string' ? value : '';
 }
 
 function readPath(source: Readonly<Record<string, unknown>>, path: string): unknown {
@@ -679,7 +734,7 @@ function freezeStats(stats: MutableStats): FdqlStats {
     cacheHits: stats.cacheHits,
     cacheMisses: stats.cacheMisses,
     lookupReads: stats.lookupReads,
-    perProjectReads: { ...stats.perProjectReads },
+    providerReads: { ...stats.providerReads },
     readBudget: stats.readBudget,
     reads: stats.reads,
     rowsOutput: stats.rowsOutput,
@@ -689,14 +744,14 @@ function freezeStats(stats: MutableStats): FdqlStats {
   };
 }
 
-function isDocument(value: unknown): value is FdqlRuntimeDocument {
+function isDocument(value: unknown): value is FdqlProviderRow {
   return value !== null
     && value !== undefined
     && typeof value === 'object'
-    && 'collectionPath' in value
+    && 'context' in value
     && 'data' in value
     && 'id' in value
-    && 'projectId' in value;
+    && 'provider' in value;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -710,6 +765,6 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 type RowRecord = Record<string, unknown>;
 
 type MutableStats = {
-  -readonly [Key in keyof FdqlStats]: Key extends 'perProjectReads' ? Record<string, number>
+  -readonly [Key in keyof FdqlStats]: Key extends 'providerReads' ? Record<string, number>
     : FdqlStats[Key];
 };

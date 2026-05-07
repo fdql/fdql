@@ -50,7 +50,7 @@ const result: FdqlRunResult = {
     cacheHits: 0,
     cacheMisses: 0,
     lookupReads: 0,
-    perProjectReads: { local: 1 },
+    providerReads: { 'fs:local': 1 },
     readBudget: 5000,
     reads: 1,
     rowsOutput: 1,

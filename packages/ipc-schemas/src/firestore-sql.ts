@@ -12,7 +12,7 @@ export const FirestoreSqlDiagnosticSchema = z.object({
 
 export const FirestoreSqlStatsSchema = z.object({
   joinMisses: z.number(),
-  perProjectReads: z.record(z.string(), z.number()),
+  projectReads: z.record(z.string(), z.number()),
   readBudget: z.number(),
   reads: z.number(),
   rowsOutput: z.number(),

@@ -16,14 +16,73 @@ Reserved provider namespaces:
 - `s3`: Amazon S3
 - `gcs`: Google Cloud Storage
 
+Reserved namespaces have no semantics until a provider dialect defines them. Using an unknown namespace is a diagnostic, not a fallback to Firestore or local execution.
+
 ## Principles
 
-- Native provider work must be explicit.
+- Provider-native work must be explicit.
 - Firebase Desk local work must be explicit.
-- No hidden Firestore collection scans.
+- No hidden provider scans.
 - Query stages run in written order.
 - Stages preserve row shape unless the stage explicitly reshapes or expands it.
 - The same FDQL plan drives integrated execution and generated scripts.
+
+## Provider Semantics
+
+FDQL separates provider work from Firebase Desk local work.
+
+Provider namespaces own:
+
+- source functions such as `fs.collection(...)`
+- provider commands such as `fs where`, `fs order by`, and `fs limit`
+- provider metadata/value functions such as `fs.id(row)` and `fs.timestamp(...)`
+- provider-specific diagnostics for clauses that cannot compile to that provider
+
+Firebase Desk owns:
+
+- query preamble rules
+- local stages such as `then filter`, `then with`, `then unwind`, `then aggregate`, `then sort by`, `then take`, and `return`
+- local functions such as `lower(...)`, `entries(...)`, `mapGet(...)`, and aggregate helpers
+- execution stats, read budgets, timeout, cancellation, lineage, and result shaping
+
+Rules:
+
+- Provider commands use spaced syntax: `fs where`, `fs order by`, `fs limit`.
+- Provider functions use dot-call syntax: `fs.collection(...)`, `fs.id(...)`, `fs.timestamp(...)`.
+- A provider source alias can only be produced by that provider dialect.
+- A provider command applies to the current provider source or lookup source.
+- A provider command must compile to provider-native work. FDQL must not silently convert `fs where` into local `filter`.
+- Local stages operate on rows already loaded or produced by earlier stages.
+- Provider metadata functions are valid local expressions when the row binding belongs to that provider.
+- Provider field validation belongs to the provider dialect. Firestore rules do not automatically apply to future providers.
+- Unknown provider namespaces and unknown provider functions are diagnostics.
+
+Example split:
+
+```sql
+alias $drivers = fs.collection("drivers", ["firstName"])
+
+from $drivers as d
+fs where d.active = true
+fs limit 100
+
+then filter lower(d.firstName) = "vini"
+
+return fs.id(d) as id, d.firstName
+```
+
+Meaning:
+
+```text
+fs provider:
+  read drivers
+  push active == true
+  cap provider read at 100
+
+Firebase Desk:
+  evaluate lower(firstName) == "vini"
+  emit id and firstName
+```
 
 ## Query Preamble
 
@@ -252,9 +311,9 @@ Rules:
 - Previous row bindings must be explicit when they are not metadata function arguments.
 - `with` controls which previous row bindings are available to later stages.
 
-## Native Firestore Clauses
+## Firestore Provider Clauses
 
-`fs where` accepts Firestore-native predicates only.
+`fs where` accepts Firestore provider predicates only.
 
 ```sql
 fs where d.active = true
@@ -1071,7 +1130,7 @@ Generated scripts must be produced from the FDQL pipeline AST, not raw query tex
 Rules:
 
 - Generated scripts must preserve provider stages and local stages.
-- Generated scripts must label native provider work and local work.
+- Generated scripts must label provider-native work and local work.
 - Generated scripts must include warnings for expensive lookup patterns.
 - Integrated execution and generated scripts must not interpret the query differently.
 
@@ -1094,7 +1153,9 @@ FDQL_INVALID_FIELD_MASK
 FDQL_UNSUPPORTED_FS_WHERE
 FDQL_UNSUPPORTED_FS_ORDER_BY
 FDQL_UNBOUNDED_PROVIDER_READ
-FDQL_LOCAL_EXPRESSION_IN_FS_CLAUSE
+FDQL_LOCAL_EXPRESSION_IN_PROVIDER_CLAUSE
+FDQL_UNSUPPORTED_PROVIDER_WHERE
+FDQL_UNSUPPORTED_PROVIDER_ORDER_BY
 FDQL_LOOKUP_CARDINALITY_ERROR
 FDQL_AMBIGUOUS_FIELD
 FDQL_UNKNOWN_BINDING
@@ -1114,7 +1175,7 @@ FDQL_WRITE_FAILED
 
 Rules:
 
-- Native-provider validation errors happen before execution.
+- Provider validation errors happen before execution.
 - Unknown row fields should report diagnostics when schema or row shape proves they are invalid.
 - Unbounded provider reads should be blocked unless runtime context explicitly allows them.
 - Diagnostics must include line and column when possible.

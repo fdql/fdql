@@ -4,7 +4,9 @@ Last updated: 2026-05-07
 
 Source spec: [FDQL](./fdql.md)
 
-Scope: read features only. Write operations are out of this tracker.
+Architecture constraints: [FDQL Architecture](./fdql-architecture.md)
+
+Scope: read features only. Write operations are out of this tracker. This document tracks implementation status only; language semantics live in the spec and package constraints live in the architecture doc.
 
 ## Status Legend
 
@@ -22,8 +24,9 @@ Scope: read features only. Write operations are out of this tracker.
 | Mock repository | Done    | Uses existing fixture collections through in-memory runtime.                                                                                                |
 | Live repository | Partial | Uses paged Admin SDK collection/collection group reads for the first read source shape.                                                                     |
 | Parser          | Partial | Statement grammar keeps existing syntax and now records source columns/ranges.                                                                              |
-| Compiler        | Partial | Builds one native read source plus local stages.                                                                                                            |
-| Executor        | Partial | Streams rows after runtime returns docs. Supports basic local stages.                                                                                       |
+| Compiler        | Partial | Builds provider read sources plus provider-neutral local stages.                                                                                            |
+| Executor        | Partial | Dispatches reads through a provider runtime registry, then streams rows through local stages.                                                               |
+| Providers       | Partial | Firestore dialect/runtime is wired by default; a test-only `mem` provider proves non-Firestore compile/execute dispatch.                                    |
 | E2E             | Partial | Covers bounded reads, field projection, result views, budget stop, lookup, unwind, aggregate, union, collection group, and duplicate singleton diagnostics. |
 
 ## Implemented Read Syntax
@@ -110,12 +113,12 @@ These block the read implementation from being honest at production scale.
 
 | Feature                          | Status  | Notes                                                                                                                            |
 | -------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Live streaming/pages             | Done    | Live repo uses cursor pages and caps each page by configured page size and remaining read budget/native limit.                   |
+| Live streaming/pages             | Done    | Live repo uses cursor pages and caps each page by configured page size and remaining read budget/provider limit.                 |
 | Read budget in live repo         | Done    | Runtime read requests cap Firestore page reads before docs are fetched.                                                          |
 | Cancel in live repo              | Partial | Cancel is observed between pages/rows, but not while a Firestore page request is already in flight.                              |
 | Timeout in live repo             | Partial | Same issue as cancel.                                                                                                            |
 | Cache modes                      | Missing | `set cache = ...` parses/compiles, but runtime does not dedupe or cache reads.                                                   |
-| Provider query validation parity | Partial | Compiler validates simple native shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.                        |
+| Provider query validation parity | Partial | Firestore dialect validates simple provider shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.             |
 | Field path fidelity              | Partial | Live field masks split on `.`, so literal dotted field names are not represented yet. Need explicit field-path segment handling. |
 
 ## P1 Spec Features Not Implemented
@@ -157,6 +160,7 @@ These block the read implementation from being honest at production scale.
 | ------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | Full grammar       | Partial                    | Parser now uses source-located statements, but expression and pipeline grammar still need broader syntax coverage.             |
 | Source-located AST | Done                       | Top-level declarations and stages carry source columns/ranges; parser expression diagnostics use source columns.               |
+| Editor language    | Missing                    | Monaco treats FDQL as plain text. Needs language id, syntax highlighting, bracket/comment rules, completions, and diagnostics. |
 | Row-shape analysis | Missing                    | Unknown fields are mostly runtime `undefined`; compiler does not prove row shape.                                              |
 | Lineage UI         | Partial                    | Events carry basic document lineage, but UI does not expose source exploration.                                                |
 | More E2E           | Partial                    | Covers main read paths. Still needs deterministic cancel/timeout and named DB coverage.                                        |
@@ -164,5 +168,6 @@ These block the read implementation from being honest at production scale.
 
 ## Suggested Next Order
 
-1. Implement Firestore aggregation lookups.
-2. Add E2E per completed feature.
+1. Add FDQL editor language support.
+2. Implement Firestore aggregation lookups.
+3. Add E2E per completed feature.

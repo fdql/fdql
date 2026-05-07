@@ -1,5 +1,14 @@
 import { evaluateExpression } from './evaluator.ts';
+import { firestoreProviderDialect } from './fs-dialect.ts';
 import { parseFdql } from './parser.ts';
+import {
+  createProviderDialectRegistry,
+  type FdqlDefaultProviderContext,
+  type FdqlProviderDialectRegistry,
+  type FdqlProviderSourceAlias,
+  type FdqlResolvedAliasValue,
+  providerNamespaceFromCall,
+} from './provider.ts';
 import type {
   FdqlAliasDeclaration,
   FdqlAst,
@@ -7,17 +16,15 @@ import type {
   FdqlDiagnostic,
   FdqlExecutionSettings,
   FdqlExpression,
-  FdqlFieldMaskField,
   FdqlLocalPlanStage,
   FdqlLookupPlanStage,
   FdqlLookupStage,
-  FdqlNativeOrderBy,
   FdqlProgram,
+  FdqlProviderOrderByClause,
   FdqlReadCompileResult,
   FdqlReturnStage,
   FdqlSetDeclaration,
   FdqlSingleReadPlan,
-  FdqlSourcePlan,
   FdqlStage,
   FdqlUnionProgram,
   FdqlValue,
@@ -31,18 +38,7 @@ const defaultSettings: FdqlExecutionSettings = {
   timeoutMs: 60_000,
 };
 
-type SourceAliasValue = {
-  readonly fieldMask?: readonly FdqlFieldMaskField[] | undefined;
-  readonly kind: 'source';
-  readonly source: FdqlSourcePlan;
-};
-
-type ScalarAliasValue = {
-  readonly kind: 'value';
-  readonly value: FdqlValue;
-};
-
-type ResolvedAliasValue = ScalarAliasValue | SourceAliasValue;
+type ResolvedAliasValue = FdqlResolvedAliasValue;
 
 export function compileFdqlRead(
   source: string,
@@ -51,6 +47,16 @@ export function compileFdqlRead(
   const unionParts = splitUnionAll(source);
   if (unionParts.length > 1) return compileUnionRead(unionParts, options);
   return compileSingleFdqlRead(source, options);
+}
+
+function providerRegistry(options: FdqlCompileOptions): FdqlProviderDialectRegistry {
+  return createProviderDialectRegistry(options.providers ?? [firestoreProviderDialect]);
+}
+
+function defaultProviderContext(options: FdqlCompileOptions): FdqlDefaultProviderContext {
+  return {
+    projectId: options.defaultProviderContext?.projectId ?? options.defaultProjectId,
+  };
 }
 
 function compileUnionRead(
@@ -92,6 +98,8 @@ function compileSingleFdqlRead(
   source: string,
   options: FdqlCompileOptions,
 ): FdqlReadCompileResult {
+  const providers = providerRegistry(options);
+  const providerContext = defaultProviderContext(options);
   const parsed = parseFdql(source);
   const diagnostics: FdqlDiagnostic[] = [...parsed.diagnostics];
   const ast = parsed.ast;
@@ -102,7 +110,7 @@ function compileSingleFdqlRead(
   }
 
   const settings = resolveSettings(ast.settings, options, diagnostics);
-  const aliases = resolveAliases(ast.aliases, options, diagnostics);
+  const aliases = resolveAliases(ast.aliases, providerContext, providers, diagnostics);
   const scalarAliases = Object.fromEntries(
     Object.entries(aliases).flatMap(([name, value]) =>
       value.kind === 'value' ? [[name, value.value] as const] : []
@@ -124,69 +132,95 @@ function compileSingleFdqlRead(
   } else if (sourceAlias.kind !== 'source') {
     diagnostics.push(error(
       'FDQL_UNDECLARED_ALIAS',
-      `Alias ${ast.from.sourceAlias} is not a Firestore source.`,
+      `Alias ${ast.from.sourceAlias} is not a provider source.`,
       ast.from.line,
     ));
   }
 
+  const sourceProvider = sourceAlias?.kind === 'source' ? sourceAlias.source.provider : undefined;
+  const sourceDialect = sourceProvider ? providers[sourceProvider] : undefined;
   const rowAlias = ast.from.rowAlias;
   const availableRowAliases = new Set([rowAlias]);
   const localStages: FdqlLocalPlanStage[] = [];
-  let nativePredicate: FdqlExpression | undefined;
-  let nativeOrderBy: FdqlNativeOrderBy | undefined;
-  let nativeOrderByLine: number | undefined;
-  let nativeLimit: number | undefined;
-  let nativeLimitLine: number | undefined;
+  let providerPredicate: FdqlExpression | undefined;
+  let providerOrderBy: FdqlProviderOrderByClause | undefined;
+  let providerOrderByLine: number | undefined;
+  let providerLimit: number | undefined;
+  let providerLimitLine: number | undefined;
   let returnStage: FdqlReturnStage | undefined;
   let returnLine: number | undefined;
 
   for (const stage of ast.stages) {
     switch (stage.kind) {
-      case 'fsWhere':
-        validateNativeExpression(
-          stage.expression,
-          rowAlias,
-          scalarAliases,
+      case 'providerWhere':
+        if (
+          !validateStageProvider(stage.provider, sourceProvider, providers, diagnostics, stage.line)
+        ) break;
+        sourceDialect?.validateWhere({
+          aliases: scalarAliases,
+          availableRowAliases,
           diagnostics,
-          stage.line,
-        );
-        nativePredicate = nativePredicate
-          ? { kind: 'binary', left: nativePredicate, operator: 'and', right: stage.expression }
+          expression: stage.expression,
+          line: stage.line,
+          lookup: false,
+          rowAlias,
+        });
+        providerPredicate = providerPredicate
+          ? { kind: 'binary', left: providerPredicate, operator: 'and', right: stage.expression }
           : stage.expression;
         break;
-      case 'fsOrderBy':
-        if (nativeOrderByLine !== undefined) {
-          diagnostics.push(duplicateStage('fs order by', nativeOrderByLine, stage.line));
+      case 'providerOrderBy':
+        if (
+          !validateStageProvider(stage.provider, sourceProvider, providers, diagnostics, stage.line)
+        ) break;
+        if (providerOrderByLine !== undefined) {
+          diagnostics.push(
+            duplicateStage(`${stage.provider} order by`, providerOrderByLine, stage.line),
+          );
           break;
         }
-        validateNativeOrderBy(stage.expression, rowAlias, diagnostics, stage.line);
-        nativeOrderBy = { direction: stage.direction, expression: stage.expression };
-        nativeOrderByLine = stage.line;
+        sourceDialect?.validateOrderBy({
+          diagnostics,
+          expression: stage.expression,
+          line: stage.line,
+          rowAlias,
+        });
+        providerOrderBy = { direction: stage.direction, expression: stage.expression };
+        providerOrderByLine = stage.line;
         break;
-      case 'fsLimit':
-        if (nativeLimitLine !== undefined) {
-          diagnostics.push(duplicateStage('fs limit', nativeLimitLine, stage.line));
+      case 'providerLimit':
+        if (
+          !validateStageProvider(stage.provider, sourceProvider, providers, diagnostics, stage.line)
+        ) break;
+        if (providerLimitLine !== undefined) {
+          diagnostics.push(
+            duplicateStage(`${stage.provider} limit`, providerLimitLine, stage.line),
+          );
           break;
         }
         if (!Number.isInteger(stage.value) || stage.value <= 0) {
           diagnostics.push(
-            error('FDQL_PARSE_ERROR', '`fs limit` must be a positive integer.', stage.line),
+            error(
+              'FDQL_PARSE_ERROR',
+              `\`${stage.provider} limit\` must be a positive integer.`,
+              stage.line,
+            ),
           );
         }
-        nativeLimit = stage.value;
-        nativeLimitLine = stage.line;
+        providerLimit = stage.value;
+        providerLimitLine = stage.line;
         break;
       case 'filter':
       case 'sortBy':
       case 'take':
       case 'unwind':
       case 'with':
-        validateAliases(stage, scalarAliases, diagnostics);
+        validateAliases(stage, scalarAliases, providers, diagnostics);
         localStages.push(stage);
         if (stage.kind === 'unwind') availableRowAliases.add(stage.rowAlias);
         break;
       case 'aggregate':
-        validateAggregateStage(stage, scalarAliases, diagnostics);
+        validateAggregateStage(stage, scalarAliases, providers, diagnostics);
         localStages.push(stage);
         break;
       case 'lookup': {
@@ -195,6 +229,7 @@ function compileSingleFdqlRead(
           aliases,
           availableRowAliases,
           scalarAliases,
+          providers,
           diagnostics,
         );
         if (lookupStage) {
@@ -208,7 +243,7 @@ function compileSingleFdqlRead(
           diagnostics.push(duplicateStage('return', returnLine, stage.line));
           break;
         }
-        validateAliases(stage, scalarAliases, diagnostics);
+        validateAliases(stage, scalarAliases, providers, diagnostics);
         returnStage = stage;
         returnLine = stage.line;
         break;
@@ -231,12 +266,12 @@ function compileSingleFdqlRead(
   }
 
   if (
-    !nativeLimit && !settings.allowUnboundedReads
-    && !hasBoundedIdPredicate(nativePredicate, rowAlias)
+    !providerLimit && !settings.allowUnboundedReads
+    && !sourceDialect?.hasBoundedPredicate?.(providerPredicate, rowAlias)
   ) {
     diagnostics.push(error(
       'FDQL_UNBOUNDED_PROVIDER_READ',
-      'Add `fs limit`, query by document id, or set allowUnboundedReads = true.',
+      'Add provider limit, query by document id, or set allowUnboundedReads = true.',
       ast.from.line,
     ));
   }
@@ -254,11 +289,11 @@ function compileSingleFdqlRead(
       aliases: scalarAliases,
       kind: 'read',
       localStages,
-      native: {
+      provider: {
         ...(sourceValue.fieldMask ? { fieldMask: sourceValue.fieldMask } : {}),
-        ...(nativeLimit === undefined ? {} : { limit: nativeLimit }),
-        ...(nativeOrderBy ? { orderBy: nativeOrderBy } : {}),
-        ...(nativePredicate ? { predicate: nativePredicate } : {}),
+        ...(providerLimit === undefined ? {} : { limit: providerLimit }),
+        ...(providerOrderBy ? { orderBy: providerOrderBy } : {}),
+        ...(providerPredicate ? { predicate: providerPredicate } : {}),
         source: sourceValue.source,
       },
       returnStage,
@@ -273,6 +308,7 @@ function compileLookupStage(
   aliases: Readonly<Record<string, ResolvedAliasValue>>,
   availableRowAliases: ReadonlySet<string>,
   scalarAliases: Readonly<Record<string, FdqlValue>>,
+  providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
 ): FdqlLookupPlanStage | null {
   const sourceAlias = aliases[stage.sourceAlias];
@@ -290,53 +326,74 @@ function compileLookupStage(
     diagnostics.push(
       error(
         'FDQL_UNDECLARED_ALIAS',
-        `Alias ${stage.sourceAlias} is not a Firestore source.`,
+        `Alias ${stage.sourceAlias} is not a provider source.`,
         stage.line,
       ),
     );
     return null;
   }
 
-  let nativePredicate: FdqlExpression | undefined;
-  let nativeOrderBy: FdqlNativeOrderBy | undefined;
-  let nativeOrderByLine: number | undefined;
-  let nativeLimit: number | undefined;
-  let nativeLimitLine: number | undefined;
+  const sourceProvider = sourceAlias.source.provider;
+  const sourceDialect = providers[sourceProvider];
+  let providerPredicate: FdqlExpression | undefined;
+  let providerOrderBy: FdqlProviderOrderByClause | undefined;
+  let providerOrderByLine: number | undefined;
+  let providerLimit: number | undefined;
+  let providerLimitLine: number | undefined;
   const rowsForLookup = new Set([...availableRowAliases, stage.rowAlias]);
 
   for (const clause of stage.clauses) {
-    if (clause.kind === 'fsWhere') {
-      validateLookupNativeExpression(
-        clause.expression,
-        stage.rowAlias,
-        rowsForLookup,
-        scalarAliases,
+    if (
+      !validateStageProvider(clause.provider, sourceProvider, providers, diagnostics, clause.line)
+    ) {
+      continue;
+    }
+    if (clause.kind === 'providerWhere') {
+      sourceDialect?.validateWhere({
+        aliases: scalarAliases,
+        availableRowAliases: rowsForLookup,
         diagnostics,
-        clause.line,
-      );
-      nativePredicate = nativePredicate
-        ? { kind: 'binary', left: nativePredicate, operator: 'and', right: clause.expression }
+        expression: clause.expression,
+        line: clause.line,
+        lookup: true,
+        rowAlias: stage.rowAlias,
+      });
+      providerPredicate = providerPredicate
+        ? { kind: 'binary', left: providerPredicate, operator: 'and', right: clause.expression }
         : clause.expression;
-    } else if (clause.kind === 'fsOrderBy') {
-      if (nativeOrderByLine !== undefined) {
-        diagnostics.push(duplicateStage('lookup fs order by', nativeOrderByLine, clause.line));
+    } else if (clause.kind === 'providerOrderBy') {
+      if (providerOrderByLine !== undefined) {
+        diagnostics.push(
+          duplicateStage(`lookup ${clause.provider} order by`, providerOrderByLine, clause.line),
+        );
         continue;
       }
-      validateNativeOrderBy(clause.expression, stage.rowAlias, diagnostics, clause.line);
-      nativeOrderBy = { direction: clause.direction, expression: clause.expression };
-      nativeOrderByLine = clause.line;
-    } else if (clause.kind === 'fsLimit') {
-      if (nativeLimitLine !== undefined) {
-        diagnostics.push(duplicateStage('lookup fs limit', nativeLimitLine, clause.line));
+      sourceDialect?.validateOrderBy({
+        diagnostics,
+        expression: clause.expression,
+        line: clause.line,
+        rowAlias: stage.rowAlias,
+      });
+      providerOrderBy = { direction: clause.direction, expression: clause.expression };
+      providerOrderByLine = clause.line;
+    } else if (clause.kind === 'providerLimit') {
+      if (providerLimitLine !== undefined) {
+        diagnostics.push(
+          duplicateStage(`lookup ${clause.provider} limit`, providerLimitLine, clause.line),
+        );
         continue;
       }
       if (!Number.isInteger(clause.value) || clause.value <= 0) {
         diagnostics.push(
-          error('FDQL_PARSE_ERROR', '`fs limit` must be a positive integer.', clause.line),
+          error(
+            'FDQL_PARSE_ERROR',
+            `\`${clause.provider} limit\` must be a positive integer.`,
+            clause.line,
+          ),
         );
       }
-      nativeLimit = clause.value;
-      nativeLimitLine = clause.line;
+      providerLimit = clause.value;
+      providerLimitLine = clause.line;
     }
   }
 
@@ -345,17 +402,43 @@ function compileLookupStage(
     kind: 'lookup',
     line: stage.line,
     mode: stage.mode,
-    native: {
+    provider: {
       ...(sourceAlias.fieldMask ? { fieldMask: sourceAlias.fieldMask } : {}),
-      ...(nativeLimit === undefined ? {} : { limit: nativeLimit }),
-      ...(nativeOrderBy ? { orderBy: nativeOrderBy } : {}),
-      ...(nativePredicate ? { predicate: nativePredicate } : {}),
+      ...(providerLimit === undefined ? {} : { limit: providerLimit }),
+      ...(providerOrderBy ? { orderBy: providerOrderBy } : {}),
+      ...(providerPredicate ? { predicate: providerPredicate } : {}),
       source: sourceAlias.source,
     },
     range: stage.range,
     rowAlias: stage.rowAlias,
     sourceAlias: stage.sourceAlias,
   };
+}
+
+function validateStageProvider(
+  stageProvider: string,
+  sourceProvider: string | undefined,
+  providers: FdqlProviderDialectRegistry,
+  diagnostics: FdqlDiagnostic[],
+  line: number,
+): boolean {
+  if (!providers[stageProvider]) {
+    diagnostics.push(
+      error('FDQL_UNKNOWN_NAMESPACE', `Unknown provider namespace ${stageProvider}.`, line),
+    );
+    return false;
+  }
+  if (sourceProvider && stageProvider !== sourceProvider) {
+    diagnostics.push(
+      error(
+        'FDQL_PROVIDER_MISMATCH',
+        `Provider clause ${stageProvider} does not match source provider ${sourceProvider}.`,
+        line,
+      ),
+    );
+    return false;
+  }
+  return true;
 }
 
 function resolveSettings(
@@ -399,7 +482,8 @@ function resolveSettings(
 
 function resolveAliases(
   declarations: readonly FdqlAliasDeclaration[],
-  options: FdqlCompileOptions,
+  context: FdqlDefaultProviderContext,
+  providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
 ): Readonly<Record<string, ResolvedAliasValue>> {
   const aliases: Record<string, ResolvedAliasValue> = {};
@@ -420,15 +504,15 @@ function resolveAliases(
       );
       continue;
     }
-    const source = resolveSourceAlias(declaration, aliases, options, diagnostics);
+    const source = resolveSourceAlias(declaration, aliases, context, providers, diagnostics);
     if (source) {
       aliases[declaration.name] = source;
       continue;
     }
-    validateExpressionAliases(declaration.value, aliases, diagnostics, declaration.line);
+    validateExpressionAliases(declaration.value, aliases, providers, diagnostics, declaration.line);
     aliases[declaration.name] = {
       kind: 'value',
-      value: evaluateAliasValue(declaration.value, aliases),
+      value: evaluateAliasValue(declaration.value, aliases, providers),
     };
   }
   return aliases;
@@ -437,168 +521,69 @@ function resolveAliases(
 function resolveSourceAlias(
   declaration: FdqlAliasDeclaration,
   aliases: Readonly<Record<string, ResolvedAliasValue>>,
-  options: FdqlCompileOptions,
+  context: FdqlDefaultProviderContext,
+  providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
-): SourceAliasValue | null {
-  if (declaration.value.kind !== 'call' || !declaration.value.name.startsWith('fs.')) return null;
-  const parts = declaration.value.name.split('.').slice(1);
-  const args = [...declaration.value.args];
-  let projectId = options.defaultProjectId;
-  let databaseId: string | undefined;
-  let source: SourceAliasValue | null = null;
-
-  for (const part of parts) {
-    if (part === 'project') {
-      projectId = readStringArg(args.shift(), aliases, diagnostics, declaration.line, 'fs.project');
-      continue;
-    }
-    if (part === 'db') {
-      databaseId = readStringArg(args.shift(), aliases, diagnostics, declaration.line, 'fs.db');
-      continue;
-    }
-    if (part === 'collection' || part === 'collectionGroup') {
-      const path = readStringArg(
-        args.shift(),
-        aliases,
-        diagnostics,
-        declaration.line,
-        `fs.${part}`,
-      );
-      const fieldMask = args.length
-        ? readFieldMask(args.shift(), diagnostics, declaration.line)
-        : undefined;
-      if (part === 'collection' && !isCollectionPath(path)) {
-        diagnostics.push(
-          error('FDQL_PARSE_ERROR', `Invalid collection path ${path}.`, declaration.line),
-        );
-      }
-      if (part === 'collectionGroup' && path.includes('/')) {
-        diagnostics.push(
-          error(
-            'FDQL_PARSE_ERROR',
-            'fs.collectionGroup accepts a collection id, not a path.',
-            declaration.line,
-          ),
-        );
-      }
-      source = {
-        ...(fieldMask === undefined ? {} : { fieldMask }),
-        kind: 'source',
-        source: {
-          ...(databaseId ? { databaseId } : {}),
-          ...(part === 'collection' ? { collectionPath: path } : { collectionGroup: path }),
-          projectId,
-          sourceAlias: declaration.name,
-          type: part,
-        },
-      };
-      continue;
-    }
+): FdqlProviderSourceAlias | null {
+  if (declaration.value.kind !== 'call') return null;
+  const namespace = providerNamespaceFromCall(declaration.value.name);
+  if (!namespace) return null;
+  const provider = providers[namespace];
+  if (!provider) {
     diagnostics.push(
-      error(
-        'FDQL_UNKNOWN_NAMESPACE',
-        `Unknown Firestore source function ${part}.`,
-        declaration.line,
-      ),
+      error('FDQL_UNKNOWN_NAMESPACE', `Unknown provider namespace ${namespace}.`, declaration.line),
     );
+    return null;
   }
-
-  if (args.length) {
-    diagnostics.push(
-      error(
-        'FDQL_PARSE_ERROR',
-        `Too many arguments for ${declaration.value.name}.`,
-        declaration.line,
-      ),
-    );
-  }
-  return source;
-}
-
-function readStringArg(
-  expression: FdqlExpression | undefined,
-  aliases: Readonly<Record<string, ResolvedAliasValue>>,
-  diagnostics: FdqlDiagnostic[],
-  line: number,
-  functionName: string,
-): string {
-  if (!expression) {
-    diagnostics.push(error('FDQL_PARSE_ERROR', `${functionName} needs a string argument.`, line));
-    return '';
-  }
-  const value = evaluateAliasValue(expression, aliases);
-  if (typeof value !== 'string') {
-    diagnostics.push(error('FDQL_PARSE_ERROR', `${functionName} needs a string argument.`, line));
-    return '';
-  }
-  return value;
-}
-
-function readFieldMask(
-  expression: FdqlExpression | undefined,
-  diagnostics: FdqlDiagnostic[],
-  line: number,
-): readonly FdqlFieldMaskField[] | undefined {
-  if (!expression) return undefined;
-  if (expression.kind !== 'array') {
-    diagnostics.push(
-      error(
-        'FDQL_INVALID_FIELD_MASK',
-        'Top-level source field masks must be literal arrays.',
-        line,
-      ),
-    );
-    return undefined;
-  }
-  if (expression.items.length > 150) {
-    diagnostics.push(
-      error('FDQL_INVALID_FIELD_MASK', 'Field masks can include at most 150 fields.', line),
-    );
-  }
-  return expression.items.flatMap((item) => {
-    if (item.kind === 'literal' && typeof item.value === 'string') return [{ path: item.value }];
-    diagnostics.push(error('FDQL_INVALID_FIELD_MASK', 'Field mask entries must be strings.', line));
-    return [];
+  return provider.resolveSourceAlias({
+    aliases,
+    declaration,
+    defaultProviderContext: context,
+    diagnostics,
   });
 }
 
 function evaluateAliasValue(
   expression: FdqlExpression,
   aliases: Readonly<Record<string, ResolvedAliasValue>>,
+  providers: FdqlProviderDialectRegistry,
 ): FdqlValue {
   if (expression.kind === 'alias') {
     const value = aliases[expression.name];
     return value?.kind === 'value' ? value.value : null;
   }
   if (expression.kind === 'array') {
-    return expression.items.map((item) => evaluateAliasValue(item, aliases));
+    return expression.items.map((item) => evaluateAliasValue(item, aliases, providers));
   }
   if (expression.kind === 'map') {
     return Object.fromEntries(
-      expression.entries.map((entry) => [entry.key, evaluateAliasValue(entry.value, aliases)]),
+      expression.entries.map((
+        entry,
+      ) => [entry.key, evaluateAliasValue(entry.value, aliases, providers)]),
     );
   }
   if (expression.kind === 'literal') return expression.value;
-  return evaluateExpression(expression) as FdqlValue;
+  return evaluateExpression(expression, { providers }) as FdqlValue;
 }
 
 function validateAliases(
   stage: FdqlStage,
   aliases: Readonly<Record<string, FdqlValue>>,
+  providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
 ): void {
   if (stage.kind === 'filter') {
-    validateExpressionAliases(stage.expression, aliases, diagnostics, stage.line);
+    validateExpressionAliases(stage.expression, aliases, providers, diagnostics, stage.line);
   }
   if (stage.kind === 'sortBy') {
-    validateExpressionAliases(stage.expression, aliases, diagnostics, stage.line);
+    validateExpressionAliases(stage.expression, aliases, providers, diagnostics, stage.line);
   }
   if (stage.kind === 'unwind') {
-    validateExpressionAliases(stage.expression, aliases, diagnostics, stage.line);
+    validateExpressionAliases(stage.expression, aliases, providers, diagnostics, stage.line);
   }
   if (stage.kind === 'with' || stage.kind === 'return') {
     for (const item of stage.items) {
-      validateExpressionAliases(item.expression, aliases, diagnostics, stage.line);
+      validateExpressionAliases(item.expression, aliases, providers, diagnostics, stage.line);
     }
   }
 }
@@ -606,10 +591,11 @@ function validateAliases(
 function validateAggregateStage(
   stage: Extract<FdqlStage, { readonly kind: 'aggregate'; }>,
   aliases: Readonly<Record<string, FdqlValue>>,
+  providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
 ): void {
   for (const group of stage.groups) {
-    validateExpressionAliases(group.expression, aliases, diagnostics, stage.line);
+    validateExpressionAliases(group.expression, aliases, providers, diagnostics, stage.line);
   }
   for (const item of stage.items) {
     if (item.expression.kind !== 'call' || !localAggregateCalls.has(item.expression.name)) {
@@ -623,7 +609,7 @@ function validateAggregateStage(
       continue;
     }
     for (const arg of item.expression.args) {
-      validateExpressionAliases(arg, aliases, diagnostics, stage.line);
+      validateExpressionAliases(arg, aliases, providers, diagnostics, stage.line);
     }
   }
 }
@@ -631,6 +617,7 @@ function validateAggregateStage(
 function validateExpressionAliases(
   expression: FdqlExpression,
   aliases: Readonly<Record<string, unknown>>,
+  providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
   line: number,
 ): void {
@@ -639,272 +626,30 @@ function validateExpressionAliases(
       diagnostics.push(error('FDQL_UNDECLARED_ALIAS', `Alias ${node.name} is not declared.`, line));
     }
     if (node.kind === 'call') {
-      validateExpressionCall(node.name, diagnostics, line);
+      validateExpressionCall(node.name, providers, diagnostics, line);
     }
   });
 }
 
 function validateExpressionCall(
   name: string,
+  providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
   line: number,
 ): void {
   if (supportedExpressionCalls.has(name)) return;
+  const namespace = providerNamespaceFromCall(name);
+  if (namespace) {
+    const provider = providers[namespace];
+    if (!provider) {
+      diagnostics.push(
+        error('FDQL_UNKNOWN_NAMESPACE', `Unknown provider namespace ${namespace}.`, line),
+      );
+      return;
+    }
+    if (provider.valueFunctions.has(name)) return;
+  }
   diagnostics.push(error('FDQL_UNKNOWN_FUNCTION', `Unknown FDQL function ${name}.`, line));
-}
-
-function validateNativeExpression(
-  expression: FdqlExpression,
-  rowAlias: string,
-  aliases: Readonly<Record<string, FdqlValue>>,
-  diagnostics: FdqlDiagnostic[],
-  line: number,
-): void {
-  validateExpressionAliases(expression, aliases, diagnostics, line);
-  validateNativePredicate(expression, rowAlias, diagnostics, line);
-  walkExpression(expression, (node, parent) => {
-    if (
-      node.kind === 'call' && !['fs.id', 'fs.timestamp', 'fs.arrayContains'].includes(node.name)
-    ) {
-      diagnostics.push(
-        error('FDQL_LOCAL_EXPRESSION_IN_FS_CLAUSE', `${node.name} is not valid in fs where.`, line),
-      );
-    }
-    if (node.kind === 'field' && !isMetadataRowArgument(node, parent, rowAlias)) {
-      validateProviderField(node.path, rowAlias, diagnostics, line);
-    }
-  });
-}
-
-function validateLookupNativeExpression(
-  expression: FdqlExpression,
-  lookupRowAlias: string,
-  availableRowAliases: ReadonlySet<string>,
-  aliases: Readonly<Record<string, FdqlValue>>,
-  diagnostics: FdqlDiagnostic[],
-  line: number,
-): void {
-  validateExpressionAliases(expression, aliases, diagnostics, line);
-  validateLookupNativePredicate(expression, lookupRowAlias, diagnostics, line);
-  walkExpression(expression, (node, parent) => {
-    if (
-      node.kind === 'call'
-      && !['fs.id', 'fs.timestamp', 'fs.arrayContains'].includes(node.name)
-    ) {
-      diagnostics.push(
-        error(
-          'FDQL_LOCAL_EXPRESSION_IN_FS_CLAUSE',
-          `${node.name} is not valid in lookup fs where.`,
-          line,
-        ),
-      );
-    }
-    if (node.kind === 'field' && !isMetadataArgument(node, parent)) {
-      const binding = node.path[0];
-      if (!binding || !availableRowAliases.has(binding)) {
-        diagnostics.push(error('FDQL_UNKNOWN_BINDING', `Unknown row binding ${binding}.`, line));
-      }
-    }
-  });
-}
-
-function validateNativePredicate(
-  expression: FdqlExpression,
-  rowAlias: string,
-  diagnostics: FdqlDiagnostic[],
-  line: number,
-): void {
-  if (
-    expression.kind === 'binary' && (expression.operator === 'and' || expression.operator === 'or')
-  ) {
-    validateNativePredicate(expression.left, rowAlias, diagnostics, line);
-    validateNativePredicate(expression.right, rowAlias, diagnostics, line);
-    return;
-  }
-  if (expression.kind === 'binary') {
-    if (!isProviderOperand(expression.left, rowAlias)) {
-      diagnostics.push(
-        error(
-          'FDQL_UNSUPPORTED_FS_WHERE',
-          '`fs where` comparisons need a provider field on the left.',
-          line,
-        ),
-      );
-    }
-    if (!isNativeValueExpression(expression.right)) {
-      diagnostics.push(
-        error(
-          'FDQL_UNSUPPORTED_FS_WHERE',
-          '`fs where` comparison values must be literals, aliases, arrays, maps, or fs.timestamp(...).',
-          line,
-        ),
-      );
-    }
-    return;
-  }
-  if (expression.kind === 'call' && expression.name === 'fs.arrayContains') {
-    if (
-      !isProviderOperand(expression.args[0], rowAlias)
-      || !isNativeValueExpression(expression.args[1])
-    ) {
-      diagnostics.push(
-        error(
-          'FDQL_UNSUPPORTED_FS_WHERE',
-          '`fs.arrayContains` needs a provider field and a provider value.',
-          line,
-        ),
-      );
-    }
-    return;
-  }
-  diagnostics.push(
-    error('FDQL_UNSUPPORTED_FS_WHERE', '`fs where` needs provider comparison predicates.', line),
-  );
-}
-
-function validateLookupNativePredicate(
-  expression: FdqlExpression,
-  lookupRowAlias: string,
-  diagnostics: FdqlDiagnostic[],
-  line: number,
-): void {
-  if (
-    expression.kind === 'binary' && (expression.operator === 'and' || expression.operator === 'or')
-  ) {
-    validateLookupNativePredicate(expression.left, lookupRowAlias, diagnostics, line);
-    validateLookupNativePredicate(expression.right, lookupRowAlias, diagnostics, line);
-    return;
-  }
-  if (expression.kind === 'binary') {
-    if (!isProviderOperand(expression.left, lookupRowAlias)) {
-      diagnostics.push(
-        error(
-          'FDQL_UNSUPPORTED_FS_WHERE',
-          '`lookup` fs where comparisons need the lookup provider field on the left.',
-          line,
-        ),
-      );
-    }
-    return;
-  }
-  if (expression.kind === 'call' && expression.name === 'fs.arrayContains') {
-    if (!isProviderOperand(expression.args[0], lookupRowAlias)) {
-      diagnostics.push(
-        error(
-          'FDQL_UNSUPPORTED_FS_WHERE',
-          '`fs.arrayContains` needs a lookup provider field.',
-          line,
-        ),
-      );
-    }
-    return;
-  }
-  diagnostics.push(
-    error('FDQL_UNSUPPORTED_FS_WHERE', '`lookup` fs where needs provider predicates.', line),
-  );
-}
-
-function validateNativeOrderBy(
-  expression: FdqlExpression,
-  rowAlias: string,
-  diagnostics: FdqlDiagnostic[],
-  line: number,
-): void {
-  if (expression.kind === 'field') {
-    validateProviderField(expression.path, rowAlias, diagnostics, line);
-    return;
-  }
-  if (expression.kind === 'call' && expression.name === 'fs.id') return;
-  diagnostics.push(
-    error('FDQL_UNSUPPORTED_FS_ORDER_BY', '`fs order by` needs a provider field.', line),
-  );
-}
-
-function validateProviderField(
-  path: readonly string[],
-  rowAlias: string,
-  diagnostics: FdqlDiagnostic[],
-  line: number,
-): void {
-  if (path.length === 1) {
-    diagnostics.push(
-      error(
-        'FDQL_UNQUALIFIED_PROVIDER_FIELD',
-        `Provider field ${path[0]} must be qualified.`,
-        line,
-      ),
-    );
-  } else if (path[0] !== rowAlias) {
-    diagnostics.push(
-      error('FDQL_UNKNOWN_BINDING', `Unknown provider row binding ${path[0]}.`, line),
-    );
-  }
-}
-
-function hasBoundedIdPredicate(expression: FdqlExpression | undefined, rowAlias: string): boolean {
-  if (!expression) return false;
-  if (expression.kind === 'binary' && expression.operator === 'and') {
-    return hasBoundedIdPredicate(expression.left, rowAlias)
-      || hasBoundedIdPredicate(expression.right, rowAlias);
-  }
-  if (expression.kind !== 'binary' || expression.operator !== '=') return false;
-  return isIdCall(expression.left, rowAlias) || isIdCall(expression.right, rowAlias);
-}
-
-function isIdCall(expression: FdqlExpression, rowAlias: string): boolean {
-  return expression.kind === 'call'
-    && expression.name === 'fs.id'
-    && expression.args[0]?.kind === 'field'
-    && expression.args[0].path.length === 1
-    && expression.args[0].path[0] === rowAlias;
-}
-
-function isProviderOperand(
-  expression: FdqlExpression | undefined,
-  rowAlias: string,
-): expression is Extract<FdqlExpression, { readonly kind: 'call' | 'field'; }> {
-  if (!expression) return false;
-  if (expression.kind === 'field') return expression.path[0] === rowAlias;
-  return isIdCall(expression, rowAlias);
-}
-
-function isNativeValueExpression(expression: FdqlExpression | undefined): boolean {
-  if (!expression) return false;
-  if (expression.kind === 'literal' || expression.kind === 'alias') return true;
-  if (expression.kind === 'array') return expression.items.every(isNativeValueExpression);
-  if (expression.kind === 'map') {
-    return expression.entries.every((entry) => isNativeValueExpression(entry.value));
-  }
-  if (expression.kind === 'call' && expression.name === 'fs.timestamp') {
-    return expression.args.every(isNativeValueExpression);
-  }
-  return false;
-}
-
-function isMetadataRowArgument(
-  expression: Extract<FdqlExpression, { readonly kind: 'field'; }>,
-  parent: FdqlExpression | undefined,
-  rowAlias: string,
-): boolean {
-  return parent?.kind === 'call'
-    && parent.name === 'fs.id'
-    && parent.args[0] === expression
-    && expression.path.length === 1
-    && expression.path[0] === rowAlias;
-}
-
-function isMetadataArgument(
-  expression: Extract<FdqlExpression, { readonly kind: 'field'; }>,
-  parent: FdqlExpression | undefined,
-): boolean {
-  return parent?.kind === 'call'
-    && ['fs.id', 'fs.path', 'fs.projectId'].includes(parent.name)
-    && parent.args[0] === expression
-    && expression.path.length === 1;
-}
-
-function isCollectionPath(path: string): boolean {
-  return Boolean(path) && path.split('/').filter(Boolean).length % 2 === 1;
 }
 
 function parseDurationMs(value: string): number {

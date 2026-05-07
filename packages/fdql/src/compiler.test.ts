@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { compileFdqlRead } from './compiler.ts';
+import { testProviderDialect } from './test-helpers/provider.ts';
 
 const options = { defaultProjectId: 'local' };
 
 describe('FDQL compiler', () => {
-  it('plans collection reads with field masks and native clauses', () => {
+  it('plans collection reads with field masks and provider clauses', () => {
     const result = compileFdqlRead(
       `alias $drivers = fs.collection("drivers", ["firstName", "lastName"])
 
@@ -20,10 +21,14 @@ return fs.id(d) as id, d.firstName`,
       diagnostics: [],
       ok: true,
       plan: {
-        native: {
+        provider: {
           fieldMask: [{ path: 'firstName' }, { path: 'lastName' }],
           limit: 25,
-          source: { collectionPath: 'drivers', projectId: 'local', type: 'collection' },
+          source: {
+            provider: 'fs',
+            sourceType: 'collection',
+            target: { collectionPath: 'drivers', projectId: 'local' },
+          },
         },
       },
     });
@@ -44,9 +49,12 @@ return fs.id(d) as id`,
       diagnostics: [],
       ok: true,
       plan: {
-        native: {
+        provider: {
           fieldMask: [],
-          source: { collectionPath: 'drivers', databaseId: 'db2', projectId: 'prod-project' },
+          source: {
+            provider: 'fs',
+            target: { collectionPath: 'drivers', databaseId: 'db2', projectId: 'prod-project' },
+          },
         },
       },
     });
@@ -208,10 +216,13 @@ return d.firstName, team.name as teamName`,
     });
     const lookup = result.plan.localStages[0];
     if (!lookup || lookup.kind !== 'lookup') throw new Error('expected lookup stage');
-    expect(lookup.native).toMatchObject({
+    expect(lookup.provider).toMatchObject({
       fieldMask: [{ path: 'name' }],
       predicate: expect.objectContaining({ kind: 'binary' }),
-      source: expect.objectContaining({ collectionPath: 'teams' }),
+      source: expect.objectContaining({
+        provider: 'fs',
+        target: expect.objectContaining({ collectionPath: 'teams' }),
+      }),
     });
   });
 
@@ -317,7 +328,7 @@ return d.lastName`,
     );
   });
 
-  it('rejects unknown return functions', () => {
+  it('rejects unknown return function namespaces', () => {
     const result = compileFdqlRead(
       `set readBudget = 5000
 
@@ -330,11 +341,52 @@ return fb.fgdfgf(o), o.type`,
 
     expect(result).toMatchObject({ ok: false });
     expect(result.diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'FDQL_UNKNOWN_FUNCTION', line: 6 }),
+      expect.objectContaining({ code: 'FDQL_UNKNOWN_NAMESPACE', line: 6 }),
     );
   });
 
-  it('rejects native filters that cannot compile to Firestore', () => {
+  it('rejects unknown provider namespaces', () => {
+    const result = compileFdqlRead(
+      `alias $orders = fb.collection("orders")
+from $orders as o
+fb limit 1
+return o.type`,
+      options,
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNKNOWN_NAMESPACE' }),
+    );
+  });
+
+  it('plans non-Firestore provider sources and clauses', () => {
+    const result = compileFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem where p.active = true
+mem limit 2
+return mem.id(p) as id, p.name`,
+      { defaultProjectId: 'local', providers: [testProviderDialect] },
+    );
+
+    expect(result).toMatchObject({
+      diagnostics: [],
+      ok: true,
+      plan: {
+        provider: {
+          limit: 2,
+          source: {
+            provider: 'mem',
+            sourceType: 'collection',
+            target: { collection: 'people' },
+          },
+        },
+      },
+    });
+  });
+
+  it('rejects provider filters that cannot compile to Firestore', () => {
     const result = compileFdqlRead(
       `alias $drivers = fs.collection("drivers")
 from $drivers as d

@@ -1,0 +1,199 @@
+# FDQL Architecture
+
+This document defines implementation constraints for FDQL. The language spec is [fdql.md](./fdql.md). The read status tracker is [fdql-read-implementation.md](./fdql-read-implementation.md).
+
+## Goals
+
+- Keep FDQL provider-extensible.
+- Keep `@firebase-desk/fdql` Firebase-free.
+- Make provider work explicit and dialect-owned.
+- Keep local pipeline stages provider-neutral.
+- Keep integrated execution, generated scripts, and future tools driven from the same AST/plan semantics.
+
+## Package Boundaries
+
+`packages/fdql` owns:
+
+- parsing
+- AST and diagnostics
+- provider-neutral compile orchestration
+- provider-neutral read plans
+- provider dialect contracts
+- provider runtime contracts
+- provider-neutral executor stages
+- local expression evaluation
+
+`packages/fdql` must not import:
+
+- Firebase SDKs or Admin SDKs
+- Electron APIs
+- repo-firebase, repo-mocks, IPC schemas, or UI packages
+- provider implementations that require external SDKs
+
+Provider SDK code belongs in provider repository packages. For Firestore, live Admin SDK code belongs in `packages/repo-firebase`.
+
+## File Layout
+
+Core FDQL orchestration files:
+
+- `parser.ts`: syntax and source ranges
+- `compiler.ts`: provider-neutral compile orchestration
+- `executor.ts`: provider-neutral execution orchestration
+- `evaluator.ts`: local expression evaluation and provider function delegation
+- `provider.ts`: dialect and runtime contracts
+- `types.ts`: public AST, plan, diagnostics, runtime, stats, and lineage types
+
+Provider files:
+
+- `fs-dialect.ts`: Firestore dialect semantics
+- `fs-dialect.test.ts`: Firestore dialect tests
+- `test-helpers/provider.ts`: fake provider helpers for tests only
+
+Do not leave old files, type names, or test names behind after a provider refactor.
+
+## Provider Model
+
+A provider has two parts:
+
+- dialect: compile-time semantics
+- runtime: execution-time reads
+
+Dialect responsibilities:
+
+- namespace ownership, for example `fs`
+- source alias resolution, for example `fs.collection(...)`
+- provider command validation, for example `fs where`
+- provider order/limit semantics
+- provider metadata/value functions, for example `fs.id(row)`
+- provider-specific diagnostics
+- bounded-read detection when the provider can prove it
+
+Runtime responsibilities:
+
+- execute `FdqlProviderReadRequest`
+- return provider rows as async iterables
+- enforce provider request limits and field masks where possible
+- expose provider context on rows
+- never mutate data in read execution
+
+The executor dispatches provider reads through a provider runtime registry keyed by namespace.
+
+## Parser Rules
+
+The parser should stay mostly provider-neutral.
+
+It may parse:
+
+- provider source calls as normal calls
+- provider commands as namespace-prefixed stages, for example `fs where`
+- provider function calls as dot calls, for example `fs.id(...)`
+- local stages without provider knowledge
+
+It must not hardcode Firestore-only grammar outside generic syntax. Firestore-specific validation belongs in the Firestore dialect.
+
+## Compiler Rules
+
+The compiler is orchestration, not a Firestore compiler.
+
+Rules:
+
+- `compileFdqlRead(source, { providers, defaultProviderContext })` uses a provider dialect registry.
+- Firestore may be registered by default for app use.
+- Unknown namespaces produce stable diagnostics.
+- Provider source aliases are resolved by their dialect.
+- Provider clauses are validated by their dialect.
+- Local stages compile against provider-neutral row bindings.
+- Local expressions delegate provider-prefixed calls to the matching dialect.
+- A provider clause that cannot compile to that provider is invalid. Do not silently move it to a local stage.
+
+## Executor Rules
+
+The executor is provider-neutral after planning.
+
+Rules:
+
+- `executeFdql(plan, { providers }, options)` dispatches reads by provider namespace.
+- Local stages operate on `FdqlProviderRow` and plain row objects.
+- `filter`, `with`, `take`, `sort by`, `unwind`, `aggregate`, `return`, and `union all` must not assume Firestore.
+- Metadata/value calls such as `fs.id(row)` are delegated through dialect evaluation.
+- Stats use provider-neutral names such as `providerReads`.
+- Read events include provider namespace and source id/path, not Firestore-specific fields.
+- Unsupported provider/runtime capability should produce diagnostics or failed events, not thrown user-facing crashes.
+
+## Firestore Placement
+
+Allowed Firestore-specific files:
+
+- `packages/fdql/src/fs-dialect.ts`
+- `packages/fdql/src/fs-dialect.test.ts`
+- Firestore-specific tests
+- `packages/repo-firebase`
+- Firestore fixture/runtime code in `packages/repo-mocks`
+
+Firestore-specific code outside those places needs a package-boundary reason.
+
+`packages/fdql/src/compiler.ts` and `executor.ts` may import the Firestore dialect only to provide the default dialect. They must not embed Firestore query rules that belong in `fs-dialect.ts`.
+
+`parser.ts` and `evaluator.ts` should not import Firestore directly. The parser reads generic syntax. The evaluator delegates provider-prefixed calls through the dialect registry.
+
+## Naming Rules
+
+Use provider-neutral names in shared FDQL code:
+
+- provider source, not native source
+- provider read, not native read
+- provider row, not Firestore document
+- provider reads, not per-project reads
+- provider where/order/limit, not provider-specific AST stage names
+
+Use `fs` or Firestore naming only inside Firestore-specific files, tests, fixtures, or repository packages.
+
+No stale aliases should remain after refactors. Rename types, tests, filenames, helpers, diagnostics text, and docs together.
+
+## Test Helpers
+
+Fake providers belong under `packages/fdql/src/test-helpers`.
+
+Rules:
+
+- test helpers are not exported from `packages/fdql/src/index.ts`
+- test helpers are excluded from package build output
+- fake providers should prove provider extensibility without adding production providers
+- Firestore dialect behavior needs direct unit tests
+- provider registry dispatch needs executor tests with at least one non-Firestore provider
+
+## Function Style
+
+FDQL implementation should stay function-first.
+
+Rules:
+
+- no new classes for FDQL package, repos, IPC wrappers, or runtimes
+- factories return plain objects
+- stable dependencies come before request/options args
+- use keyed object args when inputs have multiple fields
+- keep helpers small and scoped to the owning module
+
+## UI And IPC
+
+IPC and UI contracts should stay provider-neutral unless displaying Firestore-specific user text.
+
+Rules:
+
+- IPC schemas validate provider-neutral FDQL request/event shapes
+- UI reads result rows, issues, stats, and stop state through repo contracts
+- UI should not infer provider internals from Firestore-specific fields
+- Firestore-specific labels are allowed only when the selected provider is Firestore
+
+## Review Checklist
+
+Before landing FDQL changes, check:
+
+- Does shared FDQL code import Firebase or repo packages?
+- Did provider-specific logic land in a dialect or provider repo?
+- Are local stages provider-neutral?
+- Are diagnostics stable and source-located where possible?
+- Are shared names provider-neutral?
+- Are fake providers kept in test helpers?
+- Are new provider semantics reflected in `docs/fdql.md`?
+- Is implementation status reflected in `docs/fdql-read-implementation.md`?

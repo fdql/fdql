@@ -90,7 +90,7 @@ export interface FirestoreSqlAbortSignal {
 
 export interface ExecutionStats {
   readonly joinMisses: number;
-  readonly perProjectReads: Readonly<Record<string, number>>;
+  readonly projectReads: Readonly<Record<string, number>>;
   readonly readBudget: number;
   readonly reads: number;
   readonly rowsOutput: number;
@@ -171,7 +171,7 @@ export interface FailedExecutionEvent {
 
 interface MutableExecutionStats {
   joinMisses: number;
-  perProjectReads: Record<string, number>;
+  projectReads: Record<string, number>;
   readBudget: number;
   reads: number;
   rowsOutput: number;
@@ -1424,7 +1424,7 @@ function incrementReads(
 ): void {
   stats.reads += 1;
   stats.rowsScanned += 1;
-  stats.perProjectReads[projectId] = (stats.perProjectReads[projectId] ?? 0) + 1;
+  stats.projectReads[projectId] = (stats.projectReads[projectId] ?? 0) + 1;
   if (stats.reads >= readBudget) stats.stoppedReason = 'budget';
 }
 
@@ -1453,7 +1453,7 @@ function isStopped(stats: MutableExecutionStats): boolean {
 function snapshotStats(stats: MutableExecutionStats): ExecutionStats {
   return {
     joinMisses: stats.joinMisses,
-    perProjectReads: { ...stats.perProjectReads },
+    projectReads: { ...stats.projectReads },
     readBudget: stats.readBudget,
     reads: stats.reads,
     rowsOutput: stats.rowsOutput,
@@ -1466,7 +1466,7 @@ function snapshotStats(stats: MutableExecutionStats): ExecutionStats {
 function createStats(readBudget: number): MutableExecutionStats {
   return {
     joinMisses: 0,
-    perProjectReads: {},
+    projectReads: {},
     readBudget,
     reads: 0,
     rowsOutput: 0,

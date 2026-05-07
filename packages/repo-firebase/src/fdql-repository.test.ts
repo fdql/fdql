@@ -5,7 +5,7 @@ import type { AdminFirestoreProvider } from './admin-firestore-provider.ts';
 import { createFirebaseFdqlRepository } from './fdql-repository.ts';
 
 describe('Firebase FDQL repository', () => {
-  it('runs native where, order, limit, and metadata-only field masks', async () => {
+  it('runs Firestore where, order, limit, and metadata-only field masks', async () => {
     const query = fakeQuery([fakeSnapshot('ord_1', 'orders/ord_1', {})]);
     const db = {
       collection: vi.fn(() => query),

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { compileFdqlRead } from './compiler.ts';
 import { createInMemoryFdqlRuntime, executeFdql } from './executor.ts';
-import type { FdqlExecutionEvent, FdqlRuntime } from './types.ts';
+import type { FdqlProviderRuntimeRegistry } from './provider.ts';
+import { createTestProviderRuntime, testProviderDialect } from './test-helpers/provider.ts';
+import type { FdqlExecutionEvent } from './types.ts';
 
 const runtime = createInMemoryFdqlRuntime({
   projects: {
@@ -49,7 +51,7 @@ const runtime = createInMemoryFdqlRuntime({
 });
 
 describe('FDQL executor', () => {
-  it('streams rows and read stats for native and local filters', async () => {
+  it('streams rows and read stats for provider and local filters', async () => {
     const events = await run(`alias $drivers = fs.collection("drivers", ["firstName", "createdAt"])
 
 from $drivers as d
@@ -139,18 +141,23 @@ return d.firstName`,
     expect(events).toContainEqual(expect.objectContaining({ kind: 'cancelled' }));
   });
 
-  it('passes native limits and field masks to the runtime', async () => {
+  it('passes provider limits and field masks to the runtime', async () => {
     const requests: unknown[] = [];
-    const collectingRuntime: FdqlRuntime = {
-      async *read(request) {
-        requests.push(request);
-        yield {
-          collectionPath: 'drivers',
-          data: { firstName: 'Vini' },
-          id: 'drv_1',
-          path: 'drivers/drv_1',
-          projectId: 'local',
-        };
+    const collectingRuntime: FdqlProviderRuntimeRegistry = {
+      providers: {
+        fs: {
+          async *read(request) {
+            requests.push(request);
+            yield {
+              context: { collectionPath: 'drivers', projectId: 'local' },
+              data: { firstName: 'Vini' },
+              id: 'drv_1',
+              path: 'drivers/drv_1',
+              provider: 'fs',
+              source: request.source,
+            };
+          },
+        },
       },
     };
 
@@ -307,6 +314,43 @@ return fs.id(t) as id, "team" as type`);
       { id: 'team_1', type: 'team' },
     ]);
     expect(completed(events)).toMatchObject({ reads: 2, rowsOutput: 2, unionBranches: 2 });
+  });
+
+  it('dispatches reads to a non-Firestore provider runtime', async () => {
+    const result = compileFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem where p.active = true
+mem limit 2
+then filter lower(p.name) = "vini"
+return mem.id(p) as id, p.name`,
+      { defaultProjectId: 'local', providers: [testProviderDialect] },
+    );
+    if (!result.ok) {
+      throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('\n'));
+    }
+
+    const events: FdqlExecutionEvent[] = [];
+    for await (
+      const event of executeFdql(
+        result.plan,
+        createTestProviderRuntime({
+          people: {
+            p1: { active: true, name: 'Vini' },
+            p2: { active: true, name: 'Alex' },
+          },
+        }),
+      )
+    ) {
+      events.push(event);
+    }
+
+    expect(rows(events)).toEqual([{ id: 'p1', name: 'Vini' }]);
+    expect(completed(events)).toMatchObject({
+      providerReads: { mem: 2 },
+      reads: 2,
+      rowsOutput: 1,
+    });
   });
 });
 

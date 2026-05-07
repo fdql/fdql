@@ -1,7 +1,10 @@
-import type { EvalRows, FdqlExpression, FdqlRuntimeDocument, FdqlValue } from './types.ts';
+import { providerNamespaceFromCall } from './provider.ts';
+import type { FdqlProviderDialectRegistry } from './provider.ts';
+import type { EvalRows, FdqlExpression, FdqlProviderRow, FdqlValue } from './types.ts';
 
 export interface EvalContext {
   readonly aliases?: Readonly<Record<string, FdqlValue>> | undefined;
+  readonly providers?: FdqlProviderDialectRegistry | undefined;
   readonly rows?: EvalRows | undefined;
 }
 
@@ -52,23 +55,14 @@ function evaluateCall(
   args: readonly FdqlExpression[],
   context: EvalContext,
 ): unknown {
-  if (name === 'fs.id') {
-    const row = rowArg(args[0], context);
-    return isDocument(row) ? row.id : undefined;
-  }
-  if (name === 'fs.path') {
-    const row = rowArg(args[0], context);
-    return isDocument(row) ? row.path : undefined;
-  }
-  if (name === 'fs.projectId') {
-    const row = rowArg(args[0], context);
-    return isDocument(row) ? row.projectId : undefined;
-  }
-  if (name === 'fs.timestamp') return evaluateExpression(args[0]!, context);
-  if (name === 'fs.arrayContains') {
-    const array = evaluateExpression(args[0]!, context);
-    const value = evaluateExpression(args[1]!, context);
-    return Array.isArray(array) && array.some((item) => Object.is(item, value));
+  const provider = providerNamespaceFromCall(name);
+  if (provider) {
+    return context.providers?.[provider]?.evaluateCall?.({
+      args,
+      context,
+      evaluate: evaluateExpression,
+      name,
+    });
   }
   if (name === 'lower') {
     const value = evaluateExpression(args[0]!, context);
@@ -127,21 +121,14 @@ function compare(left: unknown, right: unknown): number {
   return String(left).localeCompare(String(right));
 }
 
-function rowArg(
-  expression: FdqlExpression | undefined,
-  context: EvalContext,
-): FdqlRuntimeDocument | Record<string, unknown> | null | undefined {
-  if (!expression || expression.kind !== 'field' || expression.path.length !== 1) return undefined;
-  return context.rows?.[expression.path[0] ?? ''];
-}
-
-function isDocument(value: unknown): value is FdqlRuntimeDocument {
+function isDocument(value: unknown): value is FdqlProviderRow {
   return value !== null
     && value !== undefined
     && typeof value === 'object'
+    && 'context' in value
     && 'id' in value
     && 'data' in value
-    && 'projectId' in value;
+    && 'provider' in value;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

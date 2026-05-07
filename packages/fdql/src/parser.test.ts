@@ -59,7 +59,7 @@ describe('FDQL parser', () => {
     expect(parseFdql(source)).toMatchObject({ diagnostics: [], ok: true });
   });
 
-  it('parses lookup stages with native clauses', () => {
+  it('parses lookup stages with provider clauses', () => {
     const result = parseFdql(`alias $drivers = fs.collection("drivers")
 alias $teams = fs.collection("teams")
 
@@ -73,8 +73,8 @@ return *`);
     expect(pipelineAst(result).stages).toContainEqual(
       expect.objectContaining({
         clauses: [
-          expect.objectContaining({ kind: 'fsWhere' }),
-          expect.objectContaining({ kind: 'fsLimit', value: 1 }),
+          expect.objectContaining({ kind: 'providerWhere', provider: 'fs' }),
+          expect.objectContaining({ kind: 'providerLimit', provider: 'fs', value: 1 }),
         ],
         kind: 'lookup',
         mode: 'one',

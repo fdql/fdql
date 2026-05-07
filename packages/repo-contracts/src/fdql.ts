@@ -11,7 +11,7 @@ export interface FdqlStats {
   readonly cacheHits: number;
   readonly cacheMisses: number;
   readonly lookupReads: number;
-  readonly perProjectReads: Readonly<Record<string, number>>;
+  readonly providerReads: Readonly<Record<string, number>>;
   readonly readBudget: number;
   readonly reads: number;
   readonly rowsOutput: number;
@@ -62,11 +62,10 @@ export type FdqlRunEvent =
   | { readonly runId: string; readonly type: 'started'; }
   | { readonly diagnostic: FdqlDiagnostic; readonly runId: string; readonly type: 'diagnostic'; }
   | {
-    readonly collectionGroup?: string;
-    readonly collectionPath?: string;
     readonly count: number;
-    readonly projectId: string;
+    readonly provider: string;
     readonly runId: string;
+    readonly source: string;
     readonly type: 'read';
   }
   | {

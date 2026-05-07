@@ -1,3 +1,5 @@
+import type { FdqlProviderDialect } from './provider.ts';
+
 export interface FdqlDiagnostic {
   readonly code: string;
   readonly column?: number | undefined;
@@ -129,8 +131,9 @@ export type FdqlStage =
 export interface FdqlWhereStage {
   readonly column: number;
   readonly expression: FdqlExpression;
-  readonly kind: 'fsWhere';
+  readonly kind: 'providerWhere';
   readonly line: number;
+  readonly provider: string;
   readonly range: FdqlSourceRange;
 }
 
@@ -138,15 +141,17 @@ export interface FdqlOrderByStage {
   readonly column: number;
   readonly direction: 'asc' | 'desc';
   readonly expression: FdqlExpression;
-  readonly kind: 'fsOrderBy';
+  readonly kind: 'providerOrderBy';
   readonly line: number;
+  readonly provider: string;
   readonly range: FdqlSourceRange;
 }
 
 export interface FdqlLimitStage {
   readonly column: number;
-  readonly kind: 'fsLimit';
+  readonly kind: 'providerLimit';
   readonly line: number;
+  readonly provider: string;
   readonly range: FdqlSourceRange;
   readonly value: number;
 }
@@ -282,7 +287,7 @@ export interface FdqlSingleReadPlan {
   readonly aliases: Readonly<Record<string, FdqlValue>>;
   readonly kind: 'read';
   readonly localStages: readonly FdqlLocalPlanStage[];
-  readonly native: FdqlNativeReadPlan;
+  readonly provider: FdqlProviderReadPlan;
   readonly returnStage: FdqlReturnStage;
   readonly rowAlias: string;
   readonly settings: FdqlExecutionSettings;
@@ -294,28 +299,26 @@ export interface FdqlUnionReadPlan {
   readonly settings: FdqlExecutionSettings;
 }
 
-export interface FdqlNativeReadPlan {
+export interface FdqlProviderReadPlan {
   readonly fieldMask?: readonly FdqlFieldMaskField[] | undefined;
   readonly limit?: number | undefined;
-  readonly orderBy?: FdqlNativeOrderBy | undefined;
+  readonly orderBy?: FdqlProviderOrderByClause | undefined;
   readonly predicate?: FdqlExpression | undefined;
-  readonly source: FdqlSourcePlan;
+  readonly source: FdqlProviderSource;
 }
 
-export interface FdqlSourcePlan {
-  readonly collectionGroup?: string | undefined;
-  readonly collectionPath?: string | undefined;
-  readonly databaseId?: string | undefined;
-  readonly projectId: string;
+export interface FdqlProviderSource {
+  readonly provider: string;
   readonly sourceAlias: string;
-  readonly type: 'collection' | 'collectionGroup';
+  readonly sourceType: string;
+  readonly target: Readonly<Record<string, unknown>>;
 }
 
 export interface FdqlFieldMaskField {
   readonly path: string;
 }
 
-export interface FdqlNativeOrderBy {
+export interface FdqlProviderOrderByClause {
   readonly direction: 'asc' | 'desc';
   readonly expression: FdqlExpression;
 }
@@ -334,7 +337,7 @@ export interface FdqlLookupPlanStage {
   readonly kind: 'lookup';
   readonly line: number;
   readonly mode: FdqlLookupMode;
-  readonly native: FdqlNativeReadPlan;
+  readonly provider: FdqlProviderReadPlan;
   readonly range: FdqlSourceRange;
   readonly rowAlias: string;
   readonly sourceAlias: string;
@@ -355,37 +358,32 @@ export type FdqlReadCompileResult =
   };
 
 export interface FdqlCompileOptions {
+  readonly defaultProviderContext?: { readonly projectId?: string | undefined; } | undefined;
   readonly defaultProjectId: string;
   readonly executionDefaults?: Partial<FdqlExecutionSettings> | undefined;
+  readonly providers?: readonly FdqlProviderDialect[] | undefined;
 }
 
-export interface FdqlRuntimeDocument {
-  readonly collectionPath: string;
+export interface FdqlProviderRow {
+  readonly context: Readonly<Record<string, unknown>>;
   readonly data: Readonly<Record<string, unknown>>;
-  readonly databaseId?: string | undefined;
   readonly id: string;
   readonly path: string;
-  readonly projectId: string;
+  readonly provider: string;
+  readonly source: FdqlProviderSource;
 }
 
-export interface FdqlReadRequest {
+export interface FdqlProviderReadRequest {
   readonly aliases?: Readonly<Record<string, FdqlValue>> | undefined;
-  readonly collectionGroup?: string | undefined;
-  readonly collectionPath?: string | undefined;
-  readonly databaseId?: string | undefined;
   readonly fieldMask?: readonly FdqlFieldMaskField[] | undefined;
   readonly limit?: number | undefined;
   readonly maxDocuments: number;
-  readonly orderBy?: FdqlNativeOrderBy | undefined;
+  readonly orderBy?: FdqlProviderOrderByClause | undefined;
   readonly pageSize: number;
   readonly predicate?: FdqlExpression | undefined;
-  readonly projectId: string;
   readonly rowAlias: string;
   readonly rows?: EvalRows | undefined;
-}
-
-export interface FdqlRuntime {
-  readonly read: (request: FdqlReadRequest) => AsyncIterable<FdqlRuntimeDocument>;
+  readonly source: FdqlProviderSource;
 }
 
 export interface FdqlExecutionOptions {
@@ -404,7 +402,7 @@ export interface FdqlStats {
   readonly cacheHits: number;
   readonly cacheMisses: number;
   readonly lookupReads: number;
-  readonly perProjectReads: Readonly<Record<string, number>>;
+  readonly providerReads: Readonly<Record<string, number>>;
   readonly readBudget: number;
   readonly reads: number;
   readonly rowsOutput: number;
@@ -423,11 +421,10 @@ export type FdqlExecutionEvent =
   | { readonly kind: 'started'; }
   | { readonly diagnostic: FdqlDiagnostic; readonly kind: 'diagnostic'; }
   | {
-    readonly collectionGroup?: string | undefined;
-    readonly collectionPath?: string | undefined;
     readonly count: number;
     readonly kind: 'read';
-    readonly projectId: string;
+    readonly provider: string;
+    readonly source: string;
   }
   | {
     readonly kind: 'row';
@@ -448,5 +445,5 @@ export type InMemoryFdqlProject = Readonly<
 >;
 
 export type EvalRows = Readonly<
-  Record<string, FdqlRuntimeDocument | Record<string, unknown> | null>
+  Record<string, FdqlProviderRow | Record<string, unknown> | null>
 >;

@@ -8,7 +8,7 @@ export interface FirestoreSqlDiagnostic {
 
 export interface FirestoreSqlStats {
   readonly joinMisses: number;
-  readonly perProjectReads: Readonly<Record<string, number>>;
+  readonly projectReads: Readonly<Record<string, number>>;
   readonly readBudget: number;
   readonly reads: number;
   readonly rowsOutput: number;

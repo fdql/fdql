@@ -15,7 +15,7 @@ export const FdqlStatsSchema = z.object({
   cacheHits: z.number(),
   cacheMisses: z.number(),
   lookupReads: z.number(),
-  perProjectReads: z.record(z.string(), z.number()),
+  providerReads: z.record(z.string(), z.number()),
   readBudget: z.number(),
   reads: z.number(),
   rowsOutput: z.number(),
@@ -70,11 +70,10 @@ export const FdqlRunEventSchema = z.discriminatedUnion('type', [
     type: z.literal('diagnostic'),
   }),
   z.object({
-    collectionGroup: z.string().optional(),
-    collectionPath: z.string().optional(),
     count: z.number(),
-    projectId: z.string(),
+    provider: z.string(),
     runId: z.string(),
+    source: z.string(),
     type: z.literal('read'),
   }),
   z.object({
