@@ -19,6 +19,7 @@ Load this before creating, renaming, restructuring, or non-trivially editing any
 - Test observable behavior and normalized contract shapes, not implementation details.
 - Keep tests in the owning package/app unless the test is a repo-level guard or E2E spec.
 - Follow nearby test style, but do not preserve bad patterns when this skill says otherwise.
+- Do not add exports only for tests. If a unit cannot be tested through a real production module boundary, refactor the boundary.
 
 ## Test-Writing Flow
 
@@ -89,6 +90,18 @@ Rules:
 - Do not write tests that only assert `satisfies`.
 - Add helper builders only when they remove real duplication or clarify intent.
 - Keep test utilities decoupled from app code.
+
+## Module Boundary Tests
+
+When a large implementation is split into smaller internal modules, test the actual module boundary, not private helpers.
+
+- Name the test file after the module it tests: `compile-lookup.ts` -> `compile-lookup.test.ts`.
+- The tested export must be a real production boundary used by another production module.
+- Do not export private helpers, or implementation details just to make tests possible.
+- Do not widen package entrypoints or public barrels for internal unit tests.
+- If testing a unit requires a test-only export, the code shape is wrong; refactor the module boundary.
+- Keep composer/orchestrator tests lean. They should prove units are wired together, diagnostics flow through, and the main happy path works.
+- Do not duplicate every unit scenario in the composer/orchestrator test.
 
 ## Mocking Policy
 
