@@ -578,8 +578,13 @@ async function executeLookup(
 }> {
   const remainingBudget = Math.max(0, plan.settings.readBudget - stats.reads);
   const lookupOneCap = stage.mode === 'one' && stage.provider.limit === undefined ? 2 : undefined;
+  const boundProvider = bindProviderReadPlan(stage, row, runtime);
+  if (boundProvider.kind === 'failed') {
+    return { diagnostic: boundProvider.diagnostic, events: [], row };
+  }
+  if (boundProvider.kind === 'skip') return { events: [], row: lookupRow(stage, row, []) };
   const request = createReadRequest(
-    stage.provider,
+    boundProvider.provider,
     plan,
     stage.rowAlias,
     stats,
@@ -664,6 +669,49 @@ async function executeLookup(
     events,
     row: lookupRow(stage, row, documents),
   };
+}
+
+function bindProviderReadPlan(
+  stage: FdqlLookupPlanStage,
+  row: RowRecord,
+  runtime: FdqlProviderRuntimeRegistry,
+):
+  | { readonly kind: 'bound'; readonly provider: typeof stage.provider; }
+  | { readonly diagnostic: FdqlDiagnostic; readonly kind: 'failed'; }
+  | { readonly kind: 'skip'; }
+{
+  const binding = stage.provider.binding;
+  if (!binding) return { kind: 'bound', provider: stage.provider };
+  const dialect = providerDialects(runtime)[stage.provider.source.provider];
+  if (!dialect?.bindSource) {
+    return {
+      diagnostic: {
+        code: 'FDQL_INVALID_LOOKUP_SOURCE',
+        line: stage.line,
+        message: `Provider ${stage.provider.source.provider} cannot bind parent sources.`,
+        severity: 'error',
+      },
+      kind: 'failed',
+    };
+  }
+  const result = dialect.bindSource({
+    binding,
+    context: {
+      aliases: {},
+      providers: providerDialects(runtime),
+      rows: row as EvalRows,
+    },
+    line: stage.line,
+    source: stage.provider.source,
+  });
+  if (result.kind === 'bound') {
+    return {
+      kind: 'bound',
+      provider: { ...stage.provider, source: result.source },
+    };
+  }
+  if (result.kind === 'failed') return result;
+  return result;
 }
 
 function lookupCacheMode(

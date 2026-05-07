@@ -180,6 +180,47 @@ return fs.id(d) as id, team.name as teamName`,
     });
   });
 
+  it('reads static and dynamic subcollection sources', async () => {
+    const ordersQuery = fakeQuery([fakeSnapshot('ord_1', 'orders/ord_1', { status: 'paid' })]);
+    const itemsQueries: ReturnType<typeof fakeQuery>[] = [];
+    const db = {
+      collection: vi.fn((path: string) => {
+        if (path === 'orders') return ordersQuery;
+        const query = fakeQuery([
+          fakeSnapshot('item_1', 'orders/ord_1/items/item_1', { status: 'picked' }),
+        ]);
+        itemsQueries.push(query);
+        return query;
+      }),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    const staticResult = await repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source: `alias $items = fs.subcollection("orders/ord_1", "items", ["status"])
+from $items as item
+fs limit 1
+return fs.id(item) as id, item.status`,
+    });
+    const dynamicResult = await repository.run({
+      connectionId: 'local',
+      runId: 'run_2',
+      source: `alias $orders = fs.collection("orders", [])
+from $orders as order
+fs limit 1
+then lookup many fs.subcollection(order, "items", ["status"]) as items
+return fs.id(order) as id, items`,
+    });
+
+    expect(db.collection).toHaveBeenCalledWith('orders/ord_1/items');
+    expect(itemsQueries[0]?.select).toHaveBeenCalledWith(expectFieldPath(['status']));
+    expect(itemsQueries[1]?.select).toHaveBeenCalledWith(expectFieldPath(['status']));
+    expect(staticResult.rows).toEqual([{ id: 'item_1', status: 'picked' }]);
+    expect(dynamicResult.rows).toEqual([{ id: 'ord_1', items: [{ status: 'picked' }] }]);
+    expect(dynamicResult.stats).toMatchObject({ lookupReads: 1, reads: 2, rowsOutput: 1 });
+  });
+
   it('keeps optional lookup rows when correlated values are missing', async () => {
     const driversQuery = fakeQuery([
       fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini' }),

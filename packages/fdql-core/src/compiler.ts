@@ -300,6 +300,7 @@ function compileSingleFdqlRead(
           aliases,
           availableRowAliases,
           scalarAliases,
+          preamble.providerContext,
           providers,
           diagnostics,
         );
@@ -348,6 +349,15 @@ function compileSingleFdqlRead(
   }
 
   const sourceValue = sourceAlias?.kind === 'source' ? sourceAlias : undefined;
+  if (sourceValue?.binding) {
+    diagnostics.push(
+      error(
+        'FDQL_INVALID_FROM_SOURCE',
+        'Parent-bound subcollection sources can only be used in lookup.',
+        ast.from.line,
+      ),
+    );
+  }
   if (diagnostics.some((diagnostic) => diagnostic.severity === 'error') || !sourceValue) {
     return { ast, diagnostics, ok: false };
   }
@@ -361,6 +371,7 @@ function compileSingleFdqlRead(
       kind: 'read',
       localStages,
       provider: {
+        ...(sourceValue.binding ? { binding: sourceValue.binding } : {}),
         ...(sourceValue.fieldMask ? { fieldMask: sourceValue.fieldMask } : {}),
         ...(providerLimit === undefined ? {} : { limit: providerLimit }),
         ...(providerOrderBy ? { orderBy: providerOrderBy } : {}),
@@ -379,28 +390,19 @@ function compileLookupStage(
   aliases: Readonly<Record<string, ResolvedAliasValue>>,
   availableRowAliases: ReadonlySet<string>,
   scalarAliases: Readonly<Record<string, FdqlValue>>,
+  providerContext: FdqlDefaultProviderContext,
   providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
 ): FdqlLookupPlanStage | null {
-  const sourceAlias = aliases[stage.sourceAlias];
+  const sourceAlias = resolveLookupSource(
+    stage,
+    aliases,
+    availableRowAliases,
+    providerContext,
+    providers,
+    diagnostics,
+  );
   if (!sourceAlias) {
-    diagnostics.push(
-      error(
-        'FDQL_UNDECLARED_ALIAS',
-        `Source alias ${stage.sourceAlias} is not declared.`,
-        stage.line,
-      ),
-    );
-    return null;
-  }
-  if (sourceAlias.kind !== 'source') {
-    diagnostics.push(
-      error(
-        'FDQL_UNDECLARED_ALIAS',
-        `Alias ${stage.sourceAlias} is not a provider source.`,
-        stage.line,
-      ),
-    );
     return null;
   }
   if (stage.required && stage.mode !== 'one') {
@@ -501,6 +503,7 @@ function compileLookupStage(
     line: stage.line,
     mode: stage.mode,
     provider: {
+      ...(sourceAlias.binding ? { binding: sourceAlias.binding } : {}),
       ...(sourceAlias.fieldMask ? { fieldMask: sourceAlias.fieldMask } : {}),
       ...(providerLimit === undefined ? {} : { limit: providerLimit }),
       ...(providerOrderBy ? { orderBy: providerOrderBy } : {}),
@@ -512,6 +515,183 @@ function compileLookupStage(
     rowAlias: stage.rowAlias,
     sourceAlias: stage.sourceAlias,
   };
+}
+
+function resolveLookupSource(
+  stage: FdqlLookupStage,
+  aliases: Readonly<Record<string, ResolvedAliasValue>>,
+  availableRowAliases: ReadonlySet<string>,
+  providerContext: FdqlDefaultProviderContext,
+  providers: FdqlProviderDialectRegistry,
+  diagnostics: FdqlDiagnostic[],
+): FdqlProviderSourceAlias | null {
+  const sourceAlias = stage.sourceExpression
+    ? resolveLookupSourceExpression(
+      stage,
+      aliases,
+      availableRowAliases,
+      providerContext,
+      providers,
+      diagnostics,
+    )
+    : resolveLookupSourceAlias(stage, aliases, diagnostics);
+  if (!sourceAlias) return null;
+  return applyLookupParent(stage, sourceAlias, availableRowAliases, diagnostics);
+}
+
+function resolveLookupSourceAlias(
+  stage: FdqlLookupStage,
+  aliases: Readonly<Record<string, ResolvedAliasValue>>,
+  diagnostics: FdqlDiagnostic[],
+): FdqlProviderSourceAlias | null {
+  const sourceAlias = aliases[stage.sourceAlias];
+  if (!sourceAlias) {
+    diagnostics.push(
+      error(
+        'FDQL_UNDECLARED_ALIAS',
+        `Source alias ${stage.sourceAlias} is not declared.`,
+        stage.line,
+      ),
+    );
+    return null;
+  }
+  if (sourceAlias.kind !== 'source') {
+    diagnostics.push(
+      error(
+        'FDQL_UNDECLARED_ALIAS',
+        `Alias ${stage.sourceAlias} is not a provider source.`,
+        stage.line,
+      ),
+    );
+    return null;
+  }
+  return sourceAlias;
+}
+
+function resolveLookupSourceExpression(
+  stage: FdqlLookupStage,
+  aliases: Readonly<Record<string, ResolvedAliasValue>>,
+  availableRowAliases: ReadonlySet<string>,
+  providerContext: FdqlDefaultProviderContext,
+  providers: FdqlProviderDialectRegistry,
+  diagnostics: FdqlDiagnostic[],
+): FdqlProviderSourceAlias | null {
+  const expression = stage.sourceExpression;
+  if (!expression || expression.kind !== 'call') {
+    diagnostics.push(
+      error(
+        'FDQL_INVALID_LOOKUP_SOURCE',
+        'Lookup source must be a source alias or provider source call.',
+        stage.line,
+      ),
+    );
+    return null;
+  }
+  const namespace = providerNamespaceFromCall(expression.name);
+  if (!namespace) {
+    diagnostics.push(
+      error(
+        'FDQL_INVALID_LOOKUP_SOURCE',
+        'Lookup source must be a provider source call.',
+        stage.line,
+      ),
+    );
+    return null;
+  }
+  const provider = providers[namespace];
+  if (!provider) {
+    diagnostics.push(
+      error('FDQL_UNKNOWN_NAMESPACE', `Unknown provider namespace ${namespace}.`, stage.line),
+    );
+    return null;
+  }
+  if (!provider.resolveSourceExpression) {
+    diagnostics.push(
+      error(
+        'FDQL_INVALID_LOOKUP_SOURCE',
+        `Provider ${namespace} does not support inline lookup sources.`,
+        stage.line,
+      ),
+    );
+    return null;
+  }
+  return provider.resolveSourceExpression({
+    aliases,
+    availableRowAliases,
+    defaultProviderContext: providerContext,
+    diagnostics,
+    expression,
+    line: stage.line,
+    sourceAlias: stage.sourceAlias,
+  });
+}
+
+function applyLookupParent(
+  stage: FdqlLookupStage,
+  sourceAlias: FdqlProviderSourceAlias,
+  availableRowAliases: ReadonlySet<string>,
+  diagnostics: FdqlDiagnostic[],
+): FdqlProviderSourceAlias | null {
+  const binding = sourceAlias.binding;
+  if (stage.parent) {
+    if (!binding || binding.kind !== 'parent') {
+      diagnostics.push(
+        error(
+          'FDQL_INVALID_LOOKUP_PARENT',
+          '`of parent` is only valid with a parent-bound subcollection source.',
+          stage.line,
+        ),
+      );
+      return null;
+    }
+    if (binding.expression) {
+      diagnostics.push(
+        error(
+          'FDQL_INVALID_LOOKUP_PARENT',
+          '`of parent` is invalid because the lookup source already has a parent.',
+          stage.line,
+        ),
+      );
+      return null;
+    }
+    validateParentExpression(stage.parent, availableRowAliases, diagnostics, stage.line);
+    return { ...sourceAlias, binding: { kind: 'parent', expression: stage.parent } };
+  }
+  if (binding?.kind === 'parent' && !binding.expression) {
+    diagnostics.push(
+      error(
+        'FDQL_INVALID_LOOKUP_PARENT',
+        `Subcollection source ${stage.sourceAlias} needs \`of parent\` in lookup.`,
+        stage.line,
+      ),
+    );
+    return null;
+  }
+  if (binding?.kind === 'parent' && binding.expression) {
+    validateParentExpression(binding.expression, availableRowAliases, diagnostics, stage.line);
+  }
+  return sourceAlias;
+}
+
+function validateParentExpression(
+  expression: FdqlExpression,
+  availableRowAliases: ReadonlySet<string>,
+  diagnostics: FdqlDiagnostic[],
+  line: number,
+): void {
+  if (
+    expression.kind === 'field' && expression.path.length === 1
+    && availableRowAliases.has(expression.path[0] ?? '')
+  ) {
+    return;
+  }
+  diagnostics.push(
+    error(
+      'FDQL_INVALID_LOOKUP_PARENT',
+      'Subcollection parent must be an existing provider row alias.',
+      line,
+    ),
+  );
 }
 
 function validateStageProvider(

@@ -69,6 +69,7 @@ then lookup one $teams as team cache run
   mem limit 1
 return *`);
 
+    expect(result.diagnostics).toEqual([]);
     expect(result).toMatchObject({ ok: true });
     expect(pipelineAst(result).stages).toContainEqual(
       expect.objectContaining({
@@ -101,6 +102,40 @@ return *`);
         cacheTtlRaw: '10m',
         kind: 'lookup',
       }),
+    );
+  });
+
+  it('parses inline and parent-bound lookup sources', () => {
+    const result = parseFdql(`alias $orders = mem.collection("orders")
+alias $items = mem.subcollection("items", ["status"])
+
+from $orders as o
+then lookup many mem.subcollection(o, "items", ["status"]) as inlineItem
+  mem limit 1
+then lookup many $items of o as templateItem cache run
+  mem limit 1
+return *`);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(pipelineAst(result).stages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'lookup',
+          rowAlias: 'inlineItem',
+          sourceAlias: 'mem.subcollection(o, "items", ["status"])',
+          sourceExpression: expect.objectContaining({
+            kind: 'call',
+            name: 'mem.subcollection',
+          }),
+        }),
+        expect.objectContaining({
+          cache: 'run',
+          kind: 'lookup',
+          parent: expect.objectContaining({ kind: 'field', path: ['o'] }),
+          rowAlias: 'templateItem',
+          sourceAlias: '$items',
+        }),
+      ]),
     );
   });
 

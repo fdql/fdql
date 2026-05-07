@@ -112,11 +112,17 @@ const fdqlCoreSnippetByName = {
   'then lookup many cache': {
     insertText: 'then lookup many $${1:source} as ${2:rows} cache ${3|run,persistent,off|}',
   },
+  'then lookup many of parent': {
+    insertText: 'then lookup many $${1:source} of ${2:parent} as ${3:rows}',
+  },
   'then lookup one': {
     insertText: 'then lookup one $${1:source} as ${2:row}',
   },
   'then lookup one cache': {
     insertText: 'then lookup one $${1:source} as ${2:row} cache ${3|run,persistent,off|}',
+  },
+  'then lookup one of parent': {
+    insertText: 'then lookup one $${1:source} of ${2:parent} as ${3:row}',
   },
   'then lookup required one': {
     insertText: 'then lookup required one $${1:source} as ${2:row}',

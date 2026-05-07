@@ -316,6 +316,83 @@ return p.name, team.name as teamName`,
     });
   });
 
+  it('plans inline and parent-bound lookup sources through provider hooks', () => {
+    const result = compileFdqlRead(
+      `alias $orders = mem.collection("orders")
+alias $items = mem.child("items")
+from $orders as order
+mem limit 1
+then lookup many mem.child(order, "items") as inlineItem
+then lookup many $items of order as templateItem
+return inlineItem, templateItem`,
+      options,
+    );
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    if (!result.ok) throw new Error('expected compile success');
+    if (result.plan.kind !== 'read') throw new Error('expected read plan');
+    expect(result.plan.localStages).toEqual([
+      expect.objectContaining({
+        kind: 'lookup',
+        provider: expect.objectContaining({
+          binding: { expression: expect.objectContaining({ path: ['order'] }), kind: 'parent' },
+          source: expect.objectContaining({
+            sourceAlias: 'mem.child(order, "items")',
+            sourceType: 'child',
+            target: { collection: 'items' },
+          }),
+        }),
+        rowAlias: 'inlineItem',
+      }),
+      expect.objectContaining({
+        kind: 'lookup',
+        provider: expect.objectContaining({
+          binding: { expression: expect.objectContaining({ path: ['order'] }), kind: 'parent' },
+          source: expect.objectContaining({ sourceAlias: '$items', sourceType: 'child' }),
+        }),
+        rowAlias: 'templateItem',
+      }),
+    ]);
+  });
+
+  it('rejects parent-bound sources outside lookup parent binding rules', () => {
+    const fromResult = compileFdqlRead(
+      `alias $items = mem.child("items")
+from $items as item
+mem limit 1
+return item.status`,
+      options,
+    );
+    const lookupResult = compileFdqlRead(
+      `alias $orders = mem.collection("orders")
+alias $items = mem.child("items")
+from $orders as order
+mem limit 1
+then lookup many $items as item
+return item.status`,
+      options,
+    );
+    const normalParentResult = compileFdqlRead(
+      `alias $orders = mem.collection("orders")
+alias $items = mem.collection("items")
+from $orders as order
+mem limit 1
+then lookup many $items of order as item
+return item.status`,
+      options,
+    );
+
+    expect(fromResult.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_FROM_SOURCE' }),
+    );
+    expect(lookupResult.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_LOOKUP_PARENT' }),
+    );
+    expect(normalParentResult.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_LOOKUP_PARENT' }),
+    );
+  });
+
   it('plans lookup cache overrides', () => {
     const result = compileFdqlRead(
       `set fdql.cache = off

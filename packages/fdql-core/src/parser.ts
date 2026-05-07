@@ -4,6 +4,7 @@ import type {
   FdqlAliasDeclaration,
   FdqlAst,
   FdqlDiagnostic,
+  FdqlExpression,
   FdqlFromStage,
   FdqlLookupClause,
   FdqlParseResult,
@@ -22,6 +23,16 @@ interface SourceLine {
   readonly line: number;
   readonly range: FdqlSourceRange;
   readonly text: string;
+}
+
+interface LookupHeader {
+  readonly cache?: 'off' | 'persistent' | 'run' | undefined;
+  readonly cacheTtlRaw?: string | undefined;
+  readonly mode: 'many' | 'one';
+  readonly required: boolean;
+  readonly rowAlias: string;
+  readonly sourceColumn: number;
+  readonly sourceText: string;
 }
 
 export function parseFdql(source: string): FdqlParseResult {
@@ -211,9 +222,6 @@ function parseLookup(
   diagnostics: FdqlDiagnostic[],
 ): { readonly nextIndex: number; readonly stage?: FdqlStage | undefined; } {
   const start = lines[startIndex]!;
-  const match =
-    /^then\s+lookup\s+(?:(required)\s+one|(one|many))\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+cache\s+(off|run|persistent)(?:\s+(\d+[smhd]))?)?$/i
-      .exec(start.text);
   const clauses: FdqlLookupClause[] = [];
   let nextIndex = startIndex;
   let endRange = start.range;
@@ -232,7 +240,8 @@ function parseLookup(
     endRange = line.range;
   }
 
-  if (!match) {
+  const header = parseLookupHeader(start);
+  if (!header) {
     if (isMalformedLookupCache(start.text)) {
       diagnostics.push(
         error(
@@ -247,7 +256,7 @@ function parseLookup(
     diagnostics.push(
       error(
         'FDQL_UNKNOWN_STAGE',
-        '`lookup` must use `then lookup one|many $source as rowAlias` or `then lookup required one $source as rowAlias`.',
+        '`lookup` must use `then lookup one|many source as rowAlias` or `then lookup required one source as rowAlias`.',
         start.line,
         start.column,
       ),
@@ -255,27 +264,135 @@ function parseLookup(
     return { nextIndex };
   }
 
+  const parsedSource = parseLookupSource(
+    header.sourceText,
+    start.line,
+    header.sourceColumn,
+    diagnostics,
+  );
   return {
     nextIndex,
     stage: {
-      ...(match[5] ? { cache: match[5].toLowerCase() as 'off' | 'persistent' | 'run' } : {}),
-      ...(match[6] ? { cacheTtlRaw: match[6] } : {}),
+      ...(header.cache ? { cache: header.cache } : {}),
+      ...(header.cacheTtlRaw ? { cacheTtlRaw: header.cacheTtlRaw } : {}),
       clauses,
       column: start.column,
       kind: 'lookup',
       line: start.line,
-      mode: match[1] ? 'one' : match[2]!.toLowerCase() as 'many' | 'one',
+      mode: header.mode,
+      ...(parsedSource.parent ? { parent: parsedSource.parent } : {}),
       range: span(start.range, endRange),
-      required: Boolean(match[1]),
-      rowAlias: match[4]!,
-      sourceAlias: match[3]!,
+      required: header.required,
+      rowAlias: header.rowAlias,
+      sourceAlias: parsedSource.sourceAlias,
+      ...(parsedSource.sourceExpression ? { sourceExpression: parsedSource.sourceExpression } : {}),
     },
   };
 }
 
+function parseLookupHeader(line: SourceLine): LookupHeader | null {
+  const prefix = 'then lookup ';
+  let body = line.text.slice(prefix.length).trim();
+  let bodyColumn = line.column + prefix.length;
+  const required = body.toLowerCase().startsWith('required ');
+  if (required) {
+    body = body.slice('required '.length).trimStart();
+    bodyColumn = line.column + line.text.indexOf(body);
+  }
+  const modeMatch = /^(one|many)\s+/i.exec(body);
+  if (!modeMatch || (required && modeMatch[1]?.toLowerCase() !== 'one')) return null;
+  const mode = modeMatch[1]!.toLowerCase() as 'many' | 'one';
+  const remainder = body.slice(modeMatch[0].length);
+  const remainderColumn = bodyColumn + modeMatch[0].length;
+  const aliasIndex = findTopLevelAs(remainder);
+  if (aliasIndex < 0) return null;
+  const sourceText = remainder.slice(0, aliasIndex).trim();
+  if (!sourceText) return null;
+  const sourceColumn = remainderColumn + remainder.indexOf(sourceText);
+  const suffix = remainder.slice(aliasIndex + 4).trim();
+  const suffixMatch =
+    /^([A-Za-z_][A-Za-z0-9_]*)(?:\s+cache\s+(off|run|persistent)(?:\s+(\d+[smhd]))?)?$/i
+      .exec(suffix);
+  if (!suffixMatch) return null;
+  return {
+    ...(suffixMatch[2]
+      ? { cache: suffixMatch[2].toLowerCase() as 'off' | 'persistent' | 'run' }
+      : {}),
+    ...(suffixMatch[3] ? { cacheTtlRaw: suffixMatch[3] } : {}),
+    mode,
+    required,
+    rowAlias: suffixMatch[1]!,
+    sourceColumn,
+    sourceText,
+  };
+}
+
 function isMalformedLookupCache(text: string): boolean {
-  return /^then\s+lookup\s+(?:required\s+one|one|many)\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+cache(?:\s|=|$)/i
+  return /^then\s+lookup\s+(?:required\s+one|one|many)\s+.+?\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+cache(?:\s|=|$)/i
     .test(text);
+}
+
+function parseLookupSource(
+  text: string,
+  line: number,
+  column: number,
+  diagnostics: FdqlDiagnostic[],
+): {
+  readonly parent?: FdqlExpression | undefined;
+  readonly sourceAlias: string;
+  readonly sourceExpression?: FdqlExpression | undefined;
+} {
+  const ofIndex = findTopLevelKeyword(text, 'of');
+  const sourceText = (ofIndex >= 0 ? text.slice(0, ofIndex) : text).trim();
+  const parentText = ofIndex >= 0 ? text.slice(ofIndex + 'of'.length).trim() : '';
+  let parent: FdqlExpression | undefined;
+  if (parentText) {
+    const parentOffset = text.indexOf(parentText, ofIndex + 'of'.length);
+    const parsedParent = parseExpression(parentText, line, column + parentOffset);
+    diagnostics.push(...parsedParent.diagnostics);
+    parent = parsedParent.expression;
+  }
+  if (/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(sourceText)) {
+    return {
+      ...(parent ? { parent } : {}),
+      sourceAlias: sourceText,
+    };
+  }
+  const parsedSource = parseExpression(sourceText, line, column);
+  diagnostics.push(...parsedSource.diagnostics);
+  return {
+    ...(parent ? { parent } : {}),
+    sourceAlias: sourceText,
+    ...(parsedSource.expression ? { sourceExpression: parsedSource.expression } : {}),
+  };
+}
+
+function findTopLevelKeyword(source: string, keyword: string): number {
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index] ?? '';
+    if (quote) {
+      if (char === quote && source[index - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '(' || char === '[' || char === '{') depth += 1;
+    else if (char === ')' || char === ']' || char === '}') depth -= 1;
+    else if (
+      depth === 0
+      && source.slice(index, index + keyword.length).toLowerCase() === keyword
+      && (index === 0 || /\s/.test(source[index - 1] ?? ''))
+      && (index + keyword.length === source.length
+        || /\s/.test(source[index + keyword.length] ?? ''))
+    ) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function parseLookupClause(

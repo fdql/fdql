@@ -13,6 +13,9 @@ import {
   type FdqlProviderRow,
   type FdqlProviderSettingResolveInput,
   type FdqlProviderSourceAlias,
+  type FdqlProviderSourceBindInput,
+  type FdqlProviderSourceBindResult,
+  type FdqlProviderSourceExpressionResolveInput,
   type FdqlProviderSourceResolveInput,
   type FdqlValue,
   literalToValue,
@@ -70,6 +73,11 @@ export const firestoreProviderDialect: FdqlProviderDialect = {
         name: 'fs.collectionGroup',
       },
       {
+        detail: 'Firestore subcollection source',
+        insertText: 'fs.subcollection("${1:parentPath}", "${2:collection}", ${3:["field"]})',
+        name: 'fs.subcollection',
+      },
+      {
         detail: 'Firestore project selector',
         insertText: 'fs.project("${1:project-id}")',
         name: 'fs.project',
@@ -114,7 +122,7 @@ export const firestoreProviderDialect: FdqlProviderDialect = {
     ],
   },
   namespace: 'fs',
-  sourceFunctions: new Set(['collection', 'collectionGroup', 'db', 'project']),
+  sourceFunctions: new Set(['collection', 'collectionGroup', 'db', 'project', 'subcollection']),
   valueFunctions: new Set([
     'fs.arrayContains',
     'fs.fieldPath',
@@ -166,8 +174,14 @@ export const firestoreProviderDialect: FdqlProviderDialect = {
     return missingValue;
   },
   hasBoundedPredicate: hasBoundedIdPredicate,
+  bindSource(input) {
+    return bindFirestoreSource(input);
+  },
   resolveSourceAlias(input) {
     return resolveFirestoreSourceAlias(input);
+  },
+  resolveSourceExpression(input) {
+    return resolveFirestoreSourceExpression(input);
   },
   resolveSetting(input) {
     return resolveFirestoreSetting(input);
@@ -244,6 +258,20 @@ function resolveFirestoreSourceAlias(
       };
       continue;
     }
+    if (part === 'subcollection') {
+      source = readSubcollectionSource({
+        args,
+        databaseId,
+        diagnostics,
+        line: declaration.line,
+        projectId,
+        sourceAlias: declaration.name,
+        availableRowAliases: input.availableRowAliases ?? new Set(),
+        aliases: input.aliases,
+      });
+      args.length = 0;
+      continue;
+    }
     diagnostics.push(
       error('FDQL_UNKNOWN_NAMESPACE', `Unknown fs source function ${part}.`, declaration.line),
     );
@@ -259,6 +287,221 @@ function resolveFirestoreSourceAlias(
     );
   }
   return source;
+}
+
+function resolveFirestoreSourceExpression(
+  input: FdqlProviderSourceExpressionResolveInput,
+): FdqlProviderSourceAlias | null {
+  if (input.expression.kind !== 'call' || input.expression.name !== 'fs.subcollection') {
+    input.diagnostics.push(
+      error(
+        'FDQL_INVALID_LOOKUP_SOURCE',
+        'Firestore inline lookup sources must use fs.subcollection(...).',
+        input.line,
+      ),
+    );
+    return null;
+  }
+  return readSubcollectionSource({
+    args: [...input.expression.args],
+    databaseId: stringContextValue(input.defaultProviderContext['fs']?.['databaseId']),
+    diagnostics: input.diagnostics,
+    line: input.line,
+    projectId: stringContextValue(input.defaultProviderContext['fs']?.['projectId']),
+    sourceAlias: input.sourceAlias,
+    availableRowAliases: input.availableRowAliases,
+    aliases: input.aliases,
+  });
+}
+
+interface ReadSubcollectionSourceInput {
+  readonly aliases: FdqlProviderSourceResolveInput['aliases'];
+  readonly args: FdqlExpression[];
+  readonly availableRowAliases: ReadonlySet<string>;
+  readonly databaseId: string | undefined;
+  readonly diagnostics: FdqlDiagnostic[];
+  readonly line: number;
+  readonly projectId: string | undefined;
+  readonly sourceAlias: string;
+}
+
+function readSubcollectionSource(input: ReadSubcollectionSourceInput): FdqlProviderSourceAlias {
+  const [first, second, third, ...extra] = input.args;
+  if (extra.length || !first) {
+    input.diagnostics.push(
+      error(
+        'FDQL_PARSE_ERROR',
+        'fs.subcollection needs (name, fields?), (parentPath, name, fields?), or (parent, name, fields?).',
+        input.line,
+      ),
+    );
+  }
+  const firstString = stringArg(first, input.aliases);
+  const secondString = second ? stringArg(second, input.aliases) : undefined;
+  if (firstString && secondString) {
+    return staticSubcollectionSource(input, firstString, secondString, third);
+  }
+  if (firstString) {
+    return templateSubcollectionSource(input, firstString, second);
+  }
+  return dynamicSubcollectionSource(input, first, second, third);
+}
+
+function staticSubcollectionSource(
+  input: ReadSubcollectionSourceInput,
+  parentPath: string,
+  collectionId: string,
+  fieldMaskExpression: FdqlExpression | undefined,
+): FdqlProviderSourceAlias {
+  validateDocumentPath(parentPath, input.diagnostics, input.line);
+  validateCollectionId(collectionId, input.diagnostics, input.line);
+  if (!input.projectId) {
+    input.diagnostics.push(
+      error(
+        'FDQL_MISSING_PROVIDER_CONTEXT',
+        'fs source needs fs.project(...), set fs.projectId, or defaultProviderContext.fs.projectId.',
+        input.line,
+      ),
+    );
+  }
+  const fieldMask = fieldMaskExpression
+    ? readFieldMask(fieldMaskExpression, input.diagnostics, input.line)
+    : undefined;
+  return {
+    ...(fieldMask === undefined ? {} : { fieldMask }),
+    kind: 'source',
+    source: {
+      provider: 'fs',
+      sourceAlias: input.sourceAlias,
+      sourceType: 'subcollection',
+      target: {
+        ...(input.databaseId ? { databaseId: input.databaseId } : {}),
+        collectionId,
+        collectionPath: `${parentPath}/${collectionId}`,
+        parentPath,
+        projectId: input.projectId ?? '',
+      },
+    },
+  };
+}
+
+function templateSubcollectionSource(
+  input: ReadSubcollectionSourceInput,
+  collectionId: string,
+  fieldMaskExpression: FdqlExpression | undefined,
+): FdqlProviderSourceAlias {
+  validateCollectionId(collectionId, input.diagnostics, input.line);
+  const fieldMask = fieldMaskExpression
+    ? readFieldMask(fieldMaskExpression, input.diagnostics, input.line)
+    : undefined;
+  return {
+    binding: { kind: 'parent' },
+    ...(fieldMask === undefined ? {} : { fieldMask }),
+    kind: 'source',
+    source: {
+      provider: 'fs',
+      sourceAlias: input.sourceAlias,
+      sourceType: 'subcollection',
+      target: {
+        collectionId,
+      },
+    },
+  };
+}
+
+function dynamicSubcollectionSource(
+  input: ReadSubcollectionSourceInput,
+  parentExpression: FdqlExpression | undefined,
+  collectionExpression: FdqlExpression | undefined,
+  fieldMaskExpression: FdqlExpression | undefined,
+): FdqlProviderSourceAlias {
+  const collectionId = collectionExpression ? stringArg(collectionExpression, input.aliases) : '';
+  if (!collectionId) {
+    input.diagnostics.push(
+      error(
+        'FDQL_PARSE_ERROR',
+        'fs.subcollection parent form needs a collection name.',
+        input.line,
+      ),
+    );
+  } else {
+    validateCollectionId(collectionId, input.diagnostics, input.line);
+  }
+  if (
+    !parentExpression || parentExpression.kind !== 'field' || parentExpression.path.length !== 1
+    || !input.availableRowAliases.has(parentExpression.path[0] ?? '')
+  ) {
+    input.diagnostics.push(
+      error(
+        'FDQL_INVALID_LOOKUP_PARENT',
+        'Subcollection parent must be an existing provider row alias.',
+        input.line,
+      ),
+    );
+  }
+  const fieldMask = fieldMaskExpression
+    ? readFieldMask(fieldMaskExpression, input.diagnostics, input.line)
+    : undefined;
+  return {
+    binding: parentExpression
+      ? { expression: parentExpression, kind: 'parent' }
+      : { kind: 'parent' },
+    ...(fieldMask === undefined ? {} : { fieldMask }),
+    kind: 'source',
+    source: {
+      provider: 'fs',
+      sourceAlias: input.sourceAlias,
+      sourceType: 'subcollection',
+      target: {
+        collectionId,
+      },
+    },
+  };
+}
+
+function bindFirestoreSource(
+  input: FdqlProviderSourceBindInput,
+): FdqlProviderSourceBindResult {
+  if (input.source.sourceType !== 'subcollection') return { kind: 'bound', source: input.source };
+  const row = rowArg(input.binding.expression, input.context);
+  if (row === null || row === undefined) return { kind: 'skip' };
+  if (!isProviderRow(row) || row.provider !== 'fs') {
+    return {
+      diagnostic: error(
+        'FDQL_INVALID_LOOKUP_PARENT',
+        'Subcollection parent must be a Firestore row.',
+        input.line,
+      ),
+      kind: 'failed',
+    };
+  }
+  const collectionId = sourceTargetString(input.source, 'collectionId');
+  if (!collectionId) {
+    return {
+      diagnostic: error(
+        'FDQL_PARSE_ERROR',
+        'Subcollection source is missing a collection name.',
+        input.line,
+      ),
+      kind: 'failed',
+    };
+  }
+  const databaseId = providerContextValue(row, 'databaseId');
+  const projectId = providerContextValue(row, 'projectId');
+  const collectionPath = `${row.path}/${collectionId}`;
+  return {
+    kind: 'bound',
+    source: {
+      ...input.source,
+      target: {
+        ...input.source.target,
+        collectionPath,
+        parentPath: row.path,
+        ...(typeof databaseId === 'string' ? { databaseId } : {}),
+        ...(typeof projectId === 'string' ? { projectId } : {}),
+      },
+    },
+  };
 }
 
 function resolveFirestoreSetting(
@@ -287,6 +530,51 @@ function resolveFirestoreSetting(
 
 function stringContextValue(value: unknown): string | undefined {
   return typeof value === 'string' && value ? value : undefined;
+}
+
+function stringArg(
+  expression: FdqlExpression | undefined,
+  aliases: FdqlProviderSourceResolveInput['aliases'],
+): string | undefined {
+  if (!expression) return undefined;
+  const value = evaluateAliasValue(expression, aliases);
+  return stringScalar(value) ?? undefined;
+}
+
+function sourceTargetString(
+  source: { readonly target: Readonly<Record<string, unknown>>; },
+  key: string,
+): string {
+  const value = source.target[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function validateDocumentPath(
+  path: string,
+  diagnostics: FdqlDiagnostic[],
+  line: number,
+): void {
+  const segments = path.split('/');
+  if (
+    segments.length === 0 || segments.length % 2 !== 0
+    || segments.some((segment) => segment.length === 0)
+  ) {
+    diagnostics.push(
+      error('FDQL_PARSE_ERROR', `Invalid document path ${path}.`, line),
+    );
+  }
+}
+
+function validateCollectionId(
+  collectionId: string,
+  diagnostics: FdqlDiagnostic[],
+  line: number,
+): void {
+  if (!collectionId || collectionId.includes('/')) {
+    diagnostics.push(
+      error('FDQL_PARSE_ERROR', 'Subcollection name must be one collection id.', line),
+    );
+  }
 }
 
 function validateFirestoreWhere(input: FdqlProviderPredicateValidationInput): void {

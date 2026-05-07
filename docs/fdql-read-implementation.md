@@ -26,10 +26,9 @@ Scope: read features only. Write operations are out of this tracker. This docume
 
 Current priority order:
 
-1. Subcollection reads: `fs.subcollection(parent, name, fields?)` and `fs.subcollections(parent)`.
-2. Firestore native aggregate reads: `lookup aggregate` plus `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max`.
-3. Expression completeness: null/missing predicates, `not in`, `case`, math, and remaining Firestore helpers.
-4. Language/editor follow-up: context-aware completions, field hints, and diagnostics for masked-out fields.
+1. Firestore native aggregate reads: `lookup aggregate` plus `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max`.
+2. Expression completeness: null/missing predicates, `not in`, `case`, math, and remaining Firestore helpers.
+3. Language/editor follow-up: context-aware completions, field hints, and diagnostics for masked-out fields.
 
 ## Current Read Slice
 
@@ -55,7 +54,8 @@ Current parser/compiler accepts:
 - `set*`, then `alias*`, then one read pipeline.
 - Line-oriented `set`, `alias`, `from`, and provider clause statements. Source alias declarations must fit on one line today.
 - Top-level `union all` between read pipelines, with the first branch preamble shared into later branches.
-- Source aliases only through declared `$` aliases.
+- Top-level `from` sources only through declared `$` aliases.
+- Lookup sources through declared `$` aliases or provider source calls.
 - `from $source as rowAlias`.
 - Provider clauses: `namespace where`, `namespace order by`, `namespace limit`.
 - Local stages: `then filter`, `then take`, `then sort by`, `then with`, `then lookup one`, `then lookup many`, `then unwind`, `then aggregate`, `return`.
@@ -63,7 +63,7 @@ Current parser/compiler accepts:
 
 Current Firestore dialect accepts:
 
-- Source functions: `fs.collection(...)`, `fs.collectionGroup(...)`, `fs.project(...)`, `fs.db(...)`.
+- Source functions: `fs.collection(...)`, `fs.collectionGroup(...)`, `fs.subcollection(...)`, `fs.project(...)`, `fs.db(...)`.
 - Source field masks as literal arrays on source alias declarations. Strings use dotted Firestore paths; `fs.fieldPath(...)` gives exact segments.
 - Settings: `set fs.projectId = "..."`, `set fs.databaseId = "..."`.
 - Value/metadata functions: `fs.id(row)`, `fs.path(row)`, `fs.projectId(row)`, `fs.ref(rowOrPath)`, `fs.fieldPath(...)`, `fs.arrayContains(field, value)`.
@@ -73,7 +73,7 @@ Current implementation does not parse or execute:
 
 - FDQL writes.
 - `lookup aggregate`.
-- `fs.subcollection(...)` or `fs.subcollections(...)`.
+- `fs.subcollections(...)`.
 - Firestore aggregate helpers such as `fs.count()`.
 - Dynamic field masks.
 - Final global stages after `union all`.
@@ -205,8 +205,8 @@ These block the read implementation from being honest at production scale.
 | `lookup required one`                     | Done    | Drops rows when correlated values are missing or no match exists.                                         |
 | `lookup many`                             | Done    | Optional; missing correlated values attach `[]`, counts lookup reads separately, supports cache override. |
 | `lookup aggregate`                        | Missing | Needs provider aggregate execution.                                                                       |
-| `fs.subcollection(parent, name, fields?)` | Missing | Needed for document-relative reads.                                                                       |
-| `fs.subcollections(parent)`               | Missing | Needed for subcollection discovery.                                                                       |
+| `fs.subcollection(parent, name, fields?)` | Done    | Supports static paths, dynamic lookup sources, and reusable templates with `of parent`.                   |
+| `fs.subcollections(parent)`               | Missing | Deferred child-collection-name discovery.                                                                 |
 | `unwind array`                            | Done    | Expands arrays into one row per item.                                                                     |
 | `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.                                       |
 | `union all`                               | Done    | Executes top-level branches with shared preamble aliases/settings.                                        |
@@ -253,10 +253,9 @@ These block the read implementation from being honest at production scale.
 
 ## Suggested Next Order
 
-1. Add subcollection reads.
-2. Add Firestore native aggregate reads.
-3. Complete common read expressions.
-4. Improve context-aware editor assistance.
-5. Add Firestore native aggregate reads.
-6. Add expression completeness.
-7. Add context-aware editor/language polish.
+1. Add Firestore native aggregate reads.
+2. Complete common read expressions.
+3. Improve context-aware editor assistance.
+4. Add Firestore native aggregate reads.
+5. Add expression completeness.
+6. Add context-aware editor/language polish.

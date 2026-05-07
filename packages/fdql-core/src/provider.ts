@@ -8,10 +8,12 @@ import type {
   FdqlProviderReadRequest,
   FdqlProviderRow,
   FdqlProviderSource,
+  FdqlProviderSourceBinding,
   FdqlValue,
 } from './types.ts';
 
 export interface FdqlProviderSourceAlias {
+  readonly binding?: FdqlProviderSourceBinding | undefined;
   readonly fieldMask?: readonly FdqlFieldMaskField[] | undefined;
   readonly kind: 'source';
   readonly source: FdqlProviderSource;
@@ -19,9 +21,20 @@ export interface FdqlProviderSourceAlias {
 
 export interface FdqlProviderSourceResolveInput {
   readonly aliases: Readonly<Record<string, FdqlResolvedAliasValue>>;
+  readonly availableRowAliases?: ReadonlySet<string> | undefined;
   readonly declaration: FdqlAliasDeclaration;
   readonly defaultProviderContext: FdqlDefaultProviderContext;
   readonly diagnostics: FdqlDiagnostic[];
+}
+
+export interface FdqlProviderSourceExpressionResolveInput {
+  readonly aliases: Readonly<Record<string, FdqlResolvedAliasValue>>;
+  readonly availableRowAliases: ReadonlySet<string>;
+  readonly defaultProviderContext: FdqlDefaultProviderContext;
+  readonly diagnostics: FdqlDiagnostic[];
+  readonly expression: FdqlExpression;
+  readonly line: number;
+  readonly sourceAlias: string;
 }
 
 export type FdqlDefaultProviderContext = Readonly<
@@ -98,6 +111,18 @@ export interface FdqlProviderEvaluationContext {
   readonly rows?: EvalRows | undefined;
 }
 
+export interface FdqlProviderSourceBindInput {
+  readonly binding: FdqlProviderSourceBinding;
+  readonly context: FdqlProviderEvaluationContext;
+  readonly line: number;
+  readonly source: FdqlProviderSource;
+}
+
+export type FdqlProviderSourceBindResult =
+  | { readonly kind: 'bound'; readonly source: FdqlProviderSource; }
+  | { readonly kind: 'failed'; readonly diagnostic: FdqlDiagnostic; }
+  | { readonly kind: 'skip'; };
+
 export interface FdqlProviderDialect {
   readonly cacheVersion?: number | string | undefined;
   readonly language?: FdqlProviderLanguageMetadata | undefined;
@@ -114,6 +139,12 @@ export interface FdqlProviderDialect {
   resolveSourceAlias: (
     input: FdqlProviderSourceResolveInput,
   ) => FdqlProviderSourceAlias | null;
+  bindSource?:
+    | ((input: FdqlProviderSourceBindInput) => FdqlProviderSourceBindResult)
+    | undefined;
+  resolveSourceExpression?:
+    | ((input: FdqlProviderSourceExpressionResolveInput) => FdqlProviderSourceAlias | null)
+    | undefined;
   resolveSetting?:
     | ((input: FdqlProviderSettingResolveInput) => FdqlProviderSettingResolution | null)
     | undefined;

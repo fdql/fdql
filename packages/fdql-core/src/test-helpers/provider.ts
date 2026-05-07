@@ -14,8 +14,25 @@ import { missingValue, stringValue, toFdqlValue } from '../value.ts';
 
 export const testProviderDialect: FdqlProviderDialect = {
   namespace: 'mem',
-  sourceFunctions: new Set(['collection']),
+  sourceFunctions: new Set(['child', 'collection']),
   valueFunctions: new Set(['mem.id', 'mem.path']),
+  bindSource(input) {
+    if (input.binding.kind !== 'parent') return { kind: 'bound', source: input.source };
+    const parent = rowArg(input.binding.expression, input.context);
+    if (!parent) return { kind: 'skip' };
+    const childCollection = String(input.source.target.collection ?? '');
+    return {
+      kind: 'bound',
+      source: {
+        ...input.source,
+        target: {
+          ...input.source.target,
+          collection: `${parent.path}/${childCollection}`,
+          parentPath: parent.path,
+        },
+      },
+    };
+  },
   evaluateCall(input) {
     if (input.name === 'mem.id') {
       const row = rowArg(input.args[0], input.context);
@@ -31,34 +48,20 @@ export const testProviderDialect: FdqlProviderDialect = {
     return false;
   },
   resolveSourceAlias(input) {
-    const { declaration, diagnostics } = input;
-    if (declaration.value.kind !== 'call' || !declaration.value.name.startsWith('mem.')) {
-      return null;
-    }
-    const parts = declaration.value.name.split('.').slice(1);
-    if (parts.length !== 1 || parts[0] !== 'collection') {
-      diagnostics.push(
-        error('FDQL_UNKNOWN_NAMESPACE', 'Unknown mem source function.', declaration.line),
-      );
-      return null;
-    }
-    const expression = declaration.value.args[0];
-    if (expression?.kind !== 'literal' || typeof expression.value !== 'string') {
-      diagnostics.push(
-        error('FDQL_PARSE_ERROR', 'mem.collection needs a string argument.', declaration.line),
-      );
-      return null;
-    }
-    return {
-      ...fieldMaskFromExpression(declaration.value.args[1]),
-      kind: 'source',
-      source: {
-        provider: 'mem',
-        sourceAlias: declaration.name,
-        sourceType: 'collection',
-        target: { collection: expression.value },
-      },
-    };
+    return resolveSourceCall({
+      diagnostics: input.diagnostics,
+      expression: input.declaration.value,
+      line: input.declaration.line,
+      sourceAlias: input.declaration.name,
+    });
+  },
+  resolveSourceExpression(input) {
+    return resolveSourceCall({
+      diagnostics: input.diagnostics,
+      expression: input.expression,
+      line: input.line,
+      sourceAlias: input.sourceAlias,
+    });
   },
   validateOrderBy(input) {
     if (input.expression.kind === 'field' && input.expression.path[0] === input.rowAlias) return;
@@ -75,6 +78,98 @@ export const testProviderDialect: FdqlProviderDialect = {
     validatePredicate(input.expression, input.rowAlias, input.diagnostics, input.line);
   },
 };
+
+function resolveSourceCall(input: {
+  readonly diagnostics: FdqlDiagnostic[];
+  readonly expression: FdqlExpression;
+  readonly line: number;
+  readonly sourceAlias: string;
+}) {
+  const { diagnostics, expression, line, sourceAlias } = input;
+  if (expression.kind !== 'call' || !expression.name.startsWith('mem.')) return null;
+  const parts = expression.name.split('.').slice(1);
+  if (parts.length !== 1) {
+    diagnostics.push(error('FDQL_UNKNOWN_NAMESPACE', 'Unknown mem source function.', line));
+    return null;
+  }
+  if (parts[0] === 'collection') {
+    return resolveCollectionCall(expression, diagnostics, line, sourceAlias);
+  }
+  if (parts[0] === 'child') return resolveChildCall(expression, diagnostics, line, sourceAlias);
+  diagnostics.push(error('FDQL_UNKNOWN_NAMESPACE', 'Unknown mem source function.', line));
+  return null;
+}
+
+function resolveCollectionCall(
+  expression: Extract<FdqlExpression, { readonly kind: 'call'; }>,
+  diagnostics: FdqlDiagnostic[],
+  line: number,
+  sourceAlias: string,
+) {
+  const collection = stringLiteral(expression.args[0]);
+  if (!collection) {
+    diagnostics.push(error('FDQL_PARSE_ERROR', 'mem.collection needs a string argument.', line));
+    return null;
+  }
+  return {
+    ...fieldMaskFromExpression(expression.args[1]),
+    kind: 'source' as const,
+    source: {
+      provider: 'mem',
+      sourceAlias,
+      sourceType: 'collection',
+      target: { collection },
+    },
+  };
+}
+
+function resolveChildCall(
+  expression: Extract<FdqlExpression, { readonly kind: 'call'; }>,
+  diagnostics: FdqlDiagnostic[],
+  line: number,
+  sourceAlias: string,
+) {
+  const first = expression.args[0];
+  const second = expression.args[1];
+  const templateCollection = stringLiteral(first);
+  if (templateCollection && expression.args.length <= 2) {
+    return {
+      ...fieldMaskFromExpression(second),
+      binding: { kind: 'parent' as const },
+      kind: 'source' as const,
+      source: {
+        provider: 'mem',
+        sourceAlias,
+        sourceType: 'child',
+        target: { collection: templateCollection },
+      },
+    };
+  }
+  const collection = stringLiteral(second);
+  if (!first || !collection) {
+    diagnostics.push(
+      error('FDQL_PARSE_ERROR', 'mem.child needs parent and collection arguments.', line),
+    );
+    return null;
+  }
+  return {
+    ...fieldMaskFromExpression(expression.args[2]),
+    binding: { expression: first, kind: 'parent' as const },
+    kind: 'source' as const,
+    source: {
+      provider: 'mem',
+      sourceAlias,
+      sourceType: 'child',
+      target: { collection },
+    },
+  };
+}
+
+function stringLiteral(expression: FdqlExpression | undefined): string | null {
+  return expression?.kind === 'literal' && typeof expression.value === 'string'
+    ? expression.value
+    : null;
+}
 
 function fieldMaskFromExpression(
   expression: FdqlExpression | undefined,

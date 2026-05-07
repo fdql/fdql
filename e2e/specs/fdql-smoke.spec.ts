@@ -214,6 +214,57 @@ return fs.path(o) as path, o.status`,
       await expect(page.getByText('1 reads')).toBeVisible();
     });
 
+    await test.step('subcollection reads support static, dynamic, and template sources', async () => {
+      await runFdql(
+        page,
+        `alias $orders = fs.subcollection("${data.parent}/parent_1", "orders", ["status"])
+
+from $orders as o
+fs where fs.id(o) = "${data.nestedOrderId}"
+
+return fs.id(o) as id, o.status`,
+      );
+
+      await expectFdqlTable(page, ['id', 'status'], [[data.nestedOrderId, 'nested']]);
+
+      await runFdql(
+        page,
+        `alias $parents = fs.collection("${data.parent}", [])
+alias $orders = fs.subcollection("orders", ["status"])
+
+from $parents as p
+fs where fs.id(p) = "parent_1"
+then lookup many fs.subcollection(p, "orders", ["status"]) as inlineOrders
+then lookup many $orders of p as templateOrders
+
+return fs.id(p) as id, inlineOrders, templateOrders`,
+      );
+
+      await expectFdqlTable(page, ['id', 'inlineOrders', 'templateOrders'], [
+        ['parent_1', '[{"status":"nested"}]', '[{"status":"nested"}]'],
+      ]);
+      await expect(page.getByText('1 rows')).toBeVisible();
+      await expect(page.getByText('3 reads')).toBeVisible();
+    });
+
+    await test.step('invalid subcollection lookup syntax clears stale rows', async () => {
+      await runFdql(
+        page,
+        `alias $parents = fs.collection("${data.parent}", [])
+alias $orders = fs.subcollection("orders", ["status"])
+
+from $parents as p
+fs limit 1
+then lookup many $orders as order
+return order.status`,
+      );
+
+      await page.getByRole('tab', { name: /Issues/ }).click();
+      await expect(page.getByText('FDQL_INVALID_LOOKUP_PARENT')).toBeVisible();
+      await page.getByRole('tab', { name: /Results/ }).click();
+      await expect(page.getByText('No rows yet')).toBeVisible();
+    });
+
     await test.step('nested map and array workflow uses persistent lookup cache', async () => {
       const nestedLookupQuery = `set fdql.cache = persistent
 
@@ -410,6 +461,7 @@ async function seedFdqlReadData(): Promise<{
     setFirestoreEmulatorDocument(`${rounds}/round_1`, { driverId: 'drv_1', score: 10 }),
     setFirestoreEmulatorDocument(`${rounds}/round_2`, { driverId: 'drv_1', score: 5 }),
     setFirestoreEmulatorDocument(`${rounds}/round_3`, { driverId: 'drv_2', score: 7 }),
+    setFirestoreEmulatorDocument(`${parent}/parent_1`, { name: 'Parent 1' }),
     setFirestoreEmulatorDocument(`${parent}/parent_1/orders/${nestedOrderId}`, {
       status: 'nested',
     }),

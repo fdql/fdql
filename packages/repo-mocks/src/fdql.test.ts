@@ -40,6 +40,37 @@ return o.metadata.fraudScore as fraudScore, o.status`,
     expect(result.rows).toEqual([{ fraudScore: 0.02 }]);
   });
 
+  it('reads static and template subcollections', async () => {
+    const repo = createMockFdqlRepository();
+
+    const staticResult = await repo.run({
+      connectionId: 'mock',
+      runId: 'run_1',
+      source: `alias $events = fs.subcollection("orders/ord_1024", "events", ["type"])
+from $events as event
+fs order by event.type asc
+fs limit 1
+return fs.id(event) as id, event.type`,
+    });
+    const templateResult = await repo.run({
+      connectionId: 'mock',
+      runId: 'run_2',
+      source: `alias $orders = fs.collection("orders", [])
+alias $events = fs.subcollection("events", ["type"])
+from $orders as order
+fs where fs.id(order) = "ord_1024"
+then lookup many $events of order as events
+return fs.id(order) as id, events`,
+    });
+
+    expect(staticResult.rows).toEqual([{ id: 'evt_created', type: 'created' }]);
+    expect(templateResult.rows).toEqual([{
+      events: [{ type: 'created' }, { type: 'paid' }],
+      id: 'ord_1024',
+    }]);
+    expect(templateResult.stats).toMatchObject({ lookupReads: 2, reads: 3, rowsOutput: 1 });
+  });
+
   it('runs cache clear commands as successful no-ops', async () => {
     const repo = createMockFdqlRepository();
 

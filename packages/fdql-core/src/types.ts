@@ -216,10 +216,12 @@ export interface FdqlLookupStage {
   readonly kind: 'lookup';
   readonly line: number;
   readonly mode: FdqlLookupMode;
+  readonly parent?: FdqlExpression | undefined;
   readonly range: FdqlSourceRange;
   readonly required: boolean;
   readonly rowAlias: string;
   readonly sourceAlias: string;
+  readonly sourceExpression?: FdqlExpression | undefined;
 }
 
 export interface FdqlUnwindStage {
@@ -326,6 +328,7 @@ export interface FdqlUnionReadPlan {
 }
 
 export interface FdqlProviderReadPlan {
+  readonly binding?: FdqlProviderSourceBinding | undefined;
   readonly fieldMask?: readonly FdqlFieldMaskField[] | undefined;
   readonly limit?: number | undefined;
   readonly orderBy?: FdqlProviderOrderByClause | undefined;
@@ -338,6 +341,11 @@ export interface FdqlProviderSource {
   readonly sourceAlias: string;
   readonly sourceType: string;
   readonly target: Readonly<Record<string, unknown>>;
+}
+
+export interface FdqlProviderSourceBinding {
+  readonly expression?: FdqlExpression | undefined;
+  readonly kind: 'parent';
 }
 
 export interface FdqlFieldMaskField {

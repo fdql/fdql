@@ -13,7 +13,7 @@ describe('FDQL language service', () => {
       expect.arrayContaining(['fdql.readBudget', 'fs.projectId']),
     );
     expect(labels(service.metadata.sourceFunctions)).toEqual(
-      expect.arrayContaining(['fs.collection', 'fs.collectionGroup']),
+      expect.arrayContaining(['fs.collection', 'fs.collectionGroup', 'fs.subcollection']),
     );
     expect(labels(service.metadata.providerClauses)).toEqual(
       expect.arrayContaining(['fs where', 'fs order by', 'fs limit']),
@@ -56,6 +56,7 @@ describe('FDQL language service', () => {
       expect.arrayContaining([
         'then filter',
         'then lookup one',
+        'then lookup one of parent',
         'then lookup one cache',
         'then lookup required one',
         'fs where',

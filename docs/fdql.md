@@ -767,9 +767,18 @@ then lookup one $drivers as driver
 
 ## Subcollections
 
-This is target syntax, not current read implementation.
+Static subcollection source:
 
-Lookup subcollection documents:
+```sql
+alias $items = fs.subcollection("orders/ord_1", "items", ["status"])
+
+from $items as item
+fs limit 100
+
+return fs.id(item) as itemId, item.status
+```
+
+Inline lookup subcollection source:
 
 ```sql
 alias $customers = fs.collection("customers")
@@ -782,23 +791,27 @@ then lookup many fs.subcollection(c, "orders", ["status"]) as orders
   fs limit 20
 ```
 
-Discover direct subcollections:
+Reusable subcollection template:
 
 ```sql
 alias $customers = fs.collection("customers")
+alias $orders = fs.subcollection("orders", ["status"])
 
 from $customers as c
 fs limit 100
 
-then lookup many fs.subcollections(c) as childCollections
+then lookup many $orders of c as orders
 ```
 
 Rules:
 
-- `fs.subcollection(parent, name, fields?)` reads `parent/{id}/name`.
-- `fs.subcollections(parent)` lists direct child collection metadata.
-- Subcollection sources may appear directly in lookup stages because they usually depend on the current row.
-- Subcollection lookup must show read counts per parent.
+- `fs.subcollection("orders/ord_1", "items", fields?)` reads static collection path `orders/ord_1/items` and can be used in `from` or `lookup`.
+- `fs.subcollection(parent, "items", fields?)` reads from the current parent row and is lookup-only.
+- `fs.subcollection("items", fields?)` creates a template and needs `of parent` in lookup.
+- Static parent path strings must be document paths.
+- Subcollection names must be one collection id, not a path.
+- Missing/null parents skip optional lookup reads; `lookup required one` drops the row.
+- Subcollection lookup shows read counts per parent.
 
 ## Union All
 

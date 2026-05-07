@@ -113,6 +113,114 @@ describe('Firestore FDQL dialect', () => {
     });
   });
 
+  it('resolves static and template subcollection sources', () => {
+    const staticDiagnostics: FdqlDiagnostic[] = [];
+    const staticSource = firestoreProviderDialect.resolveSourceAlias({
+      aliases: {},
+      declaration: aliasDeclaration(
+        '$items',
+        call(
+          'fs.subcollection',
+          literal('orders/ord_1'),
+          literal('items'),
+          array(literal('status')),
+        ),
+      ),
+      defaultProviderContext,
+      diagnostics: staticDiagnostics,
+    });
+
+    const templateDiagnostics: FdqlDiagnostic[] = [];
+    const templateSource = firestoreProviderDialect.resolveSourceAlias({
+      aliases: {},
+      declaration: aliasDeclaration(
+        '$items',
+        call('fs.subcollection', literal('items'), array(literal('status'))),
+      ),
+      defaultProviderContext: {},
+      diagnostics: templateDiagnostics,
+    });
+
+    expect(staticDiagnostics).toEqual([]);
+    expect(staticSource).toMatchObject({
+      fieldMask: [{ segments: ['status'] }],
+      source: {
+        sourceType: 'subcollection',
+        target: {
+          collectionId: 'items',
+          collectionPath: 'orders/ord_1/items',
+          parentPath: 'orders/ord_1',
+          projectId: 'local',
+        },
+      },
+    });
+    expect(templateDiagnostics).toEqual([]);
+    expect(templateSource).toMatchObject({
+      binding: { kind: 'parent' },
+      fieldMask: [{ segments: ['status'] }],
+      source: { sourceType: 'subcollection', target: { collectionId: 'items' } },
+    });
+  });
+
+  it('resolves and binds dynamic subcollection lookup sources', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    const source = firestoreProviderDialect.resolveSourceExpression?.({
+      aliases: {},
+      availableRowAliases: new Set(['order']),
+      defaultProviderContext,
+      diagnostics,
+      expression: call(
+        'fs.subcollection',
+        field('order'),
+        literal('items'),
+        array(literal('status')),
+      ),
+      line: 5,
+      sourceAlias: 'fs.subcollection(order, "items", ["status"])',
+    });
+    const parent: FdqlProviderRow = {
+      context: { databaseId: 'db2', projectId: 'local' },
+      data: {},
+      id: 'ord_1',
+      path: 'orders/ord_1',
+      provider: 'fs',
+      source: {
+        provider: 'fs',
+        sourceAlias: '$orders',
+        sourceType: 'collection',
+        target: { collectionPath: 'orders', projectId: 'local' },
+      },
+    };
+
+    const bound = source?.binding
+      ? firestoreProviderDialect.bindSource?.({
+        binding: source.binding,
+        context: { rows: { order: parent } },
+        line: 5,
+        source: source.source,
+      })
+      : null;
+
+    expect(diagnostics).toEqual([]);
+    expect(source).toMatchObject({
+      binding: { expression: expect.objectContaining({ path: ['order'] }), kind: 'parent' },
+      fieldMask: [{ segments: ['status'] }],
+      source: { target: { collectionId: 'items' } },
+    });
+    expect(bound).toMatchObject({
+      kind: 'bound',
+      source: {
+        target: {
+          collectionId: 'items',
+          collectionPath: 'orders/ord_1/items',
+          databaseId: 'db2',
+          parentPath: 'orders/ord_1',
+          projectId: 'local',
+        },
+      },
+    });
+  });
+
   it('rejects invalid collection and collection group paths', () => {
     const collectionDiagnostics: FdqlDiagnostic[] = [];
     firestoreProviderDialect.resolveSourceAlias({
@@ -134,6 +242,46 @@ describe('Firestore FDQL dialect', () => {
       expect.objectContaining({ code: 'FDQL_PARSE_ERROR' }),
     );
     expect(groupDiagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_PARSE_ERROR' }),
+    );
+  });
+
+  it('rejects invalid subcollection paths and names', () => {
+    const pathDiagnostics: FdqlDiagnostic[] = [];
+    firestoreProviderDialect.resolveSourceAlias({
+      aliases: {},
+      declaration: aliasDeclaration(
+        '$bad',
+        call('fs.subcollection', literal('orders'), literal('items')),
+      ),
+      defaultProviderContext,
+      diagnostics: pathDiagnostics,
+    });
+    firestoreProviderDialect.resolveSourceAlias({
+      aliases: {},
+      declaration: aliasDeclaration(
+        '$bad',
+        call('fs.subcollection', literal('orders//ord_1'), literal('items')),
+      ),
+      defaultProviderContext,
+      diagnostics: pathDiagnostics,
+    });
+
+    const nameDiagnostics: FdqlDiagnostic[] = [];
+    firestoreProviderDialect.resolveSourceAlias({
+      aliases: {},
+      declaration: aliasDeclaration(
+        '$bad',
+        call('fs.subcollection', literal('orders/ord_1'), literal('items/invalid')),
+      ),
+      defaultProviderContext,
+      diagnostics: nameDiagnostics,
+    });
+
+    expect(pathDiagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_PARSE_ERROR' }),
+    );
+    expect(nameDiagnostics).toContainEqual(
       expect.objectContaining({ code: 'FDQL_PARSE_ERROR' }),
     );
   });

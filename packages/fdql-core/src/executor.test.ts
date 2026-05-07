@@ -60,6 +60,13 @@ const runtime = createTestProviderRuntime({
     team_1: { id: 'team_1', name: 'Orange' },
     team_2: { id: 'team_2', name: 'Blue' },
   },
+  orders: {
+    ord_1: { status: 'paid' },
+  },
+  'orders/ord_1/items': {
+    item_1: { status: 'packed' },
+    item_2: { status: 'queued' },
+  },
 });
 
 describe('FDQL executor', () => {
@@ -604,6 +611,43 @@ return mem.id(p) as id, rounds`);
       },
     ]);
     expect(completed(events)).toMatchObject({ lookupReads: 2, reads: 3, rowsOutput: 1 });
+  });
+
+  it('binds parent sources before lookup reads', async () => {
+    const events = await run(`alias $orders = mem.collection("orders")
+alias $items = mem.child("items")
+from $orders as order
+mem limit 1
+
+then lookup many $items of order as items
+
+return mem.id(order) as id, items`);
+
+    expect(rows(events)).toEqual([
+      {
+        id: 'ord_1',
+        items: [{ status: 'packed' }, { status: 'queued' }],
+      },
+    ]);
+    expect(completed(events)).toMatchObject({ lookupReads: 2, reads: 3, rowsOutput: 1 });
+  });
+
+  it('skips optional parent-bound lookup reads when the parent is null', async () => {
+    const events = await run(`alias $orders = mem.collection("orders")
+alias $missingParents = mem.collection("missingParents")
+alias $items = mem.child("items")
+from $orders as order
+mem limit 1
+
+then lookup one $missingParents as missingParent
+  mem limit 1
+
+then lookup many $items of missingParent as items
+
+return mem.id(order) as id, items`);
+
+    expect(rows(events)).toEqual([{ id: 'ord_1', items: [] }]);
+    expect(completed(events)).toMatchObject({ lookupReads: 0, reads: 1, rowsOutput: 1 });
   });
 
   it('reports lookup one matches above one row', async () => {
