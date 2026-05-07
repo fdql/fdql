@@ -47,6 +47,7 @@ Provider files:
 
 - `fs-dialect.ts`: Firestore dialect semantics
 - `fs-dialect.test.ts`: Firestore dialect tests
+- `test-helpers/firestore-runtime.ts`: Firestore test runtime helpers only
 - `test-helpers/provider.ts`: fake provider helpers for tests only
 
 Do not leave old files, type names, or test names behind after a provider refactor.
@@ -119,7 +120,8 @@ The compiler is orchestration, not a Firestore compiler.
 Rules:
 
 - `compileFdqlRead(source, { providers, defaultProviderContext })` uses a provider dialect registry.
-- Firestore may be registered by default for app use.
+- Provider registration is explicit. Core FDQL must not install Firestore as a hidden default.
+- Provider context is namespace-scoped, for example `{ fs: { projectId: "local" } }`.
 - Unknown namespaces produce stable diagnostics.
 - Provider source aliases are resolved by their dialect.
 - Provider clauses are validated by their dialect.
@@ -134,6 +136,7 @@ The executor is provider-neutral after planning.
 Rules:
 
 - `executeFdql(plan, { providers }, options)` dispatches reads by provider namespace.
+- Runtime dialect registration is explicit. Core FDQL must not infer Firestore dialects.
 - Local stages operate on `FdqlProviderRow` and plain row objects.
 - `filter`, `with`, `take`, `sort by`, `unwind`, `aggregate`, `return`, and `union all` must not assume Firestore.
 - Metadata/value calls such as `fs.id(row)` are delegated through dialect evaluation.
@@ -153,7 +156,7 @@ Allowed Firestore-specific files:
 
 Firestore-specific code outside those places needs a package-boundary reason.
 
-`packages/fdql/src/compiler.ts` and `executor.ts` may import the Firestore dialect only to provide the default dialect. They must not embed Firestore query rules that belong in `fs-dialect.ts`.
+`packages/fdql/src/compiler.ts` and `executor.ts` must not import the Firestore dialect. App, repo, and test boundaries register Firestore explicitly.
 
 `parser.ts` and `evaluator.ts` should not import Firestore directly. The parser reads generic syntax. The evaluator delegates provider-prefixed calls through the dialect registry.
 
@@ -180,6 +183,7 @@ Rules:
 - test helpers are not exported from `packages/fdql/src/index.ts`
 - test helpers are excluded from package build output
 - fake providers should prove provider extensibility without adding production providers
+- Firestore test runtimes stay in test helpers or Firestore repo packages, not exported core executor APIs
 - Firestore dialect behavior needs direct unit tests
 - provider registry dispatch needs executor tests with at least one non-Firestore provider
 
@@ -203,6 +207,7 @@ Rules:
 
 - IPC schemas validate provider-neutral FDQL request/event shapes
 - UI reads result rows, issues, stats, and stop state through repo contracts
+- Row lineage uses provider-neutral `{ provider, rowPath, source, readContribution }`
 - UI should not infer provider internals from Firestore-specific fields
 - Firestore-specific labels are allowed only when the selected provider is Firestore
 

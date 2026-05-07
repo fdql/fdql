@@ -25,8 +25,9 @@ export const FdqlStatsSchema = z.object({
 });
 
 export const FdqlRowLineageSchema = z.object({
-  documentPath: z.string(),
+  provider: z.string(),
   readContribution: z.number(),
+  rowPath: z.string(),
   source: z.string(),
 });
 

@@ -1,6 +1,7 @@
 import {
   bytesValue,
   compileFdqlRead,
+  createProviderDialectRegistry,
   evaluateExpression,
   executeFdql,
   type FdqlExecutionEvent,
@@ -40,6 +41,8 @@ import {
   type WhereFilterOp,
 } from 'firebase-admin/firestore';
 import type { AdminFirestoreProvider } from './admin-firestore-provider.ts';
+
+const firestoreDialects = createProviderDialectRegistry([firestoreProviderDialect]);
 
 export function createFirebaseFdqlRepository(provider: AdminFirestoreProvider): FdqlRepository {
   const activeRuns = new Map<string, FdqlRunController>();
@@ -137,6 +140,7 @@ export function createFirebaseFdqlRepository(provider: AdminFirestoreProvider): 
 
 function createAdminFdqlRuntime(provider: AdminFirestoreProvider): FdqlProviderRuntimeRegistry {
   return {
+    dialects: firestoreDialects,
     providers: {
       fs: {
         async *read(request) {
@@ -275,7 +279,7 @@ function valueFor(
     db,
     evaluateExpression(expression, {
       aliases: request.aliases,
-      providers: { fs: firestoreProviderDialect },
+      providers: firestoreDialects,
       rows: request.rows,
     }),
   );
@@ -283,7 +287,9 @@ function valueFor(
 
 function compileOptions(request: FdqlCompileRequest) {
   return {
-    defaultProjectId: request.defaultProjectId ?? request.connectionId,
+    defaultProviderContext: {
+      fs: { projectId: request.defaultProjectId ?? request.connectionId },
+    },
     executionDefaults: {
       allowUnboundedReads: request.execution?.allowUnboundedReads ?? false,
       cache: request.execution?.cache ?? 'off',
@@ -291,6 +297,7 @@ function compileOptions(request: FdqlCompileRequest) {
       readBudget: request.execution?.readBudget ?? 5000,
       timeoutMs: request.execution?.timeoutMs ?? 60_000,
     },
+    providers: [firestoreProviderDialect],
   };
 }
 

@@ -57,6 +57,7 @@ Rules:
 - Provider metadata functions are valid local expressions when the row binding belongs to that provider.
 - Provider field validation belongs to the provider dialect. Firestore rules do not automatically apply to future providers.
 - Unknown provider namespaces and unknown provider functions are diagnostics.
+- Engine context is provider-scoped. Firestore defaults live under `fs`, for example `{ fs: { projectId } }`.
 
 Example split:
 
@@ -172,12 +173,13 @@ Rules:
 - Alias names must start with `$`.
 - Aliases can hold primitive values, arrays, maps, or provider sources.
 - Source aliases are not row aliases. Row aliases do not use `$` and are declared with `as` in `from` and `lookup`.
-- `fs.collection("drivers")` uses the selected project and default Firestore database.
+- `fs.collection("drivers")` uses the selected Firestore project from engine context and default Firestore database.
 - `fs.project("project-1").collection("drivers")` uses the named project and default database.
 - `fs.project("project-1").db("db2").collection("drivers")` uses the named project and named database.
-- `fs.db("db2").collection("drivers")` uses the selected project and named database.
+- `fs.db("db2").collection("drivers")` uses the selected Firestore project from engine context and named database.
 - Source functions accept an optional field mask array as their final argument.
 - If database is omitted, Firestore uses `(default)`.
+- If a Firestore source omits `fs.project(...)` and no selected Firestore project exists, the query is invalid.
 
 ## Basic Shape
 

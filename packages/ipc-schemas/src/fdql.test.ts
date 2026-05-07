@@ -21,7 +21,21 @@ describe('FDQL IPC schemas', () => {
     ).toBe(true);
   });
 
-  it('rejects malformed run events', () => {
+  it('validates row events and rejects malformed run events', () => {
+    expect(
+      FdqlRunEventSchema.safeParse({
+        lineage: {
+          provider: 'fs',
+          readContribution: 1,
+          rowPath: 'orders/ord_1',
+          source: '$orders',
+        },
+        row: { id: 'ord_1' },
+        runId: 'run_1',
+        type: 'row',
+      }).success,
+    ).toBe(true);
+
     expect(
       FdqlRunEventSchema.safeParse({
         runId: 'run_1',

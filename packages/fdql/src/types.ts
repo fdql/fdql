@@ -1,4 +1,4 @@
-import type { FdqlProviderDialect } from './provider.ts';
+import type { FdqlDefaultProviderContext, FdqlProviderDialect } from './provider.ts';
 export type { FdqlValue } from './value.ts';
 import type { FdqlValue } from './value.ts';
 
@@ -352,8 +352,7 @@ export type FdqlReadCompileResult =
   };
 
 export interface FdqlCompileOptions {
-  readonly defaultProviderContext?: { readonly projectId?: string | undefined; } | undefined;
-  readonly defaultProjectId: string;
+  readonly defaultProviderContext?: FdqlDefaultProviderContext | undefined;
   readonly executionDefaults?: Partial<FdqlExecutionSettings> | undefined;
   readonly providers?: readonly FdqlProviderDialect[] | undefined;
 }
@@ -406,8 +405,9 @@ export interface FdqlStats {
 }
 
 export interface FdqlRowLineage {
+  readonly provider: string;
   readonly source: string;
-  readonly documentPath: string;
+  readonly rowPath: string;
   readonly readContribution: number;
 }
 
@@ -429,14 +429,6 @@ export type FdqlExecutionEvent =
   | { readonly kind: 'completed'; readonly stats: FdqlStats; }
   | { readonly kind: 'cancelled'; readonly stats: FdqlStats; }
   | { readonly diagnostic: FdqlDiagnostic; readonly kind: 'failed'; };
-
-export interface InMemoryFdqlRuntimeInput {
-  readonly projects: Readonly<Record<string, InMemoryFdqlProject>>;
-}
-
-export type InMemoryFdqlProject = Readonly<
-  Record<string, Readonly<Record<string, Record<string, unknown>>>>
->;
 
 export type EvalRows = Readonly<
   Record<string, FdqlProviderRow | FdqlValue | Record<string, FdqlValue> | null>

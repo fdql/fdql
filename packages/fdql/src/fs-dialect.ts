@@ -79,7 +79,7 @@ function resolveFirestoreSourceAlias(
   if (declaration.value.kind !== 'call' || !declaration.value.name.startsWith('fs.')) return null;
   const parts = declaration.value.name.split('.').slice(1);
   const args = [...declaration.value.args];
-  let projectId = input.defaultProviderContext.projectId;
+  let projectId = stringContextValue(input.defaultProviderContext['fs']?.['projectId']);
   let databaseId: string | undefined;
   let source: FdqlProviderSourceAlias | null = null;
 
@@ -111,6 +111,15 @@ function resolveFirestoreSourceAlias(
           ),
         );
       }
+      if (!projectId) {
+        diagnostics.push(
+          error(
+            'FDQL_MISSING_PROVIDER_CONTEXT',
+            'fs source needs fs.project(...) or defaultProviderContext.fs.projectId.',
+            declaration.line,
+          ),
+        );
+      }
       source = {
         ...(fieldMask === undefined ? {} : { fieldMask }),
         kind: 'source',
@@ -121,7 +130,7 @@ function resolveFirestoreSourceAlias(
           target: {
             ...(databaseId ? { databaseId } : {}),
             ...(part === 'collection' ? { collectionPath: path } : { collectionGroup: path }),
-            projectId,
+            projectId: projectId ?? '',
           },
         },
       };
@@ -142,6 +151,10 @@ function resolveFirestoreSourceAlias(
     );
   }
   return source;
+}
+
+function stringContextValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined;
 }
 
 function validateFirestoreWhere(input: FdqlProviderPredicateValidationInput): void {

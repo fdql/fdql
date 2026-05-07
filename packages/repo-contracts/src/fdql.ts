@@ -21,8 +21,9 @@ export interface FdqlStats {
 }
 
 export interface FdqlRowLineage {
-  readonly documentPath: string;
+  readonly provider: string;
   readonly readContribution: number;
+  readonly rowPath: string;
   readonly source: string;
 }
 

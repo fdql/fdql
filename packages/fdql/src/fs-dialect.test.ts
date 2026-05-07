@@ -10,7 +10,7 @@ import type {
 } from './types.ts';
 import { missingValue, stringValue } from './value.ts';
 
-const defaultProviderContext = { projectId: 'local' };
+const defaultProviderContext = { fs: { projectId: 'local' } };
 
 describe('Firestore FDQL dialect', () => {
   it('resolves collection sources with field masks', () => {
@@ -87,6 +87,20 @@ describe('Firestore FDQL dialect', () => {
     );
     expect(groupDiagnostics).toContainEqual(
       expect.objectContaining({ code: 'FDQL_PARSE_ERROR' }),
+    );
+  });
+
+  it('rejects unqualified sources without Firestore context', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    firestoreProviderDialect.resolveSourceAlias({
+      aliases: {},
+      declaration: aliasDeclaration('$drivers', call('fs.collection', literal('drivers'))),
+      defaultProviderContext: {},
+      diagnostics,
+    });
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_MISSING_PROVIDER_CONTEXT' }),
     );
   });
 

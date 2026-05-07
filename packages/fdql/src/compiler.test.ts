@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { compileFdqlRead } from './compiler.ts';
+import { firestoreProviderDialect } from './fs-dialect.ts';
 import { testProviderDialect } from './test-helpers/provider.ts';
 
-const options = { defaultProjectId: 'local' };
+const options = {
+  defaultProviderContext: { fs: { projectId: 'local' } },
+  providers: [firestoreProviderDialect],
+};
 
 describe('FDQL compiler', () => {
   it('plans collection reads with field masks and provider clauses', () => {
@@ -360,6 +364,58 @@ return o.type`,
     );
   });
 
+  it('requires explicit providers', () => {
+    const result = compileFdqlRead(
+      `alias $orders = fs.collection("orders")
+from $orders as o
+fs limit 1
+return o.type`,
+      {},
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNKNOWN_NAMESPACE' }),
+    );
+  });
+
+  it('requires provider context for unqualified Firestore sources', () => {
+    const result = compileFdqlRead(
+      `alias $drivers = fs.collection("drivers")
+from $drivers as d
+fs limit 1
+return d.firstName`,
+      { providers: [firestoreProviderDialect] },
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_MISSING_PROVIDER_CONTEXT' }),
+    );
+  });
+
+  it('accepts explicit Firestore projects without provider context', () => {
+    const result = compileFdqlRead(
+      `alias $drivers = fs.project("prod").collection("drivers")
+from $drivers as d
+fs limit 1
+return fs.id(d)`,
+      { providers: [firestoreProviderDialect] },
+    );
+
+    expect(result).toMatchObject({
+      diagnostics: [],
+      ok: true,
+      plan: {
+        provider: {
+          source: {
+            target: { projectId: 'prod' },
+          },
+        },
+      },
+    });
+  });
+
   it('plans non-Firestore provider sources and clauses', () => {
     const result = compileFdqlRead(
       `alias $people = mem.collection("people")
@@ -367,7 +423,7 @@ from $people as p
 mem where p.active = true
 mem limit 2
 return mem.id(p) as id, p.name`,
-      { defaultProjectId: 'local', providers: [testProviderDialect] },
+      { providers: [testProviderDialect] },
     );
 
     expect(result).toMatchObject({

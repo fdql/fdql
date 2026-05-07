@@ -46,8 +46,9 @@ describe('fdqlTransitions', () => {
 function rowEvent(runId: string, row: Record<string, unknown>): FdqlRunEvent {
   return {
     lineage: {
-      documentPath: 'orders/ord_1',
+      provider: 'fs',
       readContribution: 1,
+      rowPath: 'orders/ord_1',
       source: '$orders',
     },
     row,

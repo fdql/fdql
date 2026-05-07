@@ -1,5 +1,4 @@
 import { evaluateExpression } from './evaluator.ts';
-import { firestoreProviderDialect } from './fs-dialect.ts';
 import { parseFdql } from './parser.ts';
 import {
   createProviderDialectRegistry,
@@ -51,13 +50,11 @@ export function compileFdqlRead(
 }
 
 function providerRegistry(options: FdqlCompileOptions): FdqlProviderDialectRegistry {
-  return createProviderDialectRegistry(options.providers ?? [firestoreProviderDialect]);
+  return createProviderDialectRegistry(options.providers ?? []);
 }
 
 function defaultProviderContext(options: FdqlCompileOptions): FdqlDefaultProviderContext {
-  return {
-    projectId: options.defaultProviderContext?.projectId ?? options.defaultProjectId,
-  };
+  return options.defaultProviderContext ?? {};
 }
 
 function compileUnionRead(
@@ -726,10 +723,6 @@ const supportedExpressionCalls = new Set([
   'bytes',
   'entries',
   'geoPoint',
-  'fs.arrayContains',
-  'fs.id',
-  'fs.path',
-  'fs.projectId',
   'lower',
   'mapGet',
   'timestamp',

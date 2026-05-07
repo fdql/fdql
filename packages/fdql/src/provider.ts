@@ -23,9 +23,9 @@ export interface FdqlProviderSourceResolveInput {
   readonly diagnostics: FdqlDiagnostic[];
 }
 
-export interface FdqlDefaultProviderContext {
-  readonly projectId: string;
-}
+export type FdqlDefaultProviderContext = Readonly<
+  Record<string, Readonly<Record<string, unknown>>>
+>;
 
 export type FdqlResolvedAliasValue = FdqlProviderSourceAlias | {
   readonly kind: 'value';
