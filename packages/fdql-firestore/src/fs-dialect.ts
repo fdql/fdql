@@ -1,32 +1,28 @@
-import { evaluateExpression } from './evaluator.ts';
-import {
-  type FdqlProviderDialect,
-  type FdqlProviderEvaluationContext,
-  type FdqlProviderOrderByValidationInput,
-  type FdqlProviderPredicateValidationInput,
-  type FdqlProviderSettingResolveInput,
-  type FdqlProviderSourceAlias,
-  type FdqlProviderSourceResolveInput,
-  providerContextValue,
-} from './provider.ts';
-import type {
-  FdqlDiagnostic,
-  FdqlExpression,
-  FdqlFieldMaskField,
-  FdqlProviderRow,
-  FdqlValue,
-} from './types.ts';
 import {
   arrayValue,
   booleanValue,
   equalValues,
+  evaluateExpression,
+  type FdqlDiagnostic,
+  type FdqlExpression,
+  type FdqlFieldMaskField,
+  type FdqlProviderDialect,
+  type FdqlProviderEvaluationContext,
+  type FdqlProviderOrderByValidationInput,
+  type FdqlProviderPredicateValidationInput,
+  type FdqlProviderRow,
+  type FdqlProviderSettingResolveInput,
+  type FdqlProviderSourceAlias,
+  type FdqlProviderSourceResolveInput,
+  type FdqlValue,
   literalToValue,
   mapValue,
   missingValue,
+  providerContextValue,
   providerValue,
   stringScalar,
   stringValue,
-} from './value.ts';
+} from '@firebase-desk/fdql-core';
 
 export const firestoreProviderDialect: FdqlProviderDialect = {
   namespace: 'fs',

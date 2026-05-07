@@ -8,46 +8,46 @@ const validFixtures: readonly { readonly name: string; readonly source: string; 
     source: `set fdql.readBudget = 5000
 set fdql.timeout = "60s"
 
-alias $drivers = fs.collection("drivers", ["firstName"])
+alias $drivers = mem.collection("drivers", ["firstName"])
 
 from $drivers as d
-fs where d.active = true
-fs order by d.createdAt desc
-fs limit 100
+mem where d.active = true
+mem order by d.createdAt desc
+mem limit 100
 
 then filter lower(d.firstName) = "vini"
 then take 25
 
-return fs.id(d) as id, d.firstName`,
+return mem.id(d) as id, d.firstName`,
   },
   {
     name: 'project and named database source',
     source: `alias $prod = "project-1"
-alias $prodDb2Drivers = fs.project($prod).db("db2").collection("drivers", ["firstName"])
+alias $prodDb2Drivers = mem.project($prod).db("db2").collection("drivers", ["firstName"])
 
 from $prodDb2Drivers as d
-fs where fs.id(d) = "drv_1"
-return fs.id(d) as id, d.firstName`,
+mem where mem.id(d) = "drv_1"
+return mem.id(d) as id, d.firstName`,
   },
   {
     name: 'metadata only collection group',
-    source: `alias $orders = fs.collectionGroup("orders", [])
+    source: `alias $orders = mem.collection("orders", [])
 
 from $orders as o
-fs where o.status in ("paid", "pending")
-fs limit 10
-return fs.id(o) as id, fs.path(o) as path`,
+mem where o.status in ("paid", "pending")
+mem limit 10
+return mem.id(o) as id, mem.path(o) as path`,
   },
   {
     name: 'with reshapes rows',
-    source: `alias $drivers = fs.collection("drivers", ["firstName"])
+    source: `alias $drivers = mem.collection("drivers", ["firstName"])
 
 from $drivers as d
-fs limit 100
+mem limit 100
 
 then with
   d,
-  fs.id(d) as driverId,
+  mem.id(d) as driverId,
   lower(d.firstName) as firstNameKey
 
 return driverId, firstNameKey`,
@@ -60,21 +60,21 @@ describe('FDQL parser', () => {
   });
 
   it('parses lookup stages with provider clauses', () => {
-    const result = parseFdql(`alias $drivers = fs.collection("drivers")
-alias $teams = fs.collection("teams")
+    const result = parseFdql(`alias $drivers = mem.collection("drivers")
+alias $teams = mem.collection("teams")
 
 from $drivers as d
 then lookup one $teams as team
-  fs where fs.id(team) = d.teamId
-  fs limit 1
+  mem where mem.id(team) = d.teamId
+  mem limit 1
 return *`);
 
     expect(result).toMatchObject({ ok: true });
     expect(pipelineAst(result).stages).toContainEqual(
       expect.objectContaining({
         clauses: [
-          expect.objectContaining({ kind: 'providerWhere', provider: 'fs' }),
-          expect.objectContaining({ kind: 'providerLimit', provider: 'fs', value: 1 }),
+          expect.objectContaining({ kind: 'providerWhere', provider: 'mem' }),
+          expect.objectContaining({ kind: 'providerLimit', provider: 'mem', value: 1 }),
         ],
         kind: 'lookup',
         mode: 'one',
@@ -85,9 +85,9 @@ return *`);
   });
 
   it('parses unwind stages', () => {
-    const result = parseFdql(`alias $games = fs.collection("games")
+    const result = parseFdql(`alias $games = mem.collection("games")
 from $games as g
-fs limit 10
+mem limit 10
 then unwind entries(g.roundsById) as round
 return round.key`);
 
@@ -101,9 +101,9 @@ return round.key`);
   });
 
   it('keeps separators inside single quoted projection strings', () => {
-    const result = parseFdql(`alias $drivers = fs.collection("drivers")
+    const result = parseFdql(`alias $drivers = mem.collection("drivers")
 from $drivers as d
-fs limit 1
+mem limit 1
 return 'paid, active' as statusLabel, 'keep as text' as note`);
 
     expect(result).toMatchObject({ diagnostics: [], ok: true });
@@ -119,28 +119,28 @@ return 'paid, active' as statusLabel, 'keep as text' as note`);
   });
 
   it('strips comments outside strings only', () => {
-    const result = parseFdql(`alias $drivers = fs.collection("drivers") // source
+    const result = parseFdql(`alias $drivers = mem.collection("drivers") // source
 alias $url = "https://example.test/drivers"
 from $drivers as d
-fs where d.profileUrl = $url
-fs limit 1
+mem where d.profileUrl = $url
+mem limit 1
 return d.profileUrl`);
 
     expect(result).toMatchObject({ diagnostics: [], ok: true });
   });
 
   it('source-locates top-level statements', () => {
-    const result = parseFdql(`  alias $drivers = fs.collection("drivers")
+    const result = parseFdql(`  alias $drivers = mem.collection("drivers")
 
   from $drivers as d
-  fs limit 1
+  mem limit 1
   return d.firstName`);
 
     expect(result).toMatchObject({ diagnostics: [], ok: true });
     expect(pipelineAst(result).aliases[0]).toMatchObject({
       column: 3,
       line: 1,
-      range: { endColumn: 44, endLine: 1, startColumn: 3, startLine: 1 },
+      range: { endColumn: 45, endLine: 1, startColumn: 3, startLine: 1 },
     });
     expect(pipelineAst(result).from).toMatchObject({
       column: 3,
@@ -150,19 +150,19 @@ return d.profileUrl`);
   });
 
   it('reports absolute expression diagnostic columns', () => {
-    const result = parseFdql(`alias $drivers = fs.collection("drivers")
+    const result = parseFdql(`alias $drivers = mem.collection("drivers")
 from $drivers as d
-  fs where d.active = ?
+  mem where d.active = ?
 return d.firstName`);
 
     expect(result).toMatchObject({ ok: false });
     expect(result.diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'FDQL_PARSE_ERROR', column: 23, line: 3 }),
+      expect.objectContaining({ code: 'FDQL_PARSE_ERROR', column: 24, line: 3 }),
     );
   });
 
   it('reports statement diagnostic columns', () => {
-    const result = parseFdql(`alias $drivers = fs.collection("drivers")
+    const result = parseFdql(`alias $drivers = mem.collection("drivers")
   from drivers as d
 return d.firstName`);
 
@@ -173,7 +173,7 @@ return d.firstName`);
   });
 
   it('rejects set declarations after aliases', () => {
-    const result = parseFdql(`alias $drivers = fs.collection("drivers")
+    const result = parseFdql(`alias $drivers = mem.collection("drivers")
 set fdql.readBudget = 5000
 from $drivers as d
 return d.firstName`);
@@ -185,18 +185,18 @@ return d.firstName`);
   });
 
   it('parses top-level union all branches', () => {
-    const result = parseFdql(`alias $drivers = fs.collection("drivers")
-alias $teams = fs.collection("teams")
+    const result = parseFdql(`alias $drivers = mem.collection("drivers")
+alias $teams = mem.collection("teams")
 
 from $drivers as d
-fs limit 1
-return fs.id(d) as id
+mem limit 1
+return mem.id(d) as id
 
 union all
 
 from $teams as t
-fs limit 1
-return fs.id(t) as id`);
+mem limit 1
+return mem.id(t) as id`);
 
     expect(result).toMatchObject({ diagnostics: [], ok: true });
     if (!result.ast || !('kind' in result.ast) || result.ast.kind !== 'union') {

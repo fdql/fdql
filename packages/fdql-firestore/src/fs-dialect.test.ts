@@ -1,5 +1,3 @@
-import { describe, expect, it } from 'vitest';
-import { firestoreProviderDialect } from './fs-dialect.ts';
 import type {
   FdqlAliasDeclaration,
   FdqlDiagnostic,
@@ -7,8 +5,10 @@ import type {
   FdqlProviderRow,
   FdqlProviderSource,
   FdqlSourceRange,
-} from './types.ts';
-import { missingValue, stringValue } from './value.ts';
+} from '@firebase-desk/fdql-core';
+import { missingValue, stringValue } from '@firebase-desk/fdql-core';
+import { describe, expect, it } from 'vitest';
+import { firestoreProviderDialect } from './fs-dialect.ts';
 
 const defaultProviderContext = { fs: { projectId: 'local' } };
 

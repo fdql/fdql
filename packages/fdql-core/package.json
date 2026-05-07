@@ -1,5 +1,5 @@
 {
-  "name": "@firebase-desk/fdql",
+  "name": "@firebase-desk/fdql-core",
   "version": "0.0.0",
   "private": true,
   "license": "MIT",
@@ -17,8 +17,7 @@
     "build": "tsc -b tsconfig.build.json --force"
   },
   "dependencies": {
-    "@firebase-desk/fdql-core": "workspace:*",
-    "@firebase-desk/fdql-firestore": "workspace:*"
+    "chevrotain": "12.0.0"
   },
   "devDependencies": {
     "@firebase-desk/config-oxlint": "workspace:*",

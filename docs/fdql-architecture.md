@@ -5,14 +5,15 @@ This document defines implementation constraints for FDQL. The language spec is 
 ## Goals
 
 - Keep FDQL provider-extensible.
-- Keep `@firebase-desk/fdql` Firebase-free.
+- Keep `@firebase-desk/fdql-core` provider-neutral and Firebase-free.
+- Keep `@firebase-desk/fdql` as the bundled facade for first-party providers.
 - Make provider work explicit and dialect-owned.
 - Keep local pipeline stages provider-neutral.
 - Keep integrated execution, generated scripts, and future tools driven from the same AST/plan semantics.
 
 ## Package Boundaries
 
-`packages/fdql` owns:
+`packages/fdql-core` owns:
 
 - parsing
 - AST and diagnostics
@@ -23,12 +24,18 @@ This document defines implementation constraints for FDQL. The language spec is 
 - provider-neutral executor stages
 - local expression evaluation
 
-`packages/fdql` must not import:
+`packages/fdql-core` must not import:
 
 - Firebase SDKs or Admin SDKs
+- `@firebase-desk/fdql`
+- `@firebase-desk/fdql-firestore`
 - Electron APIs
 - repo-firebase, repo-mocks, IPC schemas, or UI packages
 - provider implementations that require external SDKs
+
+`packages/fdql-firestore` owns the Firestore dialect. It may import `@firebase-desk/fdql-core`, but it must not import Firebase/Admin SDKs, repo packages, UI, IPC, or apps.
+
+`packages/fdql` owns the public facade. It may import `@firebase-desk/fdql-core` and first-party provider packages, and it registers built-in first-party dialects for app-facing compilation.
 
 Provider SDK code belongs in provider repository packages. For Firestore, live Admin SDK code belongs in `packages/repo-firebase`.
 
@@ -43,12 +50,12 @@ Core FDQL orchestration files:
 - `provider.ts`: dialect and runtime contracts
 - `types.ts`: public AST, plan, diagnostics, runtime, stats, and lineage types
 
-Provider files:
+Provider package files:
 
-- `fs-dialect.ts`: Firestore dialect semantics
-- `fs-dialect.test.ts`: Firestore dialect tests
-- `test-helpers/firestore-runtime.ts`: Firestore test runtime helpers only
-- `test-helpers/provider.ts`: fake provider helpers for tests only
+- `packages/fdql-firestore/src/fs-dialect.ts`: Firestore dialect semantics
+- `packages/fdql-firestore/src/fs-dialect.test.ts`: Firestore dialect tests
+- `packages/fdql-firestore/src/test-helpers/firestore-runtime.ts`: Firestore test runtime helpers only
+- `packages/fdql-core/src/test-helpers/provider.ts`: fake provider helpers for core tests only
 
 Do not leave old files, type names, or test names behind after a provider refactor.
 
@@ -148,15 +155,14 @@ Rules:
 
 Allowed Firestore-specific files:
 
-- `packages/fdql/src/fs-dialect.ts`
-- `packages/fdql/src/fs-dialect.test.ts`
-- Firestore-specific tests
+- `packages/fdql-firestore`
+- Firestore-specific facade tests
 - `packages/repo-firebase`
 - Firestore fixture/runtime code in `packages/repo-mocks`
 
 Firestore-specific code outside those places needs a package-boundary reason.
 
-`packages/fdql/src/compiler.ts` and `executor.ts` must not import the Firestore dialect. App, repo, and test boundaries register Firestore explicitly.
+`packages/fdql-core/src/compiler.ts` and `executor.ts` must not import the Firestore dialect. The `@firebase-desk/fdql` facade registers Firestore for app-facing use; core tests register fake providers explicitly.
 
 `parser.ts` and `evaluator.ts` should not import Firestore directly. The parser reads generic syntax. The evaluator delegates provider-prefixed calls through the dialect registry.
 
@@ -176,14 +182,14 @@ No stale aliases should remain after refactors. Rename types, tests, filenames, 
 
 ## Test Helpers
 
-Fake providers belong under `packages/fdql/src/test-helpers`.
+Fake providers belong under `packages/fdql-core/src/test-helpers`.
 
 Rules:
 
-- test helpers are not exported from `packages/fdql/src/index.ts`
+- test helpers are not exported from package index files
 - test helpers are excluded from package build output
 - fake providers should prove provider extensibility without adding production providers
-- Firestore test runtimes stay in test helpers or Firestore repo packages, not exported core executor APIs
+- Firestore test runtimes stay in `fdql-firestore` test helpers or Firestore repo packages, not exported core executor APIs
 - Firestore dialect behavior needs direct unit tests
 - provider registry dispatch needs executor tests with at least one non-Firestore provider
 

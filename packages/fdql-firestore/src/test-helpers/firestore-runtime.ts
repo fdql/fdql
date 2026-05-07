@@ -1,8 +1,18 @@
-import { evaluateExpression, truthy } from '../evaluator.ts';
+import {
+  compareValues,
+  createProviderDialectRegistry,
+  evaluateExpression,
+  type FdqlProviderReadRequest,
+  type FdqlProviderRow,
+  type FdqlProviderRuntimeRegistry,
+  type FdqlValue,
+  isMissingValue,
+  mapValue,
+  missingValue,
+  toFdqlValue,
+  truthy,
+} from '@firebase-desk/fdql-core';
 import { firestoreProviderDialect } from '../fs-dialect.ts';
-import { createProviderDialectRegistry, type FdqlProviderRuntimeRegistry } from '../provider.ts';
-import type { FdqlProviderReadRequest, FdqlProviderRow, FdqlValue } from '../types.ts';
-import { compareValues, isMissingValue, mapValue, missingValue, toFdqlValue } from '../value.ts';
 
 export interface TestFirestoreRuntimeInput {
   readonly projects: Readonly<Record<string, TestFirestoreProject>>;

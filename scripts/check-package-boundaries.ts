@@ -14,6 +14,63 @@ const rules: ReadonlyArray<BoundaryRule> = [
   {
     forbiddenPackages: [
       '@firebase-desk/data-format',
+      '@firebase-desk/fdql',
+      '@firebase-desk/fdql-firestore',
+      '@firebase-desk/hotkeys',
+      '@firebase-desk/ipc-schemas',
+      '@firebase-desk/product-ui',
+      '@firebase-desk/repo-contracts',
+      '@firebase-desk/repo-firebase',
+      '@firebase-desk/repo-mocks',
+      '@firebase-desk/script-runner',
+      '@firebase-desk/ui',
+      'electron',
+      'firebase',
+      'firebase-admin',
+    ],
+    label: '@firebase-desk/fdql-core',
+    root: 'packages/fdql-core/src',
+  },
+  {
+    forbiddenPackages: [
+      '@firebase-desk/data-format',
+      '@firebase-desk/fdql',
+      '@firebase-desk/hotkeys',
+      '@firebase-desk/ipc-schemas',
+      '@firebase-desk/product-ui',
+      '@firebase-desk/repo-contracts',
+      '@firebase-desk/repo-firebase',
+      '@firebase-desk/repo-mocks',
+      '@firebase-desk/script-runner',
+      '@firebase-desk/ui',
+      'electron',
+      'firebase',
+      'firebase-admin',
+    ],
+    label: '@firebase-desk/fdql-firestore',
+    root: 'packages/fdql-firestore/src',
+  },
+  {
+    forbiddenPackages: [
+      '@firebase-desk/data-format',
+      '@firebase-desk/hotkeys',
+      '@firebase-desk/ipc-schemas',
+      '@firebase-desk/product-ui',
+      '@firebase-desk/repo-contracts',
+      '@firebase-desk/repo-firebase',
+      '@firebase-desk/repo-mocks',
+      '@firebase-desk/script-runner',
+      '@firebase-desk/ui',
+      'electron',
+      'firebase',
+      'firebase-admin',
+    ],
+    label: '@firebase-desk/fdql',
+    root: 'packages/fdql/src',
+  },
+  {
+    forbiddenPackages: [
+      '@firebase-desk/data-format',
       '@firebase-desk/hotkeys',
       '@firebase-desk/ipc-schemas',
       '@firebase-desk/product-ui',
@@ -109,7 +166,9 @@ function importSpecifiers(source: string): ReadonlyArray<string> {
 
   for (const match of source.matchAll(importPattern)) {
     const specifier = match[1] ?? match[2];
-    if (specifier?.startsWith('@firebase-desk/')) specifiers.push(specifier);
+    if (specifier && !specifier.startsWith('.') && !specifier.startsWith('/')) {
+      specifiers.push(specifier);
+    }
   }
 
   return specifiers;
