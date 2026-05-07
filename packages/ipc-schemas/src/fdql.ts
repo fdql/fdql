@@ -12,8 +12,11 @@ export const FdqlDiagnosticSchema = z.object({
 
 export const FdqlStatsSchema = z.object({
   aggregateSourceRows: z.number(),
+  cacheBytes: z.number(),
+  cacheEvictions: z.number(),
   cacheHits: z.number(),
   cacheMisses: z.number(),
+  cacheWrites: z.number(),
   lookupReads: z.number(),
   providerReads: z.record(z.string(), z.number()),
   readBudget: z.number(),
@@ -33,7 +36,8 @@ export const FdqlRowLineageSchema = z.object({
 
 export const FdqlExecutionDefaultsSchema = z.object({
   allowUnboundedReads: z.boolean().optional(),
-  cache: z.enum(['off', 'run', 'session']).optional(),
+  cache: z.enum(['off', 'persistent', 'run']).optional(),
+  cacheTtlMs: z.number().int().positive().optional(),
   pageSize: z.number().int().positive().optional(),
   readBudget: z.number().int().positive().optional(),
   timeoutMs: z.number().int().positive().optional(),

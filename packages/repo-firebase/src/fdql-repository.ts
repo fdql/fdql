@@ -6,6 +6,7 @@ import {
   executeFdql,
   type FdqlExecutionEvent,
   type FdqlExpression,
+  type FdqlPersistentCache,
   type FdqlProviderReadRequest,
   type FdqlProviderRow,
   type FdqlProviderRuntimeRegistry,
@@ -44,7 +45,25 @@ import type { AdminFirestoreProvider } from './admin-firestore-provider.ts';
 
 const firestoreDialects = createProviderDialectRegistry([firestoreProviderDialect]);
 
-export function createFirebaseFdqlRepository(provider: AdminFirestoreProvider): FdqlRepository {
+export type {
+  FdqlPersistentCache,
+  FdqlPersistentCacheClearRequest,
+  FdqlPersistentCacheGetRequest,
+  FdqlPersistentCacheHit,
+  FdqlPersistentCacheKey,
+  FdqlPersistentCacheSetRequest,
+  FdqlPersistentCacheSetResult,
+  FdqlProviderRow,
+} from '@firebase-desk/fdql';
+
+export interface FirebaseFdqlRepositoryOptions {
+  readonly persistentCache?: FdqlPersistentCache | undefined;
+}
+
+export function createFirebaseFdqlRepository(
+  provider: AdminFirestoreProvider,
+  options: FirebaseFdqlRepositoryOptions = {},
+): FdqlRepository {
   const activeRuns = new Map<string, FdqlRunController>();
   const listeners = new Set<FdqlRunEventListener>();
 
@@ -90,7 +109,11 @@ export function createFirebaseFdqlRepository(provider: AdminFirestoreProvider): 
         const event of executeFdql(
           compiled.plan,
           runtime,
-          { signal: controller.signal },
+          {
+            cacheContext: { connectionId: request.connectionId, profile: 'desktop' },
+            persistentCache: options.persistentCache,
+            signal: controller.signal,
+          },
         )
       ) {
         const mapped = eventToRunEvent(request.runId, event);
@@ -293,6 +316,7 @@ function compileOptions(request: FdqlCompileRequest) {
     executionDefaults: {
       allowUnboundedReads: request.execution?.allowUnboundedReads ?? false,
       cache: request.execution?.cache ?? 'off',
+      cacheTtlMs: request.execution?.cacheTtlMs ?? 86_400_000,
       pageSize: request.execution?.pageSize ?? 100,
       readBudget: request.execution?.readBudget ?? 5000,
       timeoutMs: request.execution?.timeoutMs ?? 60_000,

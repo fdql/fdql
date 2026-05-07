@@ -186,12 +186,13 @@ export interface FdqlAggregateStage {
 }
 
 export type FdqlLookupMode = 'many' | 'one';
-export type FdqlCacheMode = 'off' | 'run' | 'session';
+export type FdqlCacheMode = 'off' | 'persistent' | 'run';
 
 export type FdqlLookupClause = FdqlWhereStage | FdqlOrderByStage | FdqlLimitStage;
 
 export interface FdqlLookupStage {
   readonly cache?: FdqlCacheMode | undefined;
+  readonly cacheTtlRaw?: string | undefined;
   readonly clauses: readonly FdqlLookupClause[];
   readonly column: number;
   readonly kind: 'lookup';
@@ -273,6 +274,7 @@ export type FdqlParseResult =
 export interface FdqlExecutionSettings {
   readonly allowUnboundedReads: boolean;
   readonly cache: FdqlCacheMode;
+  readonly cacheTtlMs: number;
   readonly pageSize: number;
   readonly readBudget: number;
   readonly timeoutMs: number;
@@ -331,6 +333,7 @@ export type FdqlLocalPlanStage =
 
 export interface FdqlLookupPlanStage {
   readonly cache?: FdqlCacheMode | undefined;
+  readonly cacheTtlMs?: number | undefined;
   readonly column: number;
   readonly kind: 'lookup';
   readonly line: number;
@@ -384,6 +387,8 @@ export interface FdqlProviderReadRequest {
 }
 
 export interface FdqlExecutionOptions {
+  readonly cacheContext?: Readonly<Record<string, unknown>> | undefined;
+  readonly persistentCache?: FdqlPersistentCache | undefined;
   readonly now?: (() => number) | undefined;
   readonly signal?: FdqlAbortSignal | undefined;
 }
@@ -396,8 +401,11 @@ export type FdqlStopReason = 'budget' | 'cancelled' | 'completed' | 'timeout';
 
 export interface FdqlStats {
   readonly aggregateSourceRows: number;
+  readonly cacheBytes: number;
+  readonly cacheEvictions: number;
   readonly cacheHits: number;
   readonly cacheMisses: number;
+  readonly cacheWrites: number;
   readonly lookupReads: number;
   readonly providerReads: Readonly<Record<string, number>>;
   readonly readBudget: number;
@@ -437,3 +445,46 @@ export type FdqlExecutionEvent =
 export type EvalRows = Readonly<
   Record<string, FdqlProviderRow | FdqlValue | Record<string, FdqlValue> | null>
 >;
+
+export interface FdqlPersistentCache {
+  readonly get: (
+    request: FdqlPersistentCacheGetRequest,
+  ) => Promise<FdqlPersistentCacheHit | null>;
+  readonly set: (
+    request: FdqlPersistentCacheSetRequest,
+  ) => Promise<FdqlPersistentCacheSetResult>;
+  readonly clear?: ((request: FdqlPersistentCacheClearRequest) => Promise<void>) | undefined;
+}
+
+export interface FdqlPersistentCacheKey {
+  readonly canonicalJson: string;
+  readonly key: unknown;
+}
+
+export interface FdqlPersistentCacheGetRequest {
+  readonly key: FdqlPersistentCacheKey;
+  readonly nowMs: number;
+}
+
+export interface FdqlPersistentCacheHit {
+  readonly rows: readonly FdqlProviderRow[];
+  readonly sizeBytes: number;
+}
+
+export interface FdqlPersistentCacheSetRequest {
+  readonly expiresAtMs: number;
+  readonly key: FdqlPersistentCacheKey;
+  readonly nowMs: number;
+  readonly rows: readonly FdqlProviderRow[];
+}
+
+export interface FdqlPersistentCacheSetResult {
+  readonly evictedEntries: number;
+  readonly sizeBytes: number;
+}
+
+export interface FdqlPersistentCacheClearRequest {
+  readonly profile?: string | undefined;
+  readonly projectId?: string | undefined;
+  readonly provider?: string | undefined;
+}

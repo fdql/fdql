@@ -85,7 +85,32 @@ return *`);
     );
   });
 
-  it.each(['cache "run"', 'cache = run', 'cache = "run"', 'cache forever'])(
+  it('parses persistent lookup cache TTL', () => {
+    const result = parseFdql(`alias $drivers = mem.collection("drivers")
+alias $teams = mem.collection("teams")
+
+from $drivers as d
+then lookup one $teams as team cache persistent 10m
+  mem where mem.id(team) = d.teamId
+return *`);
+
+    expect(result).toMatchObject({ ok: true });
+    expect(pipelineAst(result).stages).toContainEqual(
+      expect.objectContaining({
+        cache: 'persistent',
+        cacheTtlRaw: '10m',
+        kind: 'lookup',
+      }),
+    );
+  });
+
+  it.each([
+    'cache "run"',
+    'cache = run',
+    'cache = "run"',
+    'cache forever',
+    'cache persistent "10m"',
+  ])(
     'rejects malformed lookup cache suffix %s',
     (suffix) => {
       const result = parseFdql(`alias $drivers = mem.collection("drivers")

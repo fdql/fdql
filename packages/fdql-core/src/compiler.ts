@@ -33,10 +33,13 @@ import { arrayValue, literalToValue, mapValue, missingValue, scalarValue } from 
 const defaultSettings: FdqlExecutionSettings = {
   allowUnboundedReads: false,
   cache: 'off',
+  cacheTtlMs: 86_400_000,
   pageSize: 100,
   readBudget: 5000,
   timeoutMs: 60_000,
 };
+
+const maxCacheTtlMs = 30 * 86_400_000;
 
 type ResolvedAliasValue = FdqlResolvedAliasValue;
 
@@ -108,6 +111,19 @@ function compileSingleFdqlRead(
   if (!ast || !parsed.ok) return { ast, diagnostics, ok: false };
   if (isUnionAst(ast)) {
     diagnostics.push(error('FDQL_PARSE_ERROR', 'Nested `union all` is not supported.'));
+    return { ast, diagnostics, ok: false };
+  }
+  const reservedCommand = ast.stages.find((stage) =>
+    stage.kind === 'unsupported' && isReservedCommand(stage.text)
+  );
+  if (reservedCommand) {
+    diagnostics.push(
+      error(
+        'FDQL_UNSUPPORTED_COMMAND',
+        'FDQL command is reserved but not executable yet.',
+        reservedCommand.line,
+      ),
+    );
     return { ast, diagnostics, ok: false };
   }
 
@@ -351,15 +367,7 @@ function compileLookupStage(
 
   const sourceProvider = sourceAlias.source.provider;
   const sourceDialect = providers[sourceProvider];
-  if (stage.cache === 'session') {
-    diagnostics.push(
-      error(
-        'FDQL_UNSUPPORTED_CACHE_MODE',
-        'lookup cache session is not supported yet.',
-        stage.line,
-      ),
-    );
-  }
+  const cacheTtlMs = resolveLookupCacheTtl(stage, diagnostics);
   let providerPredicate: FdqlExpression | undefined;
   let providerOrderBy: FdqlProviderOrderByClause | undefined;
   let providerOrderByLine: number | undefined;
@@ -438,6 +446,7 @@ function compileLookupStage(
 
   return {
     ...(stage.cache ? { cache: stage.cache } : {}),
+    ...(cacheTtlMs === undefined ? {} : { cacheTtlMs }),
     column: stage.column,
     kind: 'lookup',
     line: stage.line,
@@ -479,6 +488,30 @@ function validateStageProvider(
     return false;
   }
   return true;
+}
+
+function resolveLookupCacheTtl(
+  stage: FdqlLookupStage,
+  diagnostics: FdqlDiagnostic[],
+): number | undefined {
+  if (!stage.cacheTtlRaw) return undefined;
+  if (stage.cache !== 'persistent') {
+    diagnostics.push(
+      error(
+        'FDQL_INVALID_LOOKUP_CACHE',
+        'Lookup cache TTL is only valid with `cache persistent`.',
+        stage.line,
+      ),
+    );
+    return undefined;
+  }
+  const cacheTtlMs = parseCacheTtlMs(stage.cacheTtlRaw);
+  if (!cacheTtlMs) {
+    diagnostics.push(
+      error('FDQL_INVALID_LOOKUP_CACHE', 'Invalid lookup cache TTL.', stage.line),
+    );
+  }
+  return cacheTtlMs;
 }
 
 function resolveSettings(
@@ -535,12 +568,6 @@ function resolveSettings(
         error('FDQL_UNKNOWN_SET_KEY', `Unknown set key ${declaration.key}.`, declaration.line),
       );
     }
-  }
-  if (settings.cache === 'session') {
-    diagnostics.push(
-      error('FDQL_UNSUPPORTED_CACHE_MODE', 'fdql.cache = session is not supported yet.'),
-    );
-    settings = { ...settings, cache: 'off' };
   }
   return { providerContext, settings };
 }
@@ -630,25 +657,21 @@ function applyFdqlSetting(
     else diagnostics.push(error('FDQL_INVALID_SET', 'Invalid value for set fdql.timeout.', line));
   } else if (key === 'cache') {
     const cacheMode = rawValue.toLowerCase();
-    if (cacheMode === 'off' || cacheMode === 'run') return { ...settings, cache: cacheMode };
-    if (cacheMode === 'session') {
-      diagnostics.push(
-        error(
-          'FDQL_UNSUPPORTED_CACHE_MODE',
-          'set fdql.cache = session is not supported yet.',
-          line,
-        ),
-      );
-    } else {
-      diagnostics.push(error('FDQL_INVALID_SET', 'Invalid value for set fdql.cache.', line));
+    if (cacheMode === 'off' || cacheMode === 'run' || cacheMode === 'persistent') {
+      return { ...settings, cache: cacheMode };
     }
+    diagnostics.push(error('FDQL_INVALID_SET', 'Invalid value for set fdql.cache.', line));
+  } else if (key === 'cacheTtl') {
+    const cacheTtlMs = parseCacheTtlMs(rawValue);
+    if (cacheTtlMs) return { ...settings, cacheTtlMs };
+    diagnostics.push(error('FDQL_INVALID_SET', 'Invalid value for set fdql.cacheTtl.', line));
   } else if (key === 'allowUnboundedReads') {
     const value = scalarSetValue(declaration, diagnostics);
     if (typeof value === 'boolean') return { ...settings, allowUnboundedReads: value };
     diagnostics.push(
       error('FDQL_INVALID_SET', 'Invalid value for set fdql.allowUnboundedReads.', line),
     );
-  } else if (!['allowUnboundedReads', 'cache', 'readBudget', 'timeout'].includes(key)) {
+  } else if (!['allowUnboundedReads', 'cache', 'cacheTtl', 'readBudget', 'timeout'].includes(key)) {
     diagnostics.push(error('FDQL_UNKNOWN_SET_KEY', `Unknown set key fdql.${key}.`, line));
   } else {
     diagnostics.push(error('FDQL_INVALID_SET', `Invalid value for set fdql.${key}.`, line));
@@ -876,6 +899,12 @@ function parseDurationMs(value: string): number | undefined {
   return amount * 86_400_000;
 }
 
+function parseCacheTtlMs(value: string): number | undefined {
+  const durationMs = parseDurationMs(value);
+  if (!durationMs || durationMs > maxCacheTtlMs) return undefined;
+  return durationMs;
+}
+
 function walkExpression(
   expression: FdqlExpression,
   visit: (expression: FdqlExpression, parent?: FdqlExpression | undefined) => void,
@@ -921,6 +950,11 @@ const localAggregateCalls = new Set(['avg', 'count', 'max', 'min', 'sum']);
 
 function isUnionAst(ast: FdqlAst): ast is FdqlUnionProgram {
   return 'kind' in ast && ast.kind === 'union';
+}
+
+function isReservedCommand(text: string): boolean {
+  return /^clear\s+cache(?:\s+provider\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+project\s+(?:"[^"]+"|'[^']+'))?)?$/i
+    .test(text);
 }
 
 function splitUnionAll(source: string): readonly string[] {

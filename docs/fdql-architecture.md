@@ -153,6 +153,7 @@ Rules:
 - Metadata/value calls such as `fs.id(row)` are delegated through dialect evaluation.
 - Stats use provider-neutral names such as `providerReads`.
 - Read events include provider namespace and source id/path, not Firestore-specific fields.
+- Persistent lookup cache is injected through executor options. Core owns canonical provider-read cache keys and cache interfaces, but SQLite/filesystem storage belongs in app/repo layers.
 - Unsupported provider/runtime capability should produce diagnostics or failed events, not thrown user-facing crashes.
 
 ## Firestore Placement

@@ -40,6 +40,7 @@ return mem.id(p) as id, p.name`,
       `set fdql.readBudget = 7
 set fdql.timeout = 2s
 set fdql.cache = run
+set fdql.cacheTtl = 2h
 set fdql.allowUnboundedReads = true
 alias $people = mem.collection("people")
 from $people as p
@@ -54,6 +55,7 @@ return p.name`,
         settings: {
           allowUnboundedReads: true,
           cache: 'run',
+          cacheTtlMs: 7_200_000,
           readBudget: 7,
           timeoutMs: 2000,
         },
@@ -121,6 +123,7 @@ return p.name`,
       `set fdql.readBudget = count()
 set fdql.timeout = "2s"
 set fdql.cache = "run"
+set fdql.cacheTtl = "2h"
 alias $people = mem.collection("people")
 from $people as p
 mem limit 1
@@ -134,11 +137,12 @@ return p.name`,
         expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 1 }),
         expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 2 }),
         expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 3 }),
+        expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 4 }),
       ]),
     );
   });
 
-  it('rejects session cache until session runtime semantics exist', () => {
+  it('rejects unsupported cache modes', () => {
     const result = compileFdqlRead(
       `set fdql.cache = session
 alias $people = mem.collection("people")
@@ -150,7 +154,36 @@ return p.name`,
 
     expect(result).toMatchObject({ ok: false });
     expect(result.diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'FDQL_UNSUPPORTED_CACHE_MODE', line: 1 }),
+      expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 1 }),
+    );
+  });
+
+  it.each([
+    'clear cache',
+    'clear cache provider mem',
+    'clear cache provider mem project "local"',
+  ])('reports reserved cache command as unsupported: %s', (source) => {
+    const result = compileFdqlRead(source, options);
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ code: 'FDQL_UNSUPPORTED_COMMAND', line: 1 }),
+    ]);
+  });
+
+  it('rejects persistent cache TTL over 30 days', () => {
+    const result = compileFdqlRead(
+      `set fdql.cacheTtl = 31d
+alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+return p.name`,
+      options,
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 1 }),
     );
   });
 
@@ -257,13 +290,35 @@ return p.name, team.name as teamName`,
     });
   });
 
-  it('rejects session cache on lookup stages', () => {
+  it('plans persistent lookup cache overrides with TTL', () => {
     const result = compileFdqlRead(
       `alias $people = mem.collection("people")
 alias $teams = mem.collection("teams")
 from $people as p
 mem limit 10
-then lookup one $teams as team cache session
+then lookup one $teams as team cache persistent 10m
+  mem where team.id = p.teamId
+return p.name, team.name as teamName`,
+      options,
+    );
+
+    expect(result).toMatchObject({ diagnostics: [], ok: true });
+    if (!result.ok) throw new Error('expected compile success');
+    if (result.plan.kind !== 'read') throw new Error('expected read plan');
+    expect(result.plan.localStages[0]).toMatchObject({
+      cache: 'persistent',
+      cacheTtlMs: 600_000,
+      kind: 'lookup',
+    });
+  });
+
+  it('rejects TTL on non-persistent lookup cache', () => {
+    const result = compileFdqlRead(
+      `alias $people = mem.collection("people")
+alias $teams = mem.collection("teams")
+from $people as p
+mem limit 10
+then lookup one $teams as team cache run 10m
   mem where team.id = p.teamId
 return p.name, team.name as teamName`,
       options,
@@ -271,7 +326,7 @@ return p.name, team.name as teamName`,
 
     expect(result).toMatchObject({ ok: false });
     expect(result.diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'FDQL_UNSUPPORTED_CACHE_MODE', line: 5 }),
+      expect.objectContaining({ code: 'FDQL_INVALID_LOOKUP_CACHE', line: 5 }),
     );
   });
 

@@ -3,7 +3,12 @@ import { compileFdqlRead } from './compiler.ts';
 import { executeFdql } from './executor.ts';
 import type { FdqlProviderRuntimeRegistry } from './provider.ts';
 import { createTestProviderRuntime, testProviderDialect } from './test-helpers/provider.ts';
-import type { FdqlExecutionEvent } from './types.ts';
+import type {
+  FdqlExecutionEvent,
+  FdqlExecutionOptions,
+  FdqlPersistentCache,
+  FdqlProviderRow,
+} from './types.ts';
 import { providerValue, stringValue } from './value.ts';
 
 const compileOptions = {
@@ -308,6 +313,91 @@ return mem.id(assignment) as id, teamName.name as teamName, teamId.id as teamId`
     });
   });
 
+  it('uses persistent lookup cache across executions', async () => {
+    const persistentCache = createMemoryPersistentCache();
+    const query = `set fdql.cache = persistent
+alias $assignments = mem.collection("assignments")
+alias $teams = mem.collection("teams")
+from $assignments as assignment
+mem limit 2
+
+then lookup one $teams as team
+  mem where team.id = assignment.teamId
+
+return mem.id(assignment) as id, team.name as teamName`;
+
+    const firstRun = await run(query, runtime, { persistentCache });
+    const secondRun = await run(query, runtime, { persistentCache });
+
+    expect(completed(firstRun)).toMatchObject({
+      cacheHits: 1,
+      cacheMisses: 1,
+      cacheWrites: 1,
+      lookupReads: 1,
+    });
+    expect(completed(secondRun)).toMatchObject({
+      cacheHits: 2,
+      cacheMisses: 0,
+      cacheWrites: 0,
+      lookupReads: 0,
+      reads: 2,
+    });
+  });
+
+  it('uses the same persistent key for reordered provider where and field masks', async () => {
+    const persistentCache = createMemoryPersistentCache();
+    const events = await run(
+      `set fdql.cache = persistent
+alias $assignments = mem.collection("assignments")
+alias $teamA = mem.collection("teams", ["name", "id"])
+alias $teamB = mem.collection("teams", ["id", "name"])
+from $assignments as assignment
+mem limit 1
+
+then lookup one $teamA as teamA
+  mem where teamA.id = assignment.teamId
+  mem where teamA.name = "Orange"
+
+then lookup one $teamB as teamB
+  mem where teamB.name = "Orange"
+  mem where teamB.id = assignment.teamId
+
+return teamA.name as firstTeam, teamB.name as secondTeam`,
+      runtime,
+      { persistentCache },
+    );
+
+    expect(rows(events)).toEqual([{ firstTeam: 'Orange', secondTeam: 'Orange' }]);
+    expect(completed(events)).toMatchObject({
+      cacheHits: 1,
+      cacheMisses: 1,
+      cacheWrites: 1,
+      lookupReads: 1,
+    });
+  });
+
+  it('does not persist lookup rows when execution stops before a complete lookup read', async () => {
+    const persistentCache = createMemoryPersistentCache();
+    const query = `set fdql.cache = persistent
+set fdql.readBudget = 1
+alias $assignments = mem.collection("assignments")
+alias $teams = mem.collection("teams")
+from $assignments as assignment
+mem limit 1
+
+then lookup one $teams as team
+  mem where team.id = assignment.teamId
+
+return mem.id(assignment) as id, team.name as teamName`;
+
+    const events = await run(query, runtime, { persistentCache });
+
+    expect(completed(events)).toMatchObject({
+      cacheWrites: 0,
+      stoppedReason: 'budget',
+    });
+  });
+
   it('attaches lookup many arrays', async () => {
     const events = await run(`alias $people = mem.collection("people")
 alias $rounds = mem.collection("rounds")
@@ -471,14 +561,46 @@ return mem.id(p) as id`,
 async function run(
   source: string,
   selectedRuntime = runtime,
+  options: FdqlExecutionOptions = {},
 ): Promise<readonly FdqlExecutionEvent[]> {
   const result = compileFdqlRead(source, compileOptions);
   if (!result.ok) {
     throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('\n'));
   }
   const events: FdqlExecutionEvent[] = [];
-  for await (const event of executeFdql(result.plan, selectedRuntime)) events.push(event);
+  for await (const event of executeFdql(result.plan, selectedRuntime, options)) events.push(event);
   return events;
+}
+
+function createMemoryPersistentCache(): FdqlPersistentCache {
+  const entries = new Map<
+    string,
+    {
+      readonly expiresAtMs: number;
+      readonly rows: readonly FdqlProviderRow[];
+      readonly sizeBytes: number;
+    }
+  >();
+  return {
+    async get(request) {
+      const entry = entries.get(request.key.canonicalJson);
+      if (!entry) return null;
+      if (entry.expiresAtMs <= request.nowMs) {
+        entries.delete(request.key.canonicalJson);
+        return null;
+      }
+      return { rows: entry.rows, sizeBytes: entry.sizeBytes };
+    },
+    async set(request) {
+      const sizeBytes = JSON.stringify(request.rows).length;
+      entries.set(request.key.canonicalJson, {
+        expiresAtMs: request.expiresAtMs,
+        rows: request.rows,
+        sizeBytes,
+      });
+      return { evictedEntries: 0, sizeBytes };
+    },
+  };
 }
 
 function rows(events: readonly FdqlExecutionEvent[]): readonly Record<string, unknown>[] {

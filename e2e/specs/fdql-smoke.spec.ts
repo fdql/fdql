@@ -213,10 +213,8 @@ return fs.path(o) as path, o.status`,
       await expect(page.getByText('1 reads')).toBeVisible();
     });
 
-    await test.step('nested map and array workflow dedupes repeated lookup reads', async () => {
-      await runFdql(
-        page,
-        `set fdql.cache = off
+    await test.step('nested map and array workflow uses persistent lookup cache', async () => {
+      const nestedLookupQuery = `set fdql.cache = persistent
 
 alias $events = fs.collection("${data.events}", ["name", "slug", "schedule", "entriesById"])
 alias $drivers = fs.collection("${data.eventDrivers}", ["firstName", "steamId"])
@@ -227,10 +225,11 @@ fs limit 20
 then unwind entries(event.entriesById) as entry
 then unwind entry.value.drivers as eventDriver
 then take 3
-then lookup one $drivers as driver cache run
+then lookup one $drivers as driver cache persistent
   fs where fs.id(driver) = eventDriver.steamId
-return eventDriver.steamId, driver.firstName, event.slug, event.name, event.schedule.startsAt`,
-      );
+return eventDriver.steamId, driver.firstName, event.slug, event.name, event.schedule.startsAt`;
+
+      await runFdql(page, nestedLookupQuery);
 
       await expectFdqlTable(
         page,
@@ -246,6 +245,21 @@ return eventDriver.steamId, driver.firstName, event.slug, event.name, event.sche
       await expect(page.getByText('3 scanned')).toBeVisible();
       await expect(page.getByText('1 cache hit')).toBeVisible();
       await expect(page.getByText('2 cache misses')).toBeVisible();
+      await expect(page.getByText('2 cache writes')).toBeVisible();
+
+      await runFdql(page, nestedLookupQuery);
+
+      await expectFdqlTable(
+        page,
+        ['steamId', 'firstName', 'slug', 'name', 'startsAt'],
+        [
+          ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+          ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+          ['steam_ben', 'Ben', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+        ],
+      );
+      await expect(page.getByText('3 cache hits')).toBeVisible();
+      await expect(page.getByText('1 reads')).toBeVisible();
 
       await page.getByRole('tab', { name: 'Tree' }).click();
       await expect(page.getByRole('tree').filter({ hasText: 'row_1' })).toBeVisible();

@@ -8,8 +8,11 @@ export interface FdqlDiagnostic {
 
 export interface FdqlStats {
   readonly aggregateSourceRows: number;
+  readonly cacheBytes: number;
+  readonly cacheEvictions: number;
   readonly cacheHits: number;
   readonly cacheMisses: number;
+  readonly cacheWrites: number;
   readonly lookupReads: number;
   readonly providerReads: Readonly<Record<string, number>>;
   readonly readBudget: number;
@@ -29,7 +32,8 @@ export interface FdqlRowLineage {
 
 export interface FdqlExecutionDefaults {
   readonly allowUnboundedReads?: boolean | undefined;
-  readonly cache?: 'off' | 'run' | 'session' | undefined;
+  readonly cache?: 'off' | 'persistent' | 'run' | undefined;
+  readonly cacheTtlMs?: number | undefined;
   readonly pageSize?: number | undefined;
   readonly readBudget?: number | undefined;
   readonly timeoutMs?: number | undefined;

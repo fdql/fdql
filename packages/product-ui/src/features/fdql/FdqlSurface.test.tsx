@@ -57,8 +57,11 @@ const result: FdqlRunResult = {
   }],
   stats: {
     aggregateSourceRows: 0,
+    cacheBytes: 0,
+    cacheEvictions: 0,
     cacheHits: 1,
     cacheMisses: 2,
+    cacheWrites: 0,
     lookupReads: 0,
     providerReads: { 'fs:local': 1 },
     readBudget: 5000,

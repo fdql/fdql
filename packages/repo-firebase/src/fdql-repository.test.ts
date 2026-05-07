@@ -1,3 +1,4 @@
+import type { FdqlPersistentCache, FdqlProviderRow } from '@firebase-desk/fdql';
 import type { ProjectSummary } from '@firebase-desk/repo-contracts';
 import { FieldPath } from 'firebase-admin/firestore';
 import { describe, expect, it, vi } from 'vitest';
@@ -69,7 +70,8 @@ return fs.id(o) as id`,
 
   it('runs correlated lookup reads', async () => {
     const driversQuery = fakeQuery([
-      fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' }),
+      [fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' })],
+      [fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' })],
     ]);
     const teamsQuery = fakeQuery([fakeSnapshot('team_1', 'teams/team_1', { name: 'Orange' })]);
     const db = {
@@ -137,6 +139,40 @@ return fs.id(d) as id, team.name as teamName`,
         rowsOutput: 2,
         rowsScanned: 3,
       },
+    });
+  });
+
+  it('uses persistent cache across repository runs', async () => {
+    const persistentCache = createMemoryPersistentCache();
+    const driversQuery = fakeQuery([
+      [fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' })],
+      [fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' })],
+    ]);
+    const teamsQuery = fakeQuery([fakeSnapshot('team_1', 'teams/team_1', { name: 'Orange' })]);
+    const db = {
+      collection: vi.fn((path: string) => path === 'drivers' ? driversQuery : teamsQuery),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db), { persistentCache });
+    const request = {
+      connectionId: 'local',
+      runId: 'run_1',
+      source: `set fdql.cache = persistent
+alias $drivers = fs.collection("drivers", ["firstName", "teamId"])
+alias $teams = fs.collection("teams", ["name"])
+from $drivers as d
+fs limit 1
+then lookup one $teams as team
+  fs where fs.id(team) = d.teamId
+return fs.id(d) as id, team.name as teamName`,
+    };
+
+    await repository.run(request);
+    const result = await repository.run({ ...request, runId: 'run_2' });
+
+    expect(teamsQuery.get).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      rows: [{ id: 'drv_1', teamName: 'Orange' }],
+      stats: { cacheHits: 1, lookupReads: 0, reads: 1, rowsOutput: 1 },
     });
   });
 
@@ -215,6 +251,33 @@ function providerFor(db: unknown): AdminFirestoreProvider {
       db,
     })),
   } as unknown as AdminFirestoreProvider;
+}
+
+function createMemoryPersistentCache(): FdqlPersistentCache {
+  const entries = new Map<
+    string,
+    {
+      readonly expiresAtMs: number;
+      readonly rows: readonly FdqlProviderRow[];
+      readonly sizeBytes: number;
+    }
+  >();
+  return {
+    async get(request) {
+      const entry = entries.get(request.key.canonicalJson);
+      if (!entry || entry.expiresAtMs <= request.nowMs) return null;
+      return { rows: entry.rows, sizeBytes: entry.sizeBytes };
+    },
+    async set(request) {
+      const sizeBytes = JSON.stringify(request.rows).length;
+      entries.set(request.key.canonicalJson, {
+        expiresAtMs: request.expiresAtMs,
+        rows: request.rows,
+        sizeBytes,
+      });
+      return { evictedEntries: 0, sizeBytes };
+    },
+  };
 }
 
 function project(projectId: string): ProjectSummary {

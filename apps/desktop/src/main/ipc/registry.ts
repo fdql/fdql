@@ -35,6 +35,7 @@ import { MainProjectsRepository } from '../projects/main-projects-repository.ts'
 import { MainSettingsRepository } from '../settings/main-settings-repository.ts';
 import { ActivityLogStore } from '../storage/activity-log-store.ts';
 import { CredentialsStore } from '../storage/credentials-store.ts';
+import { createFdqlPersistentCacheStore } from '../storage/fdql-persistent-cache.ts';
 import { JobsStore } from '../storage/jobs-store.ts';
 import { ProjectsStore } from '../storage/projects-store.ts';
 import { SettingsStore } from '../storage/settings-store.ts';
@@ -87,7 +88,11 @@ export function registerIpcHandlers(): void {
   };
   const firestoreProvider = new AdminFirestoreProvider(connectionResolver);
   const firestoreRepository = new FirebaseFirestoreRepository(firestoreProvider);
-  const fdqlRepository = createFirebaseFdqlRepository(firestoreProvider);
+  const fdqlPersistentCache = createFdqlPersistentCacheStore(userDataPath);
+  app.once('will-quit', () => fdqlPersistentCache.close());
+  const fdqlRepository = createFirebaseFdqlRepository(firestoreProvider, {
+    persistentCache: fdqlPersistentCache,
+  });
   fdqlRepository.subscribe(broadcastFdqlRunEvent);
   const firestoreSqlRepository = new FirebaseFirestoreSqlRepository(firestoreProvider);
   firestoreSqlRepository.subscribe(broadcastFirestoreSqlRunEvent);

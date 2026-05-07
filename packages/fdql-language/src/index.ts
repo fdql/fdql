@@ -136,6 +136,7 @@ function completionsForInput(
   const dot = dotContext(line);
   if (dot) return dotCompletions(metadata, model, dot, lower);
   if (lower.startsWith('set ')) return metadata.settings;
+  if (lower.startsWith('clear ')) return clearCacheCompletions(metadata);
   if (lower === 'from $' || lower.startsWith('from $')) return sourceAliasCompletions(model);
   const provider = providerClauseNamespace(metadata, lower);
   if (lower.startsWith('alias ') && lower.includes('=')) {
@@ -162,6 +163,12 @@ function completionsForInput(
 function lineBeforeCursor(input: FdqlCompletionInput): string {
   const line = input.source.split(/\r?\n/)[Math.max(0, input.line - 1)] ?? '';
   return line.slice(0, Math.max(0, input.column - 1));
+}
+
+function clearCacheCompletions(
+  metadata: FdqlLanguageMetadata,
+): readonly FdqlCompletionItem[] {
+  return metadata.snippets.filter((item) => item.label.startsWith('clear cache'));
 }
 
 function expressionCompletions(
@@ -206,10 +213,16 @@ function thenCompletions(
 function lookupCacheCompletions(): readonly FdqlCompletionItem[] {
   return [
     {
-      detail: 'Enable lookup dedupe for this lookup',
+      detail: 'Use per-run lookup dedupe for this lookup',
       insertText: 'cache run',
       kind: 'keyword',
       label: 'cache run',
+    },
+    {
+      detail: 'Use persistent lookup cache for this lookup',
+      insertText: 'cache persistent',
+      kind: 'keyword',
+      label: 'cache persistent',
     },
     {
       detail: 'Disable lookup dedupe for this lookup',
@@ -223,10 +236,16 @@ function lookupCacheCompletions(): readonly FdqlCompletionItem[] {
 function lookupCacheModeCompletions(): readonly FdqlCompletionItem[] {
   return [
     {
-      detail: 'Enable lookup dedupe for this lookup',
+      detail: 'Use per-run lookup dedupe for this lookup',
       insertText: 'run',
       kind: 'keyword',
       label: 'run',
+    },
+    {
+      detail: 'Use persistent lookup cache for this lookup',
+      insertText: 'persistent',
+      kind: 'keyword',
+      label: 'persistent',
     },
     {
       detail: 'Disable lookup dedupe for this lookup',

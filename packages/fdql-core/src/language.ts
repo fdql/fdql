@@ -5,6 +5,7 @@ export const fdqlCoreKeywords = [
   'and',
   'as',
   'by',
+  'clear',
   'desc',
   'from',
   'in',
@@ -24,7 +25,11 @@ const fdqlCoreSettingByName = {
   },
   'fdql.cache': {
     detail: 'Read cache mode',
-    insertText: 'set fdql.cache = ${1|off,run|}',
+    insertText: 'set fdql.cache = ${1|off,run,persistent|}',
+  },
+  'fdql.cacheTtl': {
+    detail: 'Persistent cache TTL',
+    insertText: 'set fdql.cacheTtl = ${1:24h}',
   },
   'fdql.readBudget': {
     detail: 'Maximum documents read by this query',
@@ -105,13 +110,13 @@ const fdqlCoreSnippetByName = {
     insertText: 'then lookup many $${1:source} as ${2:rows}',
   },
   'then lookup many cache': {
-    insertText: 'then lookup many $${1:source} as ${2:rows} cache ${3|run,off|}',
+    insertText: 'then lookup many $${1:source} as ${2:rows} cache ${3|run,persistent,off|}',
   },
   'then lookup one': {
     insertText: 'then lookup one $${1:source} as ${2:row}',
   },
   'then lookup one cache': {
-    insertText: 'then lookup one $${1:source} as ${2:row} cache ${3|run,off|}',
+    insertText: 'then lookup one $${1:source} as ${2:row} cache ${3|run,persistent,off|}',
   },
   'then sort by': {
     insertText: 'then sort by ${1:field} ${2|asc,desc|}',
@@ -127,6 +132,15 @@ const fdqlCoreSnippetByName = {
   },
   'union all': {
     insertText: 'union all',
+  },
+  'clear cache': {
+    insertText: 'clear cache',
+  },
+  'clear cache provider': {
+    insertText: 'clear cache provider ${1:fs}',
+  },
+  'clear cache provider project': {
+    insertText: 'clear cache provider ${1:fs} project "${2:project-id}"',
   },
 } as const;
 

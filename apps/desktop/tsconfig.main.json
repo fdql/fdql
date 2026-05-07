@@ -9,6 +9,7 @@
     { "path": "../../packages/ipc-schemas" },
     { "path": "../../packages/repo-mocks" },
     { "path": "../../packages/data-format" },
+    { "path": "../../packages/fdql" },
     { "path": "../../packages/repo-firebase" },
     { "path": "../../packages/script-runner" }
   ]

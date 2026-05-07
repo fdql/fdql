@@ -411,11 +411,23 @@ function statusVariant(
 }
 
 function cacheStatLabels(stats: FdqlStats | null): readonly string[] {
-  if (!stats || stats.cacheHits + stats.cacheMisses === 0) return [];
-  return [
+  if (
+    !stats
+    || stats.cacheHits + stats.cacheMisses + stats.cacheWrites + stats.cacheEvictions === 0
+  ) {
+    return [];
+  }
+  const labels = [
     pluralLabel(stats.cacheHits, 'cache hit', 'cache hits'),
     pluralLabel(stats.cacheMisses, 'cache miss', 'cache misses'),
   ];
+  if (stats.cacheWrites > 0) {
+    labels.push(pluralLabel(stats.cacheWrites, 'cache write', 'cache writes'));
+  }
+  if (stats.cacheEvictions > 0) {
+    labels.push(pluralLabel(stats.cacheEvictions, 'cache eviction', 'cache evictions'));
+  }
+  return labels;
 }
 
 function pluralLabel(count: number, singular: string, plural: string): string {

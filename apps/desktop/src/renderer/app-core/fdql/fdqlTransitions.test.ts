@@ -64,8 +64,11 @@ function result(rows: readonly Record<string, unknown>[]): FdqlRunResult {
     rows,
     stats: {
       aggregateSourceRows: 0,
+      cacheBytes: 0,
+      cacheEvictions: 0,
       cacheHits: 0,
       cacheMisses: 0,
+      cacheWrites: 0,
       lookupReads: 0,
       providerReads: { 'fs:emu': rows.length },
       readBudget: 5000,

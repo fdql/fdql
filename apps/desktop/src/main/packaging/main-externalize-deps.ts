@@ -1,6 +1,7 @@
 const workspaceRuntimePackages = [
   '@firebase-desk/data-format',
   '@firebase-desk/design-tokens',
+  '@firebase-desk/fdql',
   '@firebase-desk/hotkeys',
   '@firebase-desk/ipc-schemas',
   '@firebase-desk/product-ui',

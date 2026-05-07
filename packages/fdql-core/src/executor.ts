@@ -1,3 +1,4 @@
+import { createFdqlProviderReadCacheKey } from './cache.ts';
 import { type EvalContext, evaluateExpression, truthy } from './evaluator.ts';
 import {
   type FdqlProviderDialectRegistry,
@@ -226,8 +227,11 @@ function recordRead(
 function createStats(readBudget: number): MutableStats {
   return {
     aggregateSourceRows: 0,
+    cacheBytes: 0,
+    cacheEvictions: 0,
     cacheHits: 0,
     cacheMisses: 0,
+    cacheWrites: 0,
     lookupReads: 0,
     providerReads: {},
     readBudget,
@@ -539,10 +543,10 @@ async function executeLookup(
   );
   const documents: FdqlProviderRow[] = [];
   const events: FdqlExecutionEvent[] = [];
-  const cacheKey = lookupCacheMode(stage, plan) === 'run'
-    ? lookupCacheKey(request, runtime)
+  const cachePolicy = lookupCachePolicy(stage, plan, request, runtime, options);
+  const cachedDocuments = cachePolicy.kind === 'run'
+    ? lookupCache.get(cachePolicy.key.canonicalJson)
     : undefined;
-  const cachedDocuments = cacheKey ? lookupCache.get(cacheKey) : undefined;
   if (cachedDocuments) {
     stats.cacheHits += 1;
     return {
@@ -550,7 +554,19 @@ async function executeLookup(
       row: lookupRow(stage, row, cachedDocuments.slice(0, request.maxDocuments)),
     };
   }
-  if (cacheKey) stats.cacheMisses += 1;
+  if (cachePolicy.kind === 'persistent' && options.persistentCache) {
+    const nowMs = options.now?.() ?? Date.now();
+    const hit = await options.persistentCache.get({ key: cachePolicy.key, nowMs });
+    if (hit) {
+      stats.cacheHits += 1;
+      stats.cacheBytes += hit.sizeBytes;
+      return {
+        events: [{ kind: 'stats', stats: freezeStats(stats) }],
+        row: lookupRow(stage, row, hit.rows.slice(0, request.maxDocuments)),
+      };
+    }
+  }
+  if (cachePolicy.kind !== 'off') stats.cacheMisses += 1;
 
   for await (const document of readProvider(runtime, request)) {
     events.push(recordRead(document, request, stats, true));
@@ -571,7 +587,22 @@ async function executeLookup(
       row,
     };
   }
-  if (cacheKey) lookupCache.set(cacheKey, documents);
+  if (cachePolicy.kind === 'run') lookupCache.set(cachePolicy.key.canonicalJson, documents);
+  if (
+    cachePolicy.kind === 'persistent' && options.persistentCache
+    && shouldPersistLookupRows(stage, request, documents)
+  ) {
+    const nowMs = options.now?.() ?? Date.now();
+    const result = await options.persistentCache.set({
+      expiresAtMs: nowMs + lookupCacheTtlMs(stage, plan),
+      key: cachePolicy.key,
+      nowMs,
+      rows: documents,
+    });
+    stats.cacheWrites += 1;
+    stats.cacheEvictions += result.evictedEntries;
+    stats.cacheBytes += result.sizeBytes;
+  }
   return {
     events,
     row: lookupRow(stage, row, documents),
@@ -585,6 +616,57 @@ function lookupCacheMode(
   return stage.cache ?? plan.settings.cache;
 }
 
+function lookupCacheTtlMs(
+  stage: FdqlLookupPlanStage,
+  plan: FdqlSingleReadPlan,
+): number {
+  return stage.cacheTtlMs ?? plan.settings.cacheTtlMs;
+}
+
+function lookupCachePolicy(
+  stage: FdqlLookupPlanStage,
+  plan: FdqlSingleReadPlan,
+  request: FdqlProviderReadRequest,
+  runtime: FdqlProviderRuntimeRegistry,
+  options: FdqlExecutionOptions,
+):
+  | {
+    readonly key: ReturnType<typeof createFdqlProviderReadCacheKey>;
+    readonly kind: 'persistent';
+  }
+  | { readonly key: ReturnType<typeof createFdqlProviderReadCacheKey>; readonly kind: 'run'; }
+  | { readonly kind: 'off'; }
+{
+  const mode = lookupCacheMode(stage, plan);
+  if (mode === 'off') return { kind: 'off' };
+  const key = createFdqlProviderReadCacheKey({
+    cacheContext: options.cacheContext,
+    providers: providerDialects(runtime),
+    readLimit: cacheReadLimit(stage, request),
+    request,
+  });
+  return { key, kind: mode };
+}
+
+function cacheReadLimit(
+  stage: FdqlLookupPlanStage,
+  request: FdqlProviderReadRequest,
+): number | undefined {
+  if (request.limit !== undefined) return request.limit;
+  return stage.mode === 'one' ? request.maxDocuments : undefined;
+}
+
+function shouldPersistLookupRows(
+  stage: FdqlLookupPlanStage,
+  request: FdqlProviderReadRequest,
+  documents: readonly FdqlProviderRow[],
+): boolean {
+  if (request.maxDocuments <= 0) return false;
+  if (stage.mode === 'one') return documents.length <= 1;
+  if (request.limit !== undefined) return true;
+  return documents.length < request.maxDocuments;
+}
+
 function lookupRow(
   stage: FdqlLookupPlanStage,
   row: RowRecord,
@@ -594,168 +676,6 @@ function lookupRow(
     ...row,
     [stage.rowAlias]: stage.mode === 'one' ? documents[0] ?? null : documents,
   };
-}
-
-function lookupCacheKey(
-  request: FdqlProviderReadRequest,
-  runtime: FdqlProviderRuntimeRegistry,
-): string {
-  return stableStringify({
-    aliases: request.aliases,
-    correlated: correlatedLookupValues(request, runtime),
-    fieldMask: request.fieldMask,
-    limit: request.limit,
-    orderBy: request.orderBy,
-    predicate: request.predicate,
-    rowAlias: request.rowAlias,
-    source: request.source,
-  });
-}
-
-function correlatedLookupValues(
-  request: FdqlProviderReadRequest,
-  runtime: FdqlProviderRuntimeRegistry,
-): readonly { readonly expression: FdqlExpression; readonly value: unknown; }[] {
-  const rows = request.rows;
-  if (!rows) return [];
-  const outerAliases = new Set(Object.keys(rows).filter((alias) => alias !== request.rowAlias));
-  const expressions: FdqlExpression[] = [];
-  const seen = new Set<string>();
-  for (
-    const expression of [
-      request.predicate,
-      request.orderBy?.expression,
-    ]
-  ) {
-    if (expression) collectCorrelatedExpressions(expression, outerAliases, expressions, seen);
-  }
-  const context = {
-    aliases: request.aliases,
-    providers: providerDialects(runtime),
-    rows,
-  };
-  return expressions.map((expression) => ({
-    expression,
-    value: evaluateExpression(expression, context),
-  }));
-}
-
-function collectCorrelatedExpressions(
-  expression: FdqlExpression,
-  outerAliases: ReadonlySet<string>,
-  expressions: FdqlExpression[],
-  seen: Set<string>,
-): boolean {
-  if (expression.kind === 'field') {
-    const correlated = outerAliases.has(expression.path[0] ?? '');
-    if (correlated) pushUniqueExpression(expression, expressions, seen);
-    return correlated;
-  }
-  if (expression.kind === 'call') {
-    let correlated = false;
-    for (const arg of expression.args) {
-      correlated = collectCorrelatedExpressions(arg, outerAliases, expressions, seen) || correlated;
-    }
-    if (correlated) pushUniqueExpression(expression, expressions, seen);
-    return correlated;
-  }
-  if (expression.kind === 'array') {
-    let correlated = false;
-    for (const item of expression.items) {
-      correlated = collectCorrelatedExpressions(item, outerAliases, expressions, seen)
-        || correlated;
-    }
-    return correlated;
-  }
-  if (expression.kind === 'map') {
-    let correlated = false;
-    for (const entry of expression.entries) {
-      correlated = collectCorrelatedExpressions(entry.value, outerAliases, expressions, seen)
-        || correlated;
-    }
-    return correlated;
-  }
-  if (expression.kind === 'unary') {
-    return collectCorrelatedExpressions(expression.expression, outerAliases, expressions, seen);
-  }
-  if (expression.kind === 'binary') {
-    const left = collectCorrelatedExpressions(expression.left, outerAliases, expressions, seen);
-    const right = collectCorrelatedExpressions(expression.right, outerAliases, expressions, seen);
-    return left || right;
-  }
-  return false;
-}
-
-function pushUniqueExpression(
-  expression: FdqlExpression,
-  expressions: FdqlExpression[],
-  seen: Set<string>,
-): void {
-  const key = stableStringify(expression);
-  if (seen.has(key)) return;
-  seen.add(key);
-  expressions.push(expression);
-}
-
-function stableStringify(value: unknown): string {
-  return JSON.stringify(stableValue(value)) ?? 'undefined';
-}
-
-function stableValue(value: unknown): unknown {
-  if (isFdqlValue(value)) return stableFdqlValue(value);
-  if (isDocument(value)) {
-    return {
-      context: stableValue(value.context),
-      data: stableValue(value.data),
-      id: value.id,
-      path: value.path,
-      provider: value.provider,
-      source: stableValue(value.source),
-      type: 'providerRow',
-    };
-  }
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (isPlainRecord(value)) {
-    return Object.fromEntries(
-      sortedKeys(value).map((key) => [key, stableValue(value[key])]),
-    );
-  }
-  if (value === undefined) return { type: 'undefined' };
-  return value;
-}
-
-function sortedKeys(value: Record<string, unknown>): readonly string[] {
-  const keys: string[] = [];
-  for (const key of Object.keys(value)) {
-    const index = keys.findIndex((candidate) => key.localeCompare(candidate) < 0);
-    if (index < 0) keys.push(key);
-    else keys.splice(index, 0, key);
-  }
-  return keys;
-}
-
-function stableFdqlValue(value: FdqlValue): unknown {
-  switch (value.kind) {
-    case 'array':
-      return { kind: value.kind, value: value.value.map(stableFdqlValue) };
-    case 'map':
-      return {
-        kind: value.kind,
-        value: stableValue(value.value),
-      };
-    case 'providerValue':
-      return {
-        display: value.display,
-        equalityKey: value.equalityKey,
-        kind: value.kind,
-        orderKey: value.orderKey,
-        provider: value.provider,
-        value: stableValue(value.value),
-        valueType: value.valueType,
-      };
-    default:
-      return value;
-  }
 }
 
 function projectItems(
@@ -822,8 +742,11 @@ function providerDialects(runtime: FdqlProviderRuntimeRegistry): FdqlProviderDia
 function freezeStats(stats: MutableStats): FdqlStats {
   return {
     aggregateSourceRows: stats.aggregateSourceRows,
+    cacheBytes: stats.cacheBytes,
+    cacheEvictions: stats.cacheEvictions,
     cacheHits: stats.cacheHits,
     cacheMisses: stats.cacheMisses,
+    cacheWrites: stats.cacheWrites,
     lookupReads: stats.lookupReads,
     providerReads: { ...stats.providerReads },
     readBudget: stats.readBudget,

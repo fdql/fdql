@@ -98,6 +98,7 @@ export interface FdqlProviderEvaluationContext {
 }
 
 export interface FdqlProviderDialect {
+  readonly cacheVersion?: number | string | undefined;
   readonly language?: FdqlProviderLanguageMetadata | undefined;
   readonly namespace: string;
   readonly sourceFunctions: ReadonlySet<string>;

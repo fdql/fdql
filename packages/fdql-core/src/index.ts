@@ -1,3 +1,4 @@
+export * from './cache.ts';
 export * from './compiler.ts';
 export * from './evaluator.ts';
 export * from './executor.ts';

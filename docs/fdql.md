@@ -575,7 +575,7 @@ Rules:
 - Lookup clauses are provider-native.
 - Lookup row aliases are available inside their provider clauses.
 - Correlated references must use previous row fields or metadata functions such as `fs.id(d)`.
-- `cache run` or `cache off` on a lookup overrides `set fdql.cache` for that lookup only.
+- `cache run`, `cache persistent`, `cache persistent 60s`, or `cache off` on a lookup overrides `set fdql.cache` for that lookup only.
 - Lookup cache defaults to the query-level `set fdql.cache` value when omitted.
 - `lookup one` must produce at most one value or report a diagnostic.
 - `lookup many` attaches an array and preserves the input row.
@@ -1194,7 +1194,8 @@ Example query:
 ```sql
 set fdql.readBudget = 5000
 set fdql.timeout = 60s
-set fdql.cache = run
+set fdql.cache = persistent
+set fdql.cacheTtl = 24h
 set fdql.allowUnboundedReads = false
 
 alias $events = fs.collection("events")
@@ -1211,31 +1212,49 @@ Rules:
 - `set` must be declared before aliases and before the pipeline.
 - `set` cannot appear after `from`, `then`, `lookup`, `unwind`, `aggregate`, `return`, or a write command.
 - Supported `set` keys are namespace-defined.
-- Initial read keys: `fdql.readBudget`, `fdql.timeout`, `fdql.cache`, `fdql.allowUnboundedReads`, `fs.projectId`, and `fs.databaseId`.
+- Initial read keys: `fdql.readBudget`, `fdql.timeout`, `fdql.cache`, `fdql.cacheTtl`, `fdql.allowUnboundedReads`, `fs.projectId`, and `fs.databaseId`.
 - Initial write keys: `fdql.writeBudget`, `fdql.writeBatchSize`, `fdql.writeMode`, and `fdql.stopOnWriteError`.
 - Unknown `set` keys are diagnostics, not ignored.
 - Unscoped `set` keys are invalid; use `namespace.key`.
 - `set` values do not need `$` prefixes because they are not aliases.
 - Read budget, timeout, cache mode, and provider scan permissions are internal execution context values.
 - Read budget stops execution and returns partial results with a clear stopped state.
-- Stats must show reads, rows scanned, rows output, lookup counts, cache hits/misses, and stop reason.
+- Stats must show reads, rows scanned, rows output, lookup counts, cache hits/misses/writes/evictions, and stop reason.
 
 ## Cache
 
 Cache modes:
 
 ```text
-run
 off
+run
+persistent
 ```
 
 Rules:
 
 - Run cache dedupes repeated lookup reads during one query run.
-- Lookup stages can override query-level cache with `cache run` or `cache off`.
-- Session cache is reserved and must return an unsupported diagnostic until implemented.
+- Persistent cache dedupes lookup reads across runs using the app profile cache database.
+- Persistent cache TTL uses `set fdql.cacheTtl = 60s|10m|6h|30d`; default is `24h`; maximum is `30d`.
+- Lookup stages can override query-level cache with `cache off`, `cache run`, `cache persistent`, or `cache persistent 60s`.
+- Cache modes are bare keywords, not strings.
 - Cache must be visible in execution stats.
 - Provider-native results and lookup results must not silently come from stale cache.
+- Failed, cancelled, timed out, budget-stopped, or partial provider reads must not be persisted.
+- Persistent cache size is capped at 256 MB and evicts least-recently-used entries.
+- Cache keys are canonical JSON hashed with SHA-256. Field mask order and provider `and`/`or` predicate order must not create different keys.
+- Cache keys include provider, connection/profile context, project, database, source, field mask, provider predicates, provider ordering, provider limit, and correlated lookup values.
+- Cache keys exclude aliases, row alias names, comments, whitespace, page size, read budget, timeout, and local pipeline stages.
+
+Manual cache commands:
+
+```fdql
+clear cache
+clear cache provider fs
+clear cache provider fs project "project-id"
+```
+
+Manual cache commands are reserved syntax until wired to UI/IPC execution.
 
 ## Generated Scripts
 

@@ -8,6 +8,7 @@ describe('FDQL language service', () => {
 
     expect(FDQL_LANGUAGE_ID).toBe('fdql');
     expect(service.metadata.keywords).toContain('return');
+    expect(service.metadata.keywords).toContain('clear');
     expect(labels(service.metadata.settings)).toEqual(
       expect.arrayContaining(['fdql.readBudget', 'fs.projectId']),
     );
@@ -19,6 +20,9 @@ describe('FDQL language service', () => {
     );
     expect(labels(service.metadata.expressionFunctions)).toEqual(
       expect.arrayContaining(['timestamp', 'fs.id']),
+    );
+    expect(labels(service.metadata.snippets)).toEqual(
+      expect.arrayContaining(['clear cache', 'clear cache provider project']),
     );
   });
 
@@ -92,9 +96,20 @@ then lookup one $teams as team `;
 
     expect(completionLabelsAtEnd(service, source)).toEqual([
       'cache run',
+      'cache persistent',
       'cache off',
     ]);
-    expect(completionLabelsAtEnd(service, cacheSource)).toEqual(['run', 'off']);
+    expect(completionLabelsAtEnd(service, cacheSource)).toEqual(['run', 'persistent', 'off']);
+  });
+
+  it('suggests reserved cache clear commands', () => {
+    const service = createFdqlLanguageService();
+
+    expect(completionLabelsAtEnd(service, 'clear ')).toEqual([
+      'clear cache',
+      'clear cache provider',
+      'clear cache provider project',
+    ]);
   });
 
   it('suggests source aliases and masked row fields from the current query', () => {

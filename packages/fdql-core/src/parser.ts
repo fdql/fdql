@@ -212,7 +212,7 @@ function parseLookup(
 ): { readonly nextIndex: number; readonly stage?: FdqlStage | undefined; } {
   const start = lines[startIndex]!;
   const match =
-    /^then\s+lookup\s+(one|many)\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+cache\s+(off|run|session))?$/i
+    /^then\s+lookup\s+(one|many)\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+cache\s+(off|run|persistent)(?:\s+(\d+[smhd]))?)?$/i
       .exec(start.text);
   const clauses: FdqlLookupClause[] = [];
   let nextIndex = startIndex;
@@ -237,7 +237,7 @@ function parseLookup(
       diagnostics.push(
         error(
           'FDQL_INVALID_LOOKUP_CACHE',
-          '`lookup` cache must use `cache run`, `cache off`, or `cache session`.',
+          '`lookup` cache must use `cache off`, `cache run`, or `cache persistent 60s`.',
           start.line,
           start.column,
         ),
@@ -258,7 +258,8 @@ function parseLookup(
   return {
     nextIndex,
     stage: {
-      ...(match[4] ? { cache: match[4].toLowerCase() as 'off' | 'run' | 'session' } : {}),
+      ...(match[4] ? { cache: match[4].toLowerCase() as 'off' | 'persistent' | 'run' } : {}),
+      ...(match[5] ? { cacheTtlRaw: match[5] } : {}),
       clauses,
       column: start.column,
       kind: 'lookup',
@@ -525,7 +526,10 @@ function parseSet(
   }
   const key = text.slice('set '.length, separator).trim();
   const valueSource = expressionSlice(text, column, separator + 1);
-  if (key === 'fdql.timeout' && looksLikeDurationLiteral(valueSource.text)) {
+  if (
+    (key === 'fdql.timeout' || key === 'fdql.cacheTtl')
+    && looksLikeDurationLiteral(valueSource.text)
+  ) {
     return { column, key, line, range, rawValue: valueSource.text };
   }
   const parsed = parseExpression(valueSource.text, line, valueSource.column);
