@@ -15,31 +15,50 @@ import type {
   FdqlProviderRow,
   FdqlValue,
 } from './types.ts';
+import {
+  arrayValue,
+  booleanValue,
+  equalValues,
+  literalToValue,
+  mapValue,
+  missingValue,
+  providerValue,
+  stringScalar,
+  stringValue,
+} from './value.ts';
 
 export const firestoreProviderDialect: FdqlProviderDialect = {
   namespace: 'fs',
   sourceFunctions: new Set(['collection', 'collectionGroup', 'db', 'project']),
-  valueFunctions: new Set(['fs.arrayContains', 'fs.id', 'fs.path', 'fs.projectId', 'fs.timestamp']),
+  valueFunctions: new Set(['fs.arrayContains', 'fs.id', 'fs.path', 'fs.projectId', 'fs.ref']),
   evaluateCall(input) {
     if (input.name === 'fs.id') {
       const row = rowArg(input.args[0], input.context);
-      return isProviderRow(row) ? row.id : undefined;
+      return isProviderRow(row) ? stringValue(row.id) : missingValue;
     }
     if (input.name === 'fs.path') {
       const row = rowArg(input.args[0], input.context);
-      return isProviderRow(row) ? row.path : undefined;
+      return isProviderRow(row) ? stringValue(row.path) : missingValue;
     }
     if (input.name === 'fs.projectId') {
       const row = rowArg(input.args[0], input.context);
-      return isProviderRow(row) ? providerContextValue(row, 'projectId') : undefined;
+      const projectId = isProviderRow(row) ? providerContextValue(row, 'projectId') : undefined;
+      return typeof projectId === 'string' ? stringValue(projectId) : missingValue;
     }
-    if (input.name === 'fs.timestamp') return input.evaluate(input.args[0]!, input.context);
+    if (input.name === 'fs.ref') {
+      const row = rowArg(input.args[0], input.context);
+      if (isProviderRow(row)) return documentRefValue(row.path, row);
+      const path = stringScalar(input.evaluate(input.args[0]!, input.context));
+      return path ? documentRefValue(path) : missingValue;
+    }
     if (input.name === 'fs.arrayContains') {
       const array = input.evaluate(input.args[0]!, input.context);
       const value = input.evaluate(input.args[1]!, input.context);
-      return Array.isArray(array) && array.some((item) => Object.is(item, value));
+      return booleanValue(
+        array.kind === 'array' && array.value.some((item) => equalValues(item, value)),
+      );
     }
-    return undefined;
+    return missingValue;
   },
   hasBoundedPredicate: hasBoundedIdPredicate,
   resolveSourceAlias(input) {
@@ -135,7 +154,10 @@ function validateFirestoreWhere(input: FdqlProviderPredicateValidationInput): vo
   );
   walkExpression(input.expression, (node, parent) => {
     if (
-      node.kind === 'call' && !['fs.id', 'fs.timestamp', 'fs.arrayContains'].includes(node.name)
+      node.kind === 'call'
+      && !['bytes', 'fs.id', 'fs.ref', 'fs.arrayContains', 'geoPoint', 'timestamp'].includes(
+        node.name,
+      )
     ) {
       input.diagnostics.push(
         error(
@@ -190,7 +212,7 @@ function validateFirestorePredicate(
       diagnostics.push(
         error(
           'FDQL_UNSUPPORTED_FS_WHERE',
-          '`fs where` comparison values must be literals, aliases, arrays, maps, or fs.timestamp(...).',
+          '`fs where` comparison values must be literals, aliases, arrays, maps, or core value constructors.',
           line,
         ),
       );
@@ -254,13 +276,14 @@ function readStringArg(
     return '';
   }
   const value = evaluateAliasValue(expression, input.aliases);
-  if (typeof value !== 'string') {
+  const text = stringScalar(value);
+  if (text === undefined) {
     input.diagnostics.push(
       error('FDQL_PARSE_ERROR', `${functionName} needs a string argument.`, input.declaration.line),
     );
     return '';
   }
-  return value;
+  return text;
 }
 
 function readFieldMask(
@@ -297,20 +320,20 @@ function evaluateAliasValue(
 ): FdqlValue {
   if (expression.kind === 'alias') {
     const value = aliases[expression.name];
-    return value?.kind === 'value' ? value.value : null;
+    return value?.kind === 'value' ? value.value : missingValue;
   }
   if (expression.kind === 'array') {
-    return expression.items.map((item) => evaluateAliasValue(item, aliases));
+    return arrayValue(expression.items.map((item) => evaluateAliasValue(item, aliases)));
   }
   if (expression.kind === 'map') {
-    return Object.fromEntries(
+    return mapValue(Object.fromEntries(
       expression.entries.map((entry) => [entry.key, evaluateAliasValue(entry.value, aliases)]),
-    );
+    ));
   }
-  if (expression.kind === 'literal') return expression.value;
+  if (expression.kind === 'literal') return literalToValue(expression.value);
   return evaluateExpression(expression, {
     providers: { fs: firestoreProviderDialect },
-  }) as FdqlValue;
+  });
 }
 
 function hasBoundedIdPredicate(expression: FdqlExpression | undefined, rowAlias: string): boolean {
@@ -347,7 +370,10 @@ function isProviderValueExpression(expression: FdqlExpression | undefined): bool
   if (expression.kind === 'map') {
     return expression.entries.every((entry) => isProviderValueExpression(entry.value));
   }
-  if (expression.kind === 'call' && expression.name === 'fs.timestamp') {
+  if (
+    expression.kind === 'call'
+    && ['bytes', 'fs.ref', 'geoPoint', 'timestamp'].includes(expression.name)
+  ) {
     return expression.args.every(isProviderValueExpression);
   }
   return false;
@@ -358,9 +384,28 @@ function isMetadataArgument(
   parent: FdqlExpression | undefined,
 ): boolean {
   return parent?.kind === 'call'
-    && ['fs.id', 'fs.path', 'fs.projectId'].includes(parent.name)
+    && ['fs.id', 'fs.path', 'fs.projectId', 'fs.ref'].includes(parent.name)
     && parent.args[0] === expression
     && expression.path.length === 1;
+}
+
+function documentRefValue(path: string, row?: FdqlProviderRow | undefined): FdqlValue {
+  const projectId = row ? String(providerContextValue(row, 'projectId') ?? '') : '';
+  const databaseId = row
+    ? String(providerContextValue(row, 'databaseId') ?? '(default)')
+    : '(default)';
+  const equalityKey = `fs:${projectId}:${databaseId}:${path}`;
+  return providerValue({
+    display: path,
+    equalityKey,
+    provider: 'fs',
+    value: {
+      databaseId: stringValue(databaseId),
+      path: stringValue(path),
+      projectId: stringValue(projectId),
+    },
+    valueType: 'documentRef',
+  });
 }
 
 function validateProviderField(

@@ -29,6 +29,7 @@ import type {
   FdqlUnionProgram,
   FdqlValue,
 } from './types.ts';
+import { arrayValue, literalToValue, mapValue, missingValue, scalarValue } from './value.ts';
 
 const defaultSettings: FdqlExecutionSettings = {
   allowUnboundedReads: false,
@@ -156,6 +157,13 @@ function compileSingleFdqlRead(
         if (
           !validateStageProvider(stage.provider, sourceProvider, providers, diagnostics, stage.line)
         ) break;
+        validateExpressionAliases(
+          stage.expression,
+          scalarAliases,
+          providers,
+          diagnostics,
+          stage.line,
+        );
         sourceDialect?.validateWhere({
           aliases: scalarAliases,
           availableRowAliases,
@@ -179,6 +187,13 @@ function compileSingleFdqlRead(
           );
           break;
         }
+        validateExpressionAliases(
+          stage.expression,
+          scalarAliases,
+          providers,
+          diagnostics,
+          stage.line,
+        );
         sourceDialect?.validateOrderBy({
           diagnostics,
           expression: stage.expression,
@@ -349,6 +364,13 @@ function compileLookupStage(
       continue;
     }
     if (clause.kind === 'providerWhere') {
+      validateExpressionAliases(
+        clause.expression,
+        scalarAliases,
+        providers,
+        diagnostics,
+        clause.line,
+      );
       sourceDialect?.validateWhere({
         aliases: scalarAliases,
         availableRowAliases: rowsForLookup,
@@ -368,6 +390,13 @@ function compileLookupStage(
         );
         continue;
       }
+      validateExpressionAliases(
+        clause.expression,
+        scalarAliases,
+        providers,
+        diagnostics,
+        clause.line,
+      );
       sourceDialect?.validateOrderBy({
         diagnostics,
         expression: clause.expression,
@@ -455,7 +484,7 @@ function resolveSettings(
       );
       continue;
     }
-    const value = evaluateExpression(declaration.value) as unknown;
+    const value = scalarValue(evaluateExpression(declaration.value));
     if (
       declaration.key === 'readBudget'
       && typeof value === 'number'
@@ -550,20 +579,20 @@ function evaluateAliasValue(
 ): FdqlValue {
   if (expression.kind === 'alias') {
     const value = aliases[expression.name];
-    return value?.kind === 'value' ? value.value : null;
+    return value?.kind === 'value' ? value.value : missingValue;
   }
   if (expression.kind === 'array') {
-    return expression.items.map((item) => evaluateAliasValue(item, aliases, providers));
+    return arrayValue(expression.items.map((item) => evaluateAliasValue(item, aliases, providers)));
   }
   if (expression.kind === 'map') {
-    return Object.fromEntries(
+    return mapValue(Object.fromEntries(
       expression.entries.map((
         entry,
       ) => [entry.key, evaluateAliasValue(entry.value, aliases, providers)]),
-    );
+    ));
   }
-  if (expression.kind === 'literal') return expression.value;
-  return evaluateExpression(expression, { providers }) as FdqlValue;
+  if (expression.kind === 'literal') return literalToValue(expression.value);
+  return evaluateExpression(expression, { providers });
 }
 
 function validateAliases(
@@ -694,14 +723,16 @@ function duplicateStage(stage: string, firstLine: number, duplicateLine: number)
 }
 
 const supportedExpressionCalls = new Set([
+  'bytes',
   'entries',
+  'geoPoint',
   'fs.arrayContains',
   'fs.id',
   'fs.path',
   'fs.projectId',
-  'fs.timestamp',
   'lower',
   'mapGet',
+  'timestamp',
 ]);
 
 const localAggregateCalls = new Set(['avg', 'count', 'max', 'min', 'sum']);

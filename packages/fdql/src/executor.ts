@@ -25,8 +25,22 @@ import type {
   FdqlStats,
   FdqlTakeStage,
   FdqlUnwindStage,
+  FdqlValue,
   InMemoryFdqlRuntimeInput,
 } from './types.ts';
+import {
+  arrayValue,
+  compareValues,
+  groupKey,
+  isMissingValue,
+  isNullValue,
+  mapValue,
+  nullValue,
+  numberValue,
+  numericValue,
+  outputValue,
+  toFdqlValue,
+} from './value.ts';
 
 export async function* executeFdql(
   plan: FdqlReadPlan,
@@ -121,7 +135,7 @@ async function* executeReadBranch(
   for (const row of localResult.rows) {
     const document = localResult.lineage.get(row)
       ?? sourceRows.flatMap((item) => sourceLineage.get(item) ? [sourceLineage.get(item)!] : [])[0];
-    const projected = projectItems(plan.returnStage.items, plan, row, runtime);
+    const projected = projectItems(plan.returnStage.items, plan, row, runtime, 'external');
     stats.rowsOutput += 1;
     yield {
       kind: 'row',
@@ -341,7 +355,7 @@ async function* applyLocalStages(
     } else if (stage.kind === 'with') {
       const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
       rows = rows.map((row) => {
-        const projected = projectItems(stage.items, plan, row, runtime);
+        const projected = projectItems(stage.items, plan, row, runtime, 'internal');
         copyLineage(lineage, nextLineage, row, projected);
         return projected;
       });
@@ -425,13 +439,13 @@ function aggregateRows(
   stats.aggregateSourceRows += rows.length;
   const groups = new Map<
     string,
-    { readonly keyValues: readonly unknown[]; readonly rows: RowRecord[]; }
+    { readonly keyValues: readonly FdqlValue[]; readonly rows: RowRecord[]; }
   >();
   for (const row of rows) {
     const keyValues = stage.groups.map((group) =>
       evaluateExpression(group.expression, contextFor(plan, row, runtime))
     );
-    const key = JSON.stringify(keyValues.map(groupKeyPart));
+    const key = keyValues.map(groupKey).join('\u001f');
     const group = groups.get(key);
     if (group) group.rows.push(row);
     else groups.set(key, { keyValues, rows: [row] });
@@ -459,49 +473,37 @@ function aggregateValue(
   plan: FdqlSingleReadPlan,
   rows: readonly RowRecord[],
   runtime: FdqlProviderRuntimeRegistry,
-): unknown {
-  if (expression.kind !== 'call') return null;
-  if (expression.name === 'count') return rows.length;
+): FdqlValue {
+  if (expression.kind !== 'call') return nullValue;
+  if (expression.name === 'count') return numberValue(rows.length);
   const values = rows.map((row) =>
     evaluateExpression(expression.args[0]!, contextFor(plan, row, runtime))
   )
-    .filter((value) => value !== null && value !== undefined);
+    .filter((value) => !isNullValue(value) && !isMissingValue(value));
   if (expression.name === 'sum') {
-    return values.reduce<number>((total, value) => total + numericValue(value), 0);
+    return numberValue(values.reduce<number>((total, value) => total + numericValue(value), 0));
   }
   if (expression.name === 'avg') {
     return values.length
-      ? values.reduce<number>((total, value) => total + numericValue(value), 0) / values.length
-      : null;
+      ? numberValue(
+        values.reduce<number>((total, value) => total + numericValue(value), 0) / values.length,
+      )
+      : nullValue;
   }
   if (expression.name === 'min') return minMax(values, 'min');
   if (expression.name === 'max') return minMax(values, 'max');
-  return null;
+  return nullValue;
 }
 
-function groupKeyPart(value: unknown): unknown {
-  if (value === undefined) return { __fdqlMissing: true };
-  return value;
-}
-
-function minMax(values: readonly unknown[], mode: 'max' | 'min'): unknown {
-  let selected: unknown;
+function minMax(values: readonly FdqlValue[], mode: 'max' | 'min'): FdqlValue {
+  let selected: FdqlValue | undefined;
   for (const value of values) {
     const direction = mode === 'max' ? 1 : -1;
     if (selected === undefined || compareValues(value, selected) * direction > 0) {
       selected = value;
     }
   }
-  return selected ?? null;
-}
-
-function numericValue(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-}
-
-function compareValues(left: unknown, right: unknown): number {
-  if (typeof left === 'number' && typeof right === 'number') return left - right;
-  return String(left).localeCompare(String(right));
+  return selected ?? nullValue;
 }
 
 function copyLineage(
@@ -514,9 +516,9 @@ function copyLineage(
   if (source) to.set(newRow, source);
 }
 
-function unwindItems(value: unknown): readonly unknown[] {
-  if (Array.isArray(value)) return value;
-  if (isPlainRecord(value)) return Object.values(value);
+function unwindItems(value: FdqlValue): readonly FdqlValue[] {
+  if (value.kind === 'array') return value.value;
+  if (value.kind === 'map') return Object.values(value.value);
   return [];
 }
 
@@ -579,24 +581,38 @@ function projectItems(
   plan: FdqlSingleReadPlan,
   row: RowRecord,
   runtime: FdqlProviderRuntimeRegistry,
+  mode: 'external' | 'internal',
 ): RowRecord {
   const projected: RowRecord = {};
   for (const item of items) {
     if (item.expression.kind === 'wildcard') {
-      Object.assign(projected, expandWildcard(row));
+      Object.assign(projected, expandWildcard(row, mode));
       continue;
     }
-    projected[item.alias ?? labelFor(item.expression, item.label)] = evaluateExpression(
+    const value = evaluateExpression(
       item.expression,
       contextFor(plan, row, runtime),
     );
+    const key = item.alias ?? labelFor(item.expression, item.label);
+    if (mode === 'internal') {
+      projected[key] = value;
+      continue;
+    }
+    const output = outputValue(value);
+    if (output !== undefined) projected[key] = output;
   }
   return projected;
 }
 
-function expandWildcard(row: Record<string, unknown>): Record<string, unknown> {
+function expandWildcard(
+  row: Record<string, unknown>,
+  mode: 'external' | 'internal',
+): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(row).map(([key, value]) => [key, isDocument(value) ? value.data : value]),
+    Object.entries(row).flatMap(([key, value]) => {
+      const next = mode === 'internal' ? internalRowValue(value) : externalRowValue(value);
+      return next === undefined ? [] : [[key, next]];
+    }),
   );
 }
 
@@ -626,7 +642,7 @@ function readDocuments(
         collectionPath,
         projectId,
       },
-      data,
+      data: normalizeRecord(data),
       id,
       path: `${collectionPath}/${id}`,
       provider: request.source.provider,
@@ -667,8 +683,7 @@ function compareDocuments(
     aliases: request.aliases,
     rows: { ...request.rows, [request.rowAlias]: right },
   });
-  if (leftValue === rightValue) return 0;
-  return String(leftValue).localeCompare(String(rightValue)) * direction;
+  return compareValues(leftValue, rightValue) * direction;
 }
 
 function applyFieldMask(
@@ -676,10 +691,10 @@ function applyFieldMask(
   request: FdqlProviderReadRequest,
 ): FdqlProviderRow {
   if (!request.fieldMask) return document;
-  const data: Record<string, unknown> = {};
+  const data: Record<string, FdqlValue> = {};
   for (const field of request.fieldMask) {
     const value = readPath(document.data, field.path);
-    if (value !== undefined) writePath(data, field.path, value);
+    if (!isMissingValue(value)) writePath(data, field.path, value);
   }
   return {
     ...document,
@@ -707,22 +722,25 @@ function stringTarget(request: FdqlProviderReadRequest, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
-function readPath(source: Readonly<Record<string, unknown>>, path: string): unknown {
-  return path.split('.').reduce<unknown>((value, segment) => {
-    if (!value || typeof value !== 'object') return undefined;
-    return (value as Record<string, unknown>)[segment];
-  }, source);
+function readPath(source: Readonly<Record<string, FdqlValue>>, path: string): FdqlValue {
+  return path.split('.').reduce<FdqlValue>((value, segment) => {
+    if (value.kind !== 'map') return missingValueFromExecutor();
+    return value.value[segment] ?? missingValueFromExecutor();
+  }, mapValue(source));
 }
 
-function writePath(target: Record<string, unknown>, path: string, value: unknown): void {
+function writePath(target: Record<string, FdqlValue>, path: string, value: FdqlValue): void {
   const segments = path.split('.');
   let current = target;
   for (const segment of segments.slice(0, -1)) {
     const existing = current[segment];
-    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
-      current[segment] = {};
+    if (!existing || existing.kind !== 'map') {
+      current[segment] = mapValue({});
     }
-    current = current[segment] as Record<string, unknown>;
+    current = (current[segment] as Extract<FdqlValue, { readonly kind: 'map'; }>).value as Record<
+      string,
+      FdqlValue
+    >;
   }
   const leaf = segments.at(-1);
   if (leaf) current[leaf] = value;
@@ -760,6 +778,42 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
     && typeof value === 'object'
     && !Array.isArray(value)
     && !isDocument(value);
+}
+
+function normalizeRecord(data: Readonly<Record<string, unknown>>): Record<string, FdqlValue> {
+  return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, toFdqlValue(value)]));
+}
+
+function internalRowValue(value: unknown): unknown {
+  if (isDocument(value)) return mapValue(value.data);
+  if (Array.isArray(value)) {
+    return arrayValue(
+      value.map((item) => isDocument(item) ? mapValue(item.data) : toFdqlValue(item)),
+    );
+  }
+  if (isPlainRecord(value)) return mapValue(value as Record<string, FdqlValue>);
+  return value;
+}
+
+function externalRowValue(value: unknown): unknown {
+  if (isDocument(value)) return outputValue(mapValue(value.data));
+  if (Array.isArray(value)) {
+    return outputValue(
+      arrayValue(value.map((item) => isDocument(item) ? mapValue(item.data) : toFdqlValue(item))),
+    );
+  }
+  if (isPlainRecord(value)) return outputValue(mapValue(value as Record<string, FdqlValue>));
+  if (value === null) return null;
+  if (isFdqlValue(value)) return outputValue(value);
+  return value;
+}
+
+function isFdqlValue(value: unknown): value is FdqlValue {
+  return value !== null && typeof value === 'object' && 'kind' in value;
+}
+
+function missingValueFromExecutor(): FdqlValue {
+  return toFdqlValue(undefined);
 }
 
 type RowRecord = Record<string, unknown>;

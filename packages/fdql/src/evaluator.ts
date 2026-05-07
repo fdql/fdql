@@ -1,6 +1,23 @@
 import { providerNamespaceFromCall } from './provider.ts';
 import type { FdqlProviderDialectRegistry } from './provider.ts';
 import type { EvalRows, FdqlExpression, FdqlProviderRow, FdqlValue } from './types.ts';
+import {
+  arrayValue,
+  booleanValue,
+  bytesValue,
+  compareValues,
+  equalValues,
+  geoPointValue,
+  literalToValue,
+  mapValue,
+  missingValue,
+  numberScalar,
+  stringScalar,
+  stringValue,
+  timestampValue,
+  toFdqlValue,
+  truthyValue,
+} from './value.ts';
 
 export interface EvalContext {
   readonly aliases?: Readonly<Record<string, FdqlValue>> | undefined;
@@ -8,45 +25,65 @@ export interface EvalContext {
   readonly rows?: EvalRows | undefined;
 }
 
-export function evaluateExpression(expression: FdqlExpression, context: EvalContext = {}): unknown {
+export function evaluateExpression(
+  expression: FdqlExpression,
+  context: EvalContext = {},
+): FdqlValue {
   switch (expression.kind) {
     case 'literal':
-      return expression.value;
+      return literalToValue(expression.value);
     case 'alias':
-      return context.aliases?.[expression.name];
+      return context.aliases?.[expression.name] ?? missingValue;
     case 'array':
-      return expression.items.map((item) => evaluateExpression(item, context));
+      return arrayValue(expression.items.map((item) => evaluateExpression(item, context)));
     case 'map':
-      return Object.fromEntries(
+      return mapValue(Object.fromEntries(
         expression.entries.map((entry) => [entry.key, evaluateExpression(entry.value, context)]),
-      );
+      ));
     case 'field':
       return evaluateField(expression.path, context);
     case 'call':
       return evaluateCall(expression.name, expression.args, context);
     case 'unary':
-      return !truthy(evaluateExpression(expression.expression, context));
+      return booleanValue(!truthy(evaluateExpression(expression.expression, context)));
     case 'binary':
-      return evaluateBinary(expression, context);
+      return booleanValue(evaluateBinary(expression, context));
     case 'wildcard':
-      return context.rows ?? {};
+      return mapValue({});
   }
 }
 
 export function truthy(value: unknown): boolean {
-  return Boolean(value);
+  return truthyValue(toFdqlValue(value));
 }
 
 function evaluateField(
   path: readonly string[],
   context: EvalContext,
-): unknown {
+): FdqlValue {
   const root = context.rows?.[path[0] ?? ''];
-  if (root === null || root === undefined) return undefined;
-  const data = isDocument(root) ? root.data : root;
-  return path.slice(1).reduce<unknown>((current, segment) => {
-    if (current === null || current === undefined || typeof current !== 'object') return undefined;
-    return (current as Record<string, unknown>)[segment];
+  if (root === null || root === undefined) return missingValue;
+  if (path.length === 1) {
+    if (isDocument(root)) return mapValue(root.data);
+    if (Array.isArray(root)) {
+      return arrayValue(
+        root.map((item) => isDocument(item) ? mapValue(item.data) : toFdqlValue(item)),
+      );
+    }
+    if (isFdqlRowMap(root)) return mapValue(root);
+    if (isFdqlValue(root)) return root;
+  }
+  const data = isDocument(root)
+    ? mapValue(root.data)
+    : isFdqlValue(root)
+    ? root
+    : Array.isArray(root)
+    ? arrayValue(root.map((item) => isDocument(item) ? mapValue(item.data) : toFdqlValue(item)))
+    : mapValue(root);
+  return path.slice(1).reduce<FdqlValue>((current, segment) => {
+    if (!isFdqlValue(current)) return missingValue;
+    if (current.kind !== 'map') return missingValue;
+    return current.value[segment] ?? missingValue;
   }, data);
 }
 
@@ -54,7 +91,7 @@ function evaluateCall(
   name: string,
   args: readonly FdqlExpression[],
   context: EvalContext,
-): unknown {
+): FdqlValue {
   const provider = providerNamespaceFromCall(name);
   if (provider) {
     return context.providers?.[provider]?.evaluateCall?.({
@@ -62,24 +99,42 @@ function evaluateCall(
       context,
       evaluate: evaluateExpression,
       name,
-    });
+    }) ?? missingValue;
+  }
+  if (name === 'timestamp') {
+    return timestampValue(stringScalar(evaluateExpression(args[0]!, context)) ?? '');
+  }
+  if (name === 'bytes') {
+    return bytesValue(
+      (stringScalar(evaluateExpression(args[0]!, context)) ?? '').replace(/^base64:/, ''),
+    );
+  }
+  if (name === 'geoPoint') {
+    return geoPointValue(
+      numberScalar(evaluateExpression(args[0]!, context)) ?? 0,
+      numberScalar(evaluateExpression(args[1]!, context)) ?? 0,
+    );
   }
   if (name === 'lower') {
     const value = evaluateExpression(args[0]!, context);
-    return typeof value === 'string' ? value.toLowerCase() : value;
+    return value.kind === 'string' ? stringValue(value.value.toLowerCase()) : value;
   }
   if (name === 'entries') {
     const value = evaluateExpression(args[0]!, context);
-    if (!isPlainRecord(value)) return [];
-    return Object.entries(value).map(([key, entryValue]) => ({ key, value: entryValue }));
+    if (value.kind !== 'map') return arrayValue([]);
+    return arrayValue(
+      Object.entries(value.value).map(([key, entryValue]) =>
+        mapValue({ key: stringValue(key), value: entryValue })
+      ),
+    );
   }
   if (name === 'mapGet') {
     const map = evaluateExpression(args[0]!, context);
     const key = evaluateExpression(args[1]!, context);
-    if (!isPlainRecord(map) || (typeof key !== 'string' && typeof key !== 'number')) return null;
-    return map[String(key)] ?? null;
+    if (map.kind !== 'map' || (key.kind !== 'string' && key.kind !== 'number')) return missingValue;
+    return map.value[String(key.value)] ?? missingValue;
   }
-  return undefined;
+  return missingValue;
 }
 
 function evaluateBinary(
@@ -98,9 +153,9 @@ function evaluateBinary(
   const right = evaluateExpression(expression.right, context);
   switch (expression.operator) {
     case '=':
-      return Object.is(left, right);
+      return equalValues(left, right);
     case '!=':
-      return !Object.is(left, right);
+      return !equalValues(left, right);
     case '<':
       return compare(left, right) < 0;
     case '<=':
@@ -110,15 +165,14 @@ function evaluateBinary(
     case '>=':
       return compare(left, right) >= 0;
     case 'in':
-      return Array.isArray(right) && right.some((item) => Object.is(item, left));
+      return right.kind === 'array' && right.value.some((item) => equalValues(item, left));
     default:
       return false;
   }
 }
 
-function compare(left: unknown, right: unknown): number {
-  if (typeof left === 'number' && typeof right === 'number') return left - right;
-  return String(left).localeCompare(String(right));
+function compare(left: FdqlValue, right: FdqlValue): number {
+  return compareValues(left, right);
 }
 
 function isDocument(value: unknown): value is FdqlProviderRow {
@@ -131,10 +185,16 @@ function isDocument(value: unknown): value is FdqlProviderRow {
     && 'provider' in value;
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
+function isFdqlValue(value: unknown): value is FdqlValue {
   return value !== null
-    && value !== undefined
+    && typeof value === 'object'
+    && 'kind' in value;
+}
+
+function isFdqlRowMap(value: unknown): value is Record<string, FdqlValue> {
+  return value !== null
     && typeof value === 'object'
     && !Array.isArray(value)
-    && !isDocument(value);
+    && !isDocument(value)
+    && !isFdqlValue(value);
 }

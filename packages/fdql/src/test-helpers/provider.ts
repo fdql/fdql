@@ -5,15 +5,22 @@ import {
   type FdqlProviderRuntimeRegistry,
 } from '../provider.ts';
 import type { FdqlDiagnostic, FdqlExpression, FdqlProviderRow } from '../types.ts';
+import { missingValue, stringValue, toFdqlValue } from '../value.ts';
 
 export const testProviderDialect: FdqlProviderDialect = {
   namespace: 'mem',
   sourceFunctions: new Set(['collection']),
   valueFunctions: new Set(['mem.id', 'mem.path']),
   evaluateCall(input) {
-    if (input.name === 'mem.id') return rowArg(input.args[0], input.context)?.id;
-    if (input.name === 'mem.path') return rowArg(input.args[0], input.context)?.path;
-    return undefined;
+    if (input.name === 'mem.id') {
+      const row = rowArg(input.args[0], input.context);
+      return row ? stringValue(row.id) : missingValue;
+    }
+    if (input.name === 'mem.path') {
+      const row = rowArg(input.args[0], input.context);
+      return row ? stringValue(row.path) : missingValue;
+    }
+    return missingValue;
   },
   hasBoundedPredicate() {
     return false;
@@ -75,7 +82,9 @@ export function createTestProviderRuntime(
           const collection = String(request.source.target.collection ?? '');
           const docs = Object.entries(collections[collection] ?? {}).map(([id, data]) => ({
             context: { collection },
-            data,
+            data: Object.fromEntries(
+              Object.entries(data).map(([key, value]) => [key, toFdqlValue(value)]),
+            ),
             id,
             path: `${collection}/${id}`,
             provider: 'mem',

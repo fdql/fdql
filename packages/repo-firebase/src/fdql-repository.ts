@@ -1,11 +1,22 @@
 import {
+  bytesValue,
   compileFdqlRead,
+  evaluateExpression,
   executeFdql,
   type FdqlExecutionEvent,
   type FdqlExpression,
   type FdqlProviderReadRequest,
   type FdqlProviderRow,
   type FdqlProviderRuntimeRegistry,
+  type FdqlValue,
+  firestoreProviderDialect,
+  geoPointValue,
+  mapValue,
+  providerValue,
+  stringScalar,
+  stringValue,
+  timestampValue,
+  toFdqlValue,
 } from '@firebase-desk/fdql';
 import type {
   FdqlCompileRequest,
@@ -18,15 +29,17 @@ import type {
   FdqlStats,
 } from '@firebase-desk/repo-contracts';
 import {
+  DocumentReference,
   FieldPath,
   Filter,
+  type Firestore,
+  GeoPoint,
   type Query,
   type QueryDocumentSnapshot,
   Timestamp,
   type WhereFilterOp,
 } from 'firebase-admin/firestore';
 import type { AdminFirestoreProvider } from './admin-firestore-provider.ts';
-import { encodeAdminData } from './value-codec.ts';
 
 export function createFirebaseFdqlRepository(provider: AdminFirestoreProvider): FdqlRepository {
   const activeRuns = new Map<string, FdqlRunController>();
@@ -135,7 +148,7 @@ function createAdminFdqlRuntime(provider: AdminFirestoreProvider): FdqlProviderR
           const base = collectionPath
             ? db.collection(collectionPath)
             : db.collectionGroup(collectionGroup ?? '');
-          const query = applyProviderQuery(base, request);
+          const query = applyProviderQuery(db, base, request);
           let readCount = 0;
           let lastDocument: QueryDocumentSnapshot | null = null;
           // oxlint-disable no-await-in-loop -- Each page depends on the previous cursor.
@@ -161,11 +174,12 @@ function createAdminFdqlRuntime(provider: AdminFirestoreProvider): FdqlProviderR
 }
 
 function applyProviderQuery(
+  db: Firestore,
   query: Query,
   request: FdqlProviderReadRequest,
 ): Query {
   let next = query;
-  const filter = request.predicate ? filterFromExpression(request.predicate, request) : null;
+  const filter = request.predicate ? filterFromExpression(db, request.predicate, request) : null;
   if (filter) next = next.where(filter);
   if (request.orderBy) {
     next = next.orderBy(
@@ -180,14 +194,15 @@ function applyProviderQuery(
 }
 
 function filterFromExpression(
+  db: Firestore,
   expression: FdqlExpression,
   request: FdqlProviderReadRequest,
 ): Filter | null {
   if (expression.kind === 'binary' && expression.operator === 'and') {
     return Filter.and(
       ...[
-        filterFromExpression(expression.left, request),
-        filterFromExpression(expression.right, request),
+        filterFromExpression(db, expression.left, request),
+        filterFromExpression(db, expression.right, request),
       ]
         .filter((filter): filter is Filter => Boolean(filter)),
     );
@@ -195,8 +210,8 @@ function filterFromExpression(
   if (expression.kind === 'binary' && expression.operator === 'or') {
     return Filter.or(
       ...[
-        filterFromExpression(expression.left, request),
-        filterFromExpression(expression.right, request),
+        filterFromExpression(db, expression.left, request),
+        filterFromExpression(db, expression.right, request),
       ]
         .filter((filter): filter is Filter => Boolean(filter)),
     );
@@ -205,14 +220,14 @@ function filterFromExpression(
     return Filter.where(
       fieldPathFromExpression(expression.left, request.rowAlias),
       operatorFor(expression.operator),
-      valueFor(expression.right, request),
+      valueFor(db, expression.right, request),
     );
   }
   if (expression.kind === 'call' && expression.name === 'fs.arrayContains') {
     return Filter.where(
       fieldPathFromExpression(expression.args[0]!, request.rowAlias),
       'array-contains',
-      valueFor(expression.args[1]!, request),
+      valueFor(db, expression.args[1]!, request),
     );
   }
   return null;
@@ -252,56 +267,18 @@ function operatorFor(
 }
 
 function valueFor(
+  db: Firestore,
   expression: FdqlExpression,
   request: FdqlProviderReadRequest,
 ): unknown {
-  if (expression.kind === 'literal') return expression.value;
-  if (expression.kind === 'alias') return request.aliases?.[expression.name];
-  if (expression.kind === 'array') return expression.items.map((item) => valueFor(item, request));
-  if (expression.kind === 'map') {
-    return Object.fromEntries(
-      expression.entries.map((entry) => [entry.key, valueFor(entry.value, request)]),
-    );
-  }
-  if (expression.kind === 'field') return rowFieldValue(expression, request);
-  if (expression.kind === 'call' && expression.name === 'fs.id') {
-    const row = rowFromExpression(expression.args[0], request);
-    return row && isRuntimeDocument(row) ? row.id : undefined;
-  }
-  if (expression.kind === 'call' && expression.name === 'fs.timestamp') {
-    const value = valueFor(expression.args[0]!, request);
-    return typeof value === 'string' ? Timestamp.fromDate(new Date(value)) : value;
-  }
-  return undefined;
-}
-
-function rowFieldValue(expression: FdqlExpression, request: FdqlProviderReadRequest): unknown {
-  if (expression.kind !== 'field') return undefined;
-  const row = request.rows?.[expression.path[0] ?? ''];
-  if (!row) return undefined;
-  const data = isRuntimeDocument(row) ? row.data : row;
-  return expression.path.slice(1).reduce<unknown>((current, segment) => {
-    if (!current || typeof current !== 'object') return undefined;
-    return (current as Record<string, unknown>)[segment];
-  }, data);
-}
-
-function rowFromExpression(
-  expression: FdqlExpression | undefined,
-  request: FdqlProviderReadRequest,
-): FdqlProviderRow | Record<string, unknown> | null | undefined {
-  if (!expression || expression.kind !== 'field' || expression.path.length !== 1) return undefined;
-  return request.rows?.[expression.path[0] ?? ''];
-}
-
-function isRuntimeDocument(value: unknown): value is FdqlProviderRow {
-  return value !== null
-    && value !== undefined
-    && typeof value === 'object'
-    && 'context' in value
-    && 'id' in value
-    && 'data' in value
-    && 'provider' in value;
+  return toAdminValue(
+    db,
+    evaluateExpression(expression, {
+      aliases: request.aliases,
+      providers: { fs: firestoreProviderDialect },
+      rows: request.rows,
+    }),
+  );
 }
 
 function compileOptions(request: FdqlCompileRequest) {
@@ -348,12 +325,95 @@ function rowFromSnapshot(
       collectionPath: snapshot.ref.parent.path,
       projectId,
     },
-    data: encodeAdminData(snapshot.data()),
+    data: normalizeAdminRecord(request, snapshot.data()),
     id: snapshot.id,
     path: snapshot.ref.path,
     provider: request.source.provider,
     source: request.source,
   };
+}
+
+function normalizeAdminRecord(
+  request: FdqlProviderReadRequest,
+  data: Record<string, unknown>,
+): Record<string, FdqlValue> {
+  return Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [key, normalizeAdminValue(request, value)]),
+  );
+}
+
+function normalizeAdminValue(request: FdqlProviderReadRequest, value: unknown): FdqlValue {
+  if (value instanceof Timestamp) return timestampValue(value.toDate().toISOString());
+  if (value instanceof Date) return timestampValue(value.toISOString());
+  if (value instanceof GeoPoint) return geoPointValue(value.latitude, value.longitude);
+  if (value instanceof DocumentReference) return documentRefValue(request, value.path);
+  if (Buffer.isBuffer(value)) return bytesValue(value.toString('base64'));
+  if (value instanceof Uint8Array) return bytesValue(Buffer.from(value).toString('base64'));
+  if (Array.isArray(value)) {
+    return {
+      kind: 'array',
+      value: value.map((item) => normalizeAdminValue(request, item)),
+    };
+  }
+  if (isPlainObject(value)) {
+    return mapValue(
+      Object.fromEntries(
+        Object.entries(value).map(([key, entry]) => [key, normalizeAdminValue(request, entry)]),
+      ),
+    );
+  }
+  return toFdqlValue(value);
+}
+
+function documentRefValue(request: FdqlProviderReadRequest, path: string): FdqlValue {
+  const projectId = stringTarget(request, 'projectId');
+  const databaseId = optionalStringTarget(request, 'databaseId') ?? '(default)';
+  return providerValue({
+    display: path,
+    equalityKey: `fs:${projectId}:${databaseId}:${path}`,
+    provider: 'fs',
+    value: {
+      databaseId: stringValue(databaseId),
+      path: stringValue(path),
+      projectId: stringValue(projectId),
+    },
+    valueType: 'documentRef',
+  });
+}
+
+function toAdminValue(db: Firestore, value: FdqlValue): unknown {
+  switch (value.kind) {
+    case 'missing':
+      return undefined;
+    case 'null':
+      return null;
+    case 'boolean':
+    case 'number':
+    case 'string':
+      return value.value;
+    case 'array':
+      return value.value.map((item) => toAdminValue(db, item));
+    case 'map':
+      return Object.fromEntries(
+        Object.entries(value.value).map(([key, entry]) => [key, toAdminValue(db, entry)]),
+      );
+    case 'timestamp':
+      return Timestamp.fromDate(new Date(value.iso));
+    case 'bytes':
+      return Buffer.from(value.base64, 'base64');
+    case 'geoPoint':
+      return new GeoPoint(value.latitude, value.longitude);
+    case 'providerValue':
+      if (value.provider === 'fs' && value.valueType === 'documentRef') {
+        const path = stringScalar(value.value['path'] ?? toFdqlValue(undefined));
+        return path ? db.doc(path) : undefined;
+      }
+      return undefined;
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function toAdminFieldPath(path: string): FieldPath {

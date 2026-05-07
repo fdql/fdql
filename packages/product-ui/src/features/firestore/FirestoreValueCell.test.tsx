@@ -18,10 +18,27 @@ const isoTimestamp = '2026-04-24T09:30:12.058Z';
 describe('FirestoreValueCell', () => {
   it('renders encoded timestamps as compact local ISO offset values', () => {
     const expected = expectedLocalTimestamp(isoTimestamp);
-    render(<FirestoreValueCell value={{ __type__: 'timestamp', value: isoTimestamp }} />);
+    const { rerender } = render(
+      <FirestoreValueCell value={{ __type__: 'timestamp', value: isoTimestamp }} />,
+    );
 
     expect(expected).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
-    expect(screen.getByText('time')).toBeTruthy();
+    expect(screen.queryByText('time')).toBeNull();
+    expect(screen.getByText(expected)).toBeTruthy();
+    expect(screen.getByTitle(isoTimestamp)).toBeTruthy();
+
+    rerender(<FirestoreValueCell value={new FirestoreTimestamp(isoTimestamp)} />);
+
+    expect(screen.queryByText('time')).toBeNull();
+    expect(screen.getByText(expected)).toBeTruthy();
+    expect(screen.getByTitle(isoTimestamp)).toBeTruthy();
+  });
+
+  it('formats FDQL typed timestamp values without a badge', () => {
+    const expected = expectedLocalTimestamp(isoTimestamp);
+    render(<FirestoreValueCell value={{ __fdqlType: 'timestamp', value: isoTimestamp }} />);
+
+    expect(screen.queryByText('time')).toBeNull();
     expect(screen.getByText(expected)).toBeTruthy();
     expect(screen.getByTitle(isoTimestamp)).toBeTruthy();
   });

@@ -1,9 +1,22 @@
 import {
+  FirestoreBytes,
+  FirestoreGeoPoint,
+  FirestoreReference,
+  FirestoreTimestamp,
+} from '@firebase-desk/data-format';
+import {
+  bytesValue,
   compileFdqlRead,
   createInMemoryFdqlRuntime,
   executeFdql,
   type FdqlExecutionEvent,
+  type FdqlValue,
+  geoPointValue,
   type InMemoryFdqlRuntimeInput,
+  providerValue,
+  stringValue,
+  timestampValue,
+  toFdqlValue,
 } from '@firebase-desk/fdql';
 import type {
   FdqlCompileRequest,
@@ -158,9 +171,43 @@ function fixtureProject(): InMemoryFdqlRuntimeInput['projects'][string] {
   return Object.fromEntries(
     COLLECTIONS.map((collection) => [
       collection.path,
-      Object.fromEntries(collection.docs.map((doc) => [doc.id, doc.data])),
+      Object.fromEntries(collection.docs.map((doc) => [doc.id, normalizeFixtureRecord(doc.data)])),
     ]),
   );
+}
+
+function normalizeFixtureRecord(
+  data: Readonly<Record<string, unknown>>,
+): Record<string, FdqlValue> {
+  return Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [key, normalizeFixtureValue(value)]),
+  );
+}
+
+function normalizeFixtureValue(value: unknown): FdqlValue {
+  if (value instanceof FirestoreTimestamp) return timestampValue(value.isoString);
+  if (value instanceof FirestoreGeoPoint) return geoPointValue(value.latitude, value.longitude);
+  if (value instanceof FirestoreBytes) return bytesValue(value.base64);
+  if (value instanceof FirestoreReference) {
+    return providerValue({
+      display: value.path,
+      equalityKey: `fs::(default):${value.path}`,
+      provider: 'fs',
+      value: {
+        databaseId: stringValue('(default)'),
+        path: stringValue(value.path),
+        projectId: stringValue(''),
+      },
+      valueType: 'documentRef',
+    });
+  }
+  if (Array.isArray(value)) return { kind: 'array', value: value.map(normalizeFixtureValue) };
+  if (isPlainObject(value)) return { kind: 'map', value: normalizeFixtureRecord(value) };
+  return toFdqlValue(value);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function eventToRunEvent(runId: string, event: FdqlExecutionEvent): FdqlRunEvent | null {

@@ -684,7 +684,7 @@ describe('feature surfaces', () => {
       />,
     );
 
-    expect(screen.getAllByText('time').length).toBeGreaterThan(0);
+    expect(screen.queryByText('time')).toBeNull();
     expect(screen.getByText(expectedUserTimestamp(encodedUpdatedAt.value))).toBeTruthy();
     expect(screen.getByText('geo')).toBeTruthy();
     expect(screen.getByText('-36.8485, 174.7633')).toBeTruthy();
@@ -744,7 +744,7 @@ describe('feature surfaces', () => {
       </div>,
     );
 
-    expect(screen.getAllByText('time').length).toBeGreaterThan(0);
+    expect(screen.queryByText('time')).toBeNull();
     expect(screen.getByText(expectedUserTimestamp(nativeUpdatedAt.isoString))).toBeTruthy();
     expect(screen.getByText('geo')).toBeTruthy();
     expect(screen.getByText('-36.8485, 174.7633')).toBeTruthy();

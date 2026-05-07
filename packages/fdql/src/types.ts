@@ -1,4 +1,6 @@
 import type { FdqlProviderDialect } from './provider.ts';
+export type { FdqlValue } from './value.ts';
+import type { FdqlValue } from './value.ts';
 
 export interface FdqlDiagnostic {
   readonly code: string;
@@ -16,14 +18,6 @@ export interface FdqlSourceRange {
 }
 
 export type FdqlLiteralValue = boolean | null | number | string;
-
-export type FdqlValue = FdqlLiteralValue | FdqlValueArray | FdqlValueMap;
-
-export interface FdqlValueArray extends ReadonlyArray<FdqlValue> {}
-
-export interface FdqlValueMap {
-  readonly [key: string]: FdqlValue;
-}
 
 export type FdqlExpression =
   | FdqlAliasExpression
@@ -366,7 +360,7 @@ export interface FdqlCompileOptions {
 
 export interface FdqlProviderRow {
   readonly context: Readonly<Record<string, unknown>>;
-  readonly data: Readonly<Record<string, unknown>>;
+  readonly data: Readonly<Record<string, FdqlValue>>;
   readonly id: string;
   readonly path: string;
   readonly provider: string;
@@ -445,5 +439,5 @@ export type InMemoryFdqlProject = Readonly<
 >;
 
 export type EvalRows = Readonly<
-  Record<string, FdqlProviderRow | Record<string, unknown> | null>
+  Record<string, FdqlProviderRow | FdqlValue | Record<string, FdqlValue> | null>
 >;

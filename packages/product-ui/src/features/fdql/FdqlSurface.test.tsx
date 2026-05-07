@@ -1,5 +1,5 @@
 import type { FdqlRunResult } from '@firebase-desk/repo-contracts';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FdqlSurface } from './FdqlSurface.tsx';
 
@@ -41,10 +41,17 @@ vi.mock('../../code-editor/CodeEditor.tsx', () => ({
   ),
 }));
 
+const startsAtIso = '2026-05-05T10:27:00.000Z';
+
 const result: FdqlRunResult = {
   diagnostics: [],
   durationMs: 1_234,
-  rows: [{ id: 'version', metadata: { channel: 'stable' }, version: 3166 }],
+  rows: [{
+    id: 'version',
+    metadata: { channel: 'stable' },
+    startsAt: { __fdqlType: 'timestamp', value: startsAtIso },
+    version: 3166,
+  }],
   stats: {
     aggregateSourceRows: 0,
     cacheHits: 0,
@@ -86,13 +93,21 @@ describe('FdqlSurface', () => {
     expect(screen.getByText('1.234s elapsed')).toHaveProperty('title', '1234ms');
     expect(screen.getByRole('columnheader', { name: 'version' })).toBeTruthy();
     expect(screen.getByRole('cell', { name: '3166' })).toBeTruthy();
+    expect(screen.getByRole('cell', { name: expectedLocalTimestamp(startsAtIso) })).toHaveProperty(
+      'title',
+      startsAtIso,
+    );
+    expect(screen.queryByText('time')).toBeNull();
+    expect(screen.queryByText(/__fdqlType/)).toBeNull();
 
     fireEvent.mouseDown(screen.getByRole('tab', { name: /Tree/ }), {
       button: 0,
       ctrlKey: false,
     });
-    expect(screen.getByRole('tree')).toBeTruthy();
+    const tree = screen.getByRole('tree');
+    expect(tree).toBeTruthy();
     expect(screen.getByText('row_1')).toBeTruthy();
+    expect(within(tree).getByText(expectedLocalTimestamp(startsAtIso))).toBeTruthy();
 
     fireEvent.mouseDown(screen.getByRole('tab', { name: /JSON/ }), {
       button: 0,
@@ -100,5 +115,20 @@ describe('FdqlSurface', () => {
     });
     const json = await screen.findByLabelText('FDQL JSON results');
     expect(json).toHaveProperty('value', expect.stringContaining('"version": 3166'));
+    expect(json).toHaveProperty('value', expect.stringContaining('"__fdqlType": "timestamp"'));
   });
 });
+
+function expectedLocalTimestamp(iso: string): string {
+  const date = new Date(iso);
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absoluteMinutes = Math.abs(offsetMinutes);
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+    + `T${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
+    + `${sign}${pad2(Math.floor(absoluteMinutes / 60))}:${pad2(absoluteMinutes % 60)}`;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}

@@ -102,7 +102,6 @@ Core value kinds:
 | `map`       | String-keyed object values.                                          |
 | `timestamp` | Instant value. Construct with `timestamp(...)`.                      |
 | `bytes`     | Binary value. Construct with `bytes(...)`.                           |
-| `reference` | Provider document/object reference. Providers own native conversion. |
 | `geoPoint`  | Latitude/longitude value. Construct with `geoPoint(lat, lng)`.       |
 
 Core constructors:
@@ -129,7 +128,9 @@ Rules:
 - Provider runtimes must normalize native values into FDQL values before local stages evaluate them.
 - Local comparison, grouping, sorting, rendering, and result JSON use FDQL value semantics, not provider SDK classes.
 - `missing` is produced by field access and map lookup. It is not equal to `null`.
-- Provider references must carry enough provider context to render and compare them consistently.
+- Provider-owned values such as Firestore document references use `providerValue` internally.
+- Provider values can compare or group only when the provider supplies a stable equality key.
+- Provider values can sort only when the provider supplies a stable order key.
 
 ## Query Preamble
 
@@ -633,7 +634,7 @@ Rules:
 - Multiple `by` fields form a composite group key tuple in written order.
 - `null` groups with `null`.
 - Missing and `null` are distinct group key values.
-- Group key expressions must produce primitive/group-safe FDQL values: string, number, boolean, timestamp, reference, `null`, or missing.
+- Group key expressions must produce primitive/group-safe FDQL values: string, number, boolean, timestamp, bytes, geoPoint, provider values with equality keys, `null`, or missing.
 - Arrays and maps are invalid group keys.
 - Local aggregate stages should stream by default.
 - Pre-aggregate rows must not be retained unless source exploration requires them.
@@ -696,7 +697,7 @@ then with
 Rules:
 
 - `mapGet(map, key)` is local.
-- Missing keys return `null`.
+- Missing keys return missing.
 - `mapGet` does not scan or fetch provider data.
 
 ## Subcollections

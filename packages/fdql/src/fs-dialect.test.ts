@@ -8,6 +8,7 @@ import type {
   FdqlProviderSource,
   FdqlSourceRange,
 } from './types.ts';
+import { missingValue, stringValue } from './value.ts';
 
 const defaultProviderContext = { projectId: 'local' };
 
@@ -40,7 +41,7 @@ describe('Firestore FDQL dialect', () => {
   it('resolves project and database collection group sources', () => {
     const diagnostics: FdqlDiagnostic[] = [];
     const source = firestoreProviderDialect.resolveSourceAlias({
-      aliases: { $prod: { kind: 'value', value: 'prod-project' } },
+      aliases: { $prod: { kind: 'value', value: stringValue('prod-project') } },
       declaration: aliasDeclaration(
         '$drivers',
         call(
@@ -204,7 +205,7 @@ describe('Firestore FDQL dialect', () => {
         evaluate,
         name: 'fs.id',
       }),
-    ).toBe('drv_1');
+    ).toEqual(stringValue('drv_1'));
     expect(
       firestoreProviderDialect.evaluateCall?.({
         args: [field('d')],
@@ -212,7 +213,7 @@ describe('Firestore FDQL dialect', () => {
         evaluate,
         name: 'fs.path',
       }),
-    ).toBe('drivers/drv_1');
+    ).toEqual(stringValue('drivers/drv_1'));
     expect(
       firestoreProviderDialect.evaluateCall?.({
         args: [field('d')],
@@ -220,15 +221,35 @@ describe('Firestore FDQL dialect', () => {
         evaluate,
         name: 'fs.projectId',
       }),
-    ).toBe('local');
+    ).toEqual(stringValue('local'));
     expect(
       firestoreProviderDialect.evaluateCall?.({
-        args: [literal('2025-10-01T00:00:00.000Z')],
+        args: [field('d')],
         context,
         evaluate,
-        name: 'fs.timestamp',
+        name: 'fs.ref',
       }),
-    ).toBe('2025-10-01T00:00:00.000Z');
+    ).toMatchObject({
+      display: 'drivers/drv_1',
+      equalityKey: 'fs:local:(default):drivers/drv_1',
+      kind: 'providerValue',
+      provider: 'fs',
+      valueType: 'documentRef',
+    });
+    expect(
+      firestoreProviderDialect.evaluateCall?.({
+        args: [literal('drivers/drv_2')],
+        context,
+        evaluate,
+        name: 'fs.ref',
+      }),
+    ).toMatchObject({
+      display: 'drivers/drv_2',
+      equalityKey: 'fs::(default):drivers/drv_2',
+      kind: 'providerValue',
+      provider: 'fs',
+      valueType: 'documentRef',
+    });
   });
 });
 
@@ -268,6 +289,6 @@ function range(): FdqlSourceRange {
   return { endColumn: 1, endLine: 1, startColumn: 1, startLine: 1 };
 }
 
-function evaluate(expression: FdqlExpression): unknown {
-  return expression.kind === 'literal' ? expression.value : undefined;
+function evaluate(expression: FdqlExpression) {
+  return expression.kind === 'literal' ? stringValue(String(expression.value)) : missingValue;
 }

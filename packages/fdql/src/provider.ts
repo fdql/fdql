@@ -55,7 +55,7 @@ export interface FdqlProviderCallEvaluationInput {
   readonly evaluate: (
     expression: FdqlExpression,
     context: FdqlProviderEvaluationContext,
-  ) => unknown;
+  ) => FdqlValue;
   readonly name: string;
 }
 
@@ -69,7 +69,7 @@ export interface FdqlProviderDialect {
   readonly namespace: string;
   readonly sourceFunctions: ReadonlySet<string>;
   readonly valueFunctions: ReadonlySet<string>;
-  evaluateCall?: ((input: FdqlProviderCallEvaluationInput) => unknown) | undefined;
+  evaluateCall?: ((input: FdqlProviderCallEvaluationInput) => FdqlValue) | undefined;
   hasBoundedPredicate?:
     | ((
       expression: FdqlExpression | undefined,

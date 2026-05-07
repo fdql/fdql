@@ -4,6 +4,7 @@ import { createInMemoryFdqlRuntime, executeFdql } from './executor.ts';
 import type { FdqlProviderRuntimeRegistry } from './provider.ts';
 import { createTestProviderRuntime, testProviderDialect } from './test-helpers/provider.ts';
 import type { FdqlExecutionEvent } from './types.ts';
+import { providerValue, stringValue } from './value.ts';
 
 const runtime = createInMemoryFdqlRuntime({
   projects: {
@@ -78,7 +79,7 @@ from $drivers as d
 fs where fs.id(d) = "drv_1"
 return fs.id(d) as id, fs.path(d) as path, d.firstName`);
 
-    expect(rows(events)).toEqual([{ firstName: undefined, id: 'drv_1', path: 'drivers/drv_1' }]);
+    expect(rows(events)).toEqual([{ id: 'drv_1', path: 'drivers/drv_1' }]);
     expect(completed(events)).toMatchObject({ reads: 1, rowsOutput: 1 });
   });
 
@@ -89,7 +90,7 @@ from $drivers as d
 fs where fs.id(d) = "drv_1"
 return d.metadata.fraudScore as fraudScore, d.firstName`);
 
-    expect(rows(events)).toEqual([{ firstName: undefined, fraudScore: 0.02 }]);
+    expect(rows(events)).toEqual([{ fraudScore: 0.02 }]);
   });
 
   it('reads collection groups', async () => {
@@ -150,7 +151,7 @@ return d.firstName`,
             requests.push(request);
             yield {
               context: { collectionPath: 'drivers', projectId: 'local' },
-              data: { firstName: 'Vini' },
+              data: { firstName: stringValue('Vini') },
               id: 'drv_1',
               path: 'drivers/drv_1',
               provider: 'fs',
@@ -216,8 +217,8 @@ return fs.id(d) as id, rounds`);
       {
         id: 'drv_1',
         rounds: [
-          expect.objectContaining({ data: { driverId: 'drv_1', status: 'draft' }, id: 'round_2' }),
-          expect.objectContaining({ data: { driverId: 'drv_1', status: 'done' }, id: 'round_1' }),
+          { driverId: 'drv_1', status: 'draft' },
+          { driverId: 'drv_1', status: 'done' },
         ],
       },
     ]);
@@ -351,6 +352,48 @@ return mem.id(p) as id, p.name`,
       reads: 2,
       rowsOutput: 1,
     });
+  });
+
+  it('fails when local equality compares provider values without equality keys', async () => {
+    const events = await run(
+      `alias $drivers = fs.collection("drivers")
+from $drivers as d
+fs limit 1
+then filter d.ref = d.ref
+return fs.id(d) as id`,
+      {
+        providers: {
+          fs: {
+            async *read(request) {
+              yield {
+                context: { collectionPath: 'drivers', projectId: 'local' },
+                data: {
+                  ref: providerValue({
+                    provider: 'fs',
+                    value: { path: stringValue('drivers/d1') },
+                    valueType: 'documentRef',
+                  }),
+                },
+                id: 'drv_1',
+                path: 'drivers/drv_1',
+                provider: 'fs',
+                source: request.source,
+              };
+            },
+          },
+        },
+      },
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        diagnostic: expect.objectContaining({
+          code: 'FDQL_EXECUTION_FAILED',
+          message: 'Provider values cannot be compared without equality keys.',
+        }),
+        kind: 'failed',
+      }),
+    );
   });
 });
 

@@ -25,6 +25,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../../code-editor/CodeEditor.tsx';
 import { useMediaQuery } from '../../hooks/useMediaQuery.ts';
 import { JsonPreview } from '../../json-preview/index.ts';
+import { formatFirestoreValue } from '../firestore/FirestoreValueCell.tsx';
 import { toggleSet, TREE_VALUE_CHILD_BATCH_SIZE } from '../firestore/resultModel.tsx';
 import { ResultTreeView } from '../firestore/ResultTreeView.tsx';
 import { formatDuration } from '../js-query/duration.ts';
@@ -277,14 +278,18 @@ function ResultsView(
                   <tbody>
                     {rows.map((row, index) => (
                       <tr key={index} className='border-b border-border-subtle/70'>
-                        {columns.map((column) => (
-                          <td
-                            key={column}
-                            className='max-w-[340px] truncate px-2 py-1 text-text-secondary'
-                          >
-                            {formatCell(row[column])}
-                          </td>
-                        ))}
+                        {columns.map((column) => {
+                          const cell = formatCell(row[column]);
+                          return (
+                            <td
+                              key={column}
+                              className='max-w-[340px] truncate px-2 py-1 text-text-secondary'
+                              title={cell.title}
+                            >
+                              {cell.value}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
@@ -348,12 +353,22 @@ function resultColumns(rows: readonly Record<string, unknown>[]): readonly strin
   return [...columns];
 }
 
-function formatCell(value: unknown): string {
-  if (value === undefined) return '';
-  if (value === null) return 'null';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return JSON.stringify(value);
+function formatCell(
+  value: unknown,
+): { readonly title?: string | undefined; readonly value: string; } {
+  if (value === undefined) return { value: '' };
+  const title = typedTimestampTitle(value);
+  return {
+    ...(title ? { title } : {}),
+    value: formatFirestoreValue(value),
+  };
+}
+
+function typedTimestampTitle(value: unknown): string | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const type = record['__fdqlType'] ?? record['__type__'];
+  return type === 'timestamp' && typeof record['value'] === 'string' ? record['value'] : undefined;
 }
 
 function treeDocumentsForRows(
