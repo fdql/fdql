@@ -56,6 +56,71 @@ describe('FDQL language service', () => {
     );
   });
 
+  it('switches provider and local stage completions to expression context', () => {
+    const service = createFdqlLanguageService();
+    const source = `alias $events = fs.collection("admin-events", ["slug"])
+from $events as o
+fs order by `;
+    const localSource = `alias $events = fs.collection("admin-events", ["slug"])
+from $events as o
+then filter `;
+
+    expect(completionLabelsAtEnd(service, 'fs ')).toEqual(
+      expect.arrayContaining(['fs where', 'fs order by', 'fs limit']),
+    );
+    expect(completionLabelsAtEnd(service, source)).toEqual(
+      expect.arrayContaining(['o', 'timestamp', 'fs.id']),
+    );
+    expect(completionLabelsAtEnd(service, source)).not.toContain('fs order by');
+    expect(completionLabelsAtEnd(service, localSource)).toEqual(
+      expect.arrayContaining(['o', 'entries']),
+    );
+    expect(completionLabelsAtEnd(service, localSource)).not.toContain('then filter');
+  });
+
+  it('suggests source aliases and masked row fields from the current query', () => {
+    const service = createFdqlLanguageService();
+    const source =
+      `alias $events = fs.collection("admin-events", ["name", "slug", "schedule", "entriesById"])
+from $events as o
+return o.`;
+
+    expect(
+      completionLabelsAtEnd(
+        service,
+        'alias $events = fs.collection("admin-events", ["name"])\nfrom $',
+      ),
+    ).toEqual(['$events']);
+    expect(completionLabelsAtEnd(service, source)).toEqual([
+      'name',
+      'slug',
+      'schedule',
+      'entriesById',
+    ]);
+  });
+
+  it('does not show generic function completions after an expression dot', () => {
+    const service = createFdqlLanguageService();
+    const source = `alias $events = fs.collection("admin-events", ["entriesById"])
+from $events as o
+return entries(o.entriesById).`;
+
+    expect(completionLabelsAtEnd(service, source)).toEqual([]);
+  });
+
+  it('scopes provider dot completions to source or value functions', () => {
+    const service = createFdqlLanguageService();
+
+    expect(completionLabelsAtEnd(service, 'alias $events = fs.')).toEqual(
+      expect.arrayContaining(['fs.collection', 'fs.collectionGroup']),
+    );
+    expect(completionLabelsAtEnd(service, 'alias $events = fs.')).not.toContain('fs.id');
+    expect(completionLabelsAtEnd(service, 'return fs.')).toEqual(
+      expect.arrayContaining(['fs.id', 'fs.path', 'fs.projectId']),
+    );
+    expect(completionLabelsAtEnd(service, 'return fs.')).not.toContain('fs.collection');
+  });
+
   it('returns source-located diagnostics from FDQL compilation', () => {
     const service = createFdqlLanguageService();
 
@@ -103,6 +168,16 @@ function completionLabels(
   column: number,
 ): readonly string[] {
   return labels(service.getCompletions({ column, line, source }));
+}
+
+function completionLabelsAtEnd(
+  service: ReturnType<typeof createFdqlLanguageService>,
+  source: string,
+): readonly string[] {
+  const lines = source.split(/\r?\n/);
+  const line = lines.length;
+  const column = (lines.at(-1)?.length ?? 0) + 1;
+  return completionLabels(service, source, line, column);
 }
 
 function labels(items: readonly { readonly label: string; }[]): string[] {

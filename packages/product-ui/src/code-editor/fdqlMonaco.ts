@@ -141,6 +141,8 @@ function completionKind(
   monaco: MonacoEditorApiModule,
   kind: FdqlCompletionItem['kind'],
 ): MonacoLanguages.CompletionItemKind {
+  if (kind === 'alias') return monaco.languages.CompletionItemKind.Variable;
+  if (kind === 'field') return monaco.languages.CompletionItemKind.Field;
   if (kind === 'function') return monaco.languages.CompletionItemKind.Function;
   if (kind === 'setting') return monaco.languages.CompletionItemKind.Property;
   if (kind === 'stage') return monaco.languages.CompletionItemKind.Keyword;
