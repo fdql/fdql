@@ -193,6 +193,14 @@ return fs.id(o) as id, o.status, o.total`);
 
     expect(diagnostics).toEqual([]);
   });
+
+  it('accepts a valid cache clear command without diagnostics', () => {
+    const service = createFdqlLanguageService();
+
+    const diagnostics = service.getDiagnostics('clear cache provider fs project "local"');
+
+    expect(diagnostics).toEqual([]);
+  });
 });
 
 function completionLabels(

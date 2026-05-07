@@ -34,8 +34,8 @@ export function createFdqlPersistentCacheStore(
   initialize(db);
 
   return {
-    async clear(request): Promise<void> {
-      clearEntries(db, request);
+    async clear(request) {
+      return clearEntries(db, request);
     },
 
     async get(request): Promise<FdqlPersistentCacheHit | null> {
@@ -131,7 +131,7 @@ function hashKey(canonicalJson: string): string {
 function clearEntries(
   db: DatabaseSync,
   request: FdqlPersistentCacheClearRequest,
-): void {
+): { readonly clearedEntries: number; } {
   const clauses: string[] = [];
   const params: Record<string, string> = {};
   if (request.provider) {
@@ -147,7 +147,10 @@ function clearEntries(
     params['profile'] = request.profile;
   }
   const where = clauses.length ? ` where ${clauses.join(' and ')}` : '';
-  db.prepare(`delete from fdql_lookup_cache${where}`).run(params);
+  const result = db.prepare(`delete from fdql_lookup_cache${where}`).run(params) as {
+    readonly changes?: number;
+  };
+  return { clearedEntries: result.changes ?? 0 };
 }
 
 function evictCache(db: DatabaseSync, nowMs: number, maxBytes: number): number {

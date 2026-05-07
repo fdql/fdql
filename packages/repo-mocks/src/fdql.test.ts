@@ -24,4 +24,25 @@ return fs.id(o) as id, o.status`,
       expect.arrayContaining(['started', 'read', 'row', 'stats', 'completed']),
     );
   });
+
+  it('runs cache clear commands as successful no-ops', async () => {
+    const repo = createMockFdqlRepository();
+
+    const result = await repo.run({
+      connectionId: 'mock',
+      runId: 'run_1',
+      source: 'clear cache provider fs project "mock"',
+    });
+
+    expect(result).toMatchObject({
+      command: {
+        clearedEntries: 0,
+        kind: 'clearCache',
+        message: 'Cleared 0 cache entries.',
+      },
+      diagnostics: [],
+      rows: [],
+      stats: null,
+    });
+  });
 });

@@ -28,6 +28,7 @@ function toIpcRunResult(
 ): IpcResponse<'fdql.run'> {
   return {
     ...(result.cancelled === undefined ? {} : { cancelled: result.cancelled }),
+    ...(result.command === undefined ? {} : { command: result.command }),
     diagnostics: [...result.diagnostics],
     durationMs: result.durationMs,
     rows: [...result.rows],

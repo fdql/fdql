@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { launchDesktop } from './launch.ts';
 
 export const EMULATOR_ACCOUNT_NAME = 'Local Emulator E2E';
+export const EMULATOR_CONNECTION_ID = 'local-emulator-e2e';
 export const FIRESTORE_PROJECT_ID = 'demo-local';
 export const FIRESTORE_TREE_ITEM_LABEL = 'Firestore';
 

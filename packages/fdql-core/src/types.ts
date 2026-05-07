@@ -282,6 +282,14 @@ export interface FdqlExecutionSettings {
 
 export type FdqlReadPlan = FdqlSingleReadPlan | FdqlUnionReadPlan;
 
+export type FdqlPlan = FdqlClearCacheCommandPlan | FdqlReadPlan;
+
+export interface FdqlClearCacheCommandPlan {
+  readonly kind: 'clearCache';
+  readonly projectId?: string | undefined;
+  readonly provider?: string | undefined;
+}
+
 export interface FdqlSingleReadPlan {
   readonly aliases: Readonly<Record<string, FdqlValue>>;
   readonly kind: 'read';
@@ -356,6 +364,20 @@ export type FdqlReadCompileResult =
     readonly diagnostics: readonly FdqlDiagnostic[];
     readonly ok: false;
     readonly plan?: FdqlReadPlan | undefined;
+  };
+
+export type FdqlCompileResult =
+  | {
+    readonly ast: FdqlAst;
+    readonly diagnostics: readonly FdqlDiagnostic[];
+    readonly ok: true;
+    readonly plan: FdqlPlan;
+  }
+  | {
+    readonly ast?: FdqlAst | undefined;
+    readonly diagnostics: readonly FdqlDiagnostic[];
+    readonly ok: false;
+    readonly plan?: FdqlPlan | undefined;
   };
 
 export interface FdqlCompileOptions {
@@ -453,7 +475,11 @@ export interface FdqlPersistentCache {
   readonly set: (
     request: FdqlPersistentCacheSetRequest,
   ) => Promise<FdqlPersistentCacheSetResult>;
-  readonly clear?: ((request: FdqlPersistentCacheClearRequest) => Promise<void>) | undefined;
+  readonly clear?:
+    | (
+      (request: FdqlPersistentCacheClearRequest) => Promise<FdqlPersistentCacheClearResult>
+    )
+    | undefined;
 }
 
 export interface FdqlPersistentCacheKey {
@@ -487,4 +513,8 @@ export interface FdqlPersistentCacheClearRequest {
   readonly profile?: string | undefined;
   readonly projectId?: string | undefined;
   readonly provider?: string | undefined;
+}
+
+export interface FdqlPersistentCacheClearResult {
+  readonly clearedEntries: number;
 }

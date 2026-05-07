@@ -3,6 +3,7 @@ import { replaceMonacoEditorValue } from '../fixtures/editor.ts';
 import { setFirestoreEmulatorDocument } from '../fixtures/firestore-rest.ts';
 import {
   addLocalEmulatorAccount,
+  EMULATOR_CONNECTION_ID,
   openFdql,
   openLiveApp,
   uniqueSmokeId,
@@ -260,6 +261,29 @@ return eventDriver.steamId, driver.firstName, event.slug, event.name, event.sche
       );
       await expect(page.getByText('3 cache hits')).toBeVisible();
       await expect(page.getByText('1 reads')).toBeVisible();
+
+      await runFdql(page, `clear cache provider fs project "${EMULATOR_CONNECTION_ID}"`);
+
+      await expect(page.getByText('Cache cleared')).toBeVisible();
+      await expect(page.getByText(/Cleared [1-9]\d* cache entries\./)).toBeVisible();
+      await expect(page.getByRole('table')).toHaveCount(0);
+
+      await runFdql(page, nestedLookupQuery);
+
+      await expectFdqlTable(
+        page,
+        ['steamId', 'firstName', 'slug', 'name', 'startsAt'],
+        [
+          ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+          ['steam_ada', 'Ada', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+          ['steam_ben', 'Ben', 'event_24h', '24H Mount', '2026-05-05T10:27:00.000Z'],
+        ],
+      );
+      await expect(page.getByText('3 rows')).toBeVisible();
+      await expect(page.getByText('3 reads')).toBeVisible();
+      await expect(page.getByText('1 cache hit')).toBeVisible();
+      await expect(page.getByText('2 cache misses')).toBeVisible();
+      await expect(page.getByText('2 cache writes')).toBeVisible();
 
       await page.getByRole('tab', { name: 'Tree' }).click();
       await expect(page.getByRole('tree').filter({ hasText: 'row_1' })).toBeVisible();

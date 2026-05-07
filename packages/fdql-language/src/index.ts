@@ -1,6 +1,6 @@
 import { builtinProviderDialects } from '@firebase-desk/fdql';
 import {
-  compileFdqlRead as compileFdqlReadCore,
+  compileFdql as compileFdqlCore,
   fdqlCoreLanguageMetadata,
   parseFdql,
 } from '@firebase-desk/fdql-core';
@@ -94,7 +94,7 @@ export function createFdqlLanguageService(
         providers,
         ...(defaultProviderContext ? { defaultProviderContext } : {}),
       };
-      return compileFdqlReadCore(source, compileOptions).diagnostics.map(toLanguageDiagnostic);
+      return compileFdqlCore(source, compileOptions).diagnostics.map(toLanguageDiagnostic);
     },
   };
 }

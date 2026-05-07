@@ -7,10 +7,11 @@ import {
 import {
   bytesValue,
   compareValues,
-  compileFdqlRead,
+  compileFdql,
   createProviderDialectRegistry,
   evaluateExpression,
   executeFdql,
+  type FdqlClearCacheCommandPlan,
   type FdqlExecutionEvent,
   type FdqlProviderReadRequest,
   type FdqlProviderRow,
@@ -51,7 +52,7 @@ export function createMockFdqlRepository(): FdqlRepository {
 
   return {
     async compile(request): Promise<FdqlCompileResult> {
-      const compiled = compileFdqlRead(request.source, compileOptions(request));
+      const compiled = compileFdql(request.source, compileOptions(request));
       return { diagnostics: compiled.diagnostics, ok: compiled.ok };
     },
 
@@ -61,7 +62,7 @@ export function createMockFdqlRepository(): FdqlRepository {
       activeRuns.set(request.runId, controller);
       emit({ runId: request.runId, type: 'started' });
 
-      const compiled = compileFdqlRead(request.source, compileOptions(request));
+      const compiled = compileFdql(request.source, compileOptions(request));
       if (!compiled.ok || !compiled.plan) {
         const result = resultFromCompileFailure(compiled.diagnostics, startedAt);
         for (const diagnostic of compiled.diagnostics) {
@@ -73,6 +74,13 @@ export function createMockFdqlRepository(): FdqlRepository {
           runId: request.runId,
           type: 'failed',
         });
+        activeRuns.delete(request.runId);
+        return result;
+      }
+
+      if (compiled.plan.kind === 'clearCache') {
+        const result = clearCacheResult(compiled.plan, startedAt);
+        emit({ result, runId: request.runId, type: 'completed' });
         activeRuns.delete(request.runId);
         return result;
       }
@@ -386,6 +394,23 @@ function resultFromCompileFailure(
 ): FdqlRunResult {
   return {
     diagnostics,
+    durationMs: Math.max(0, Date.now() - startedAt),
+    rows: [],
+    stats: null,
+  };
+}
+
+function clearCacheResult(
+  _plan: FdqlClearCacheCommandPlan,
+  startedAt: number,
+): FdqlRunResult {
+  return {
+    command: {
+      clearedEntries: 0,
+      kind: 'clearCache',
+      message: 'Cleared 0 cache entries.',
+    },
+    diagnostics: [],
     durationMs: Math.max(0, Date.now() - startedAt),
     rows: [],
     stats: null,

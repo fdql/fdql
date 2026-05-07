@@ -70,10 +70,27 @@ describe('FDQL persistent cache store', () => {
 
     await cache.set({ expiresAtMs: 10_000, key: local, nowMs: 1_000, rows: [providerRow('a')] });
     await cache.set({ expiresAtMs: 10_000, key: prod, nowMs: 1_000, rows: [providerRow('b')] });
-    await cache.clear?.({ projectId: 'local', provider: 'mem' });
+    const cleared = await cache.clear?.({ projectId: 'local', provider: 'mem' });
 
+    expect(cleared).toEqual({ clearedEntries: 1 });
     await expect(cache.get({ key: local, nowMs: 2_000 })).resolves.toBeNull();
     await expect(cache.get({ key: prod, nowMs: 2_000 })).resolves.toMatchObject({
+      rows: [providerRow('b')],
+    });
+  });
+
+  it('clears only entries in the requested profile', async () => {
+    const cache = await createCache();
+    const desktop = cacheKey('orders', 'local', 'desktop');
+    const test = cacheKey('orders', 'local', 'test');
+
+    await cache.set({ expiresAtMs: 10_000, key: desktop, nowMs: 1_000, rows: [providerRow('a')] });
+    await cache.set({ expiresAtMs: 10_000, key: test, nowMs: 1_000, rows: [providerRow('b')] });
+    const cleared = await cache.clear?.({ profile: 'desktop' });
+
+    expect(cleared).toEqual({ clearedEntries: 1 });
+    await expect(cache.get({ key: desktop, nowMs: 2_000 })).resolves.toBeNull();
+    await expect(cache.get({ key: test, nowMs: 2_000 })).resolves.toMatchObject({
       rows: [providerRow('b')],
     });
   });
@@ -93,9 +110,13 @@ async function tempDir(): Promise<string> {
   return dir;
 }
 
-function cacheKey(collection: string, projectId: string): FdqlPersistentCacheKey {
+function cacheKey(
+  collection: string,
+  projectId: string,
+  profile = 'test',
+): FdqlPersistentCacheKey {
   const key = {
-    cacheContext: { profile: 'test' },
+    cacheContext: { profile },
     fieldMask: { kind: 'full' },
     formatVersion: 1,
     limit: 1,

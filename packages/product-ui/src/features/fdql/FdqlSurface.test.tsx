@@ -140,6 +140,33 @@ describe('FdqlSurface', () => {
       FDQL_LANGUAGE_ID,
     );
   });
+
+  it('shows cache clear command completion without stale rows', () => {
+    render(
+      <FdqlSurface
+        result={{
+          command: {
+            clearedEntries: 12,
+            kind: 'clearCache',
+            message: 'Cleared 12 cache entries.',
+          },
+          diagnostics: [],
+          durationMs: 42,
+          rows: [],
+          stats: null,
+        }}
+        source='clear cache'
+        onCancel={() => undefined}
+        onRun={() => undefined}
+        onSourceChange={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText('Cache cleared')).toBeTruthy();
+    expect(screen.getByText('Cleared 12 cache entries.')).toBeTruthy();
+    expect(screen.getByText('completed')).toBeTruthy();
+    expect(screen.queryByRole('columnheader', { name: 'version' })).toBeNull();
+  });
 });
 
 function expectedLocalTimestamp(iso: string): string {

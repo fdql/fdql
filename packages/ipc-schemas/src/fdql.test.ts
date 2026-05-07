@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { FdqlCompileRequestSchema, FdqlRunEventSchema, FdqlRunRequestSchema } from './fdql.ts';
+import {
+  FdqlCompileRequestSchema,
+  FdqlRunEventSchema,
+  FdqlRunRequestSchema,
+  FdqlRunResultSchema,
+} from './fdql.ts';
 
 describe('FDQL IPC schemas', () => {
   it('accepts compile and run requests', () => {
@@ -42,5 +47,21 @@ describe('FDQL IPC schemas', () => {
         type: 'row',
       }).success,
     ).toBe(false);
+  });
+
+  it('accepts cache clear run results', () => {
+    expect(
+      FdqlRunResultSchema.safeParse({
+        command: {
+          clearedEntries: 12,
+          kind: 'clearCache',
+          message: 'Cleared 12 cache entries.',
+        },
+        diagnostics: [],
+        durationMs: 20,
+        rows: [],
+        stats: null,
+      }).success,
+    ).toBe(true);
   });
 });

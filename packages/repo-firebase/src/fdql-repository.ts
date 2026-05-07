@@ -1,9 +1,10 @@
 import {
   bytesValue,
-  compileFdqlRead,
+  compileFdql,
   createProviderDialectRegistry,
   evaluateExpression,
   executeFdql,
+  type FdqlClearCacheCommandPlan,
   type FdqlExecutionEvent,
   type FdqlExpression,
   type FdqlPersistentCache,
@@ -73,7 +74,7 @@ export function createFirebaseFdqlRepository(
 
   return {
     async compile(request): Promise<FdqlCompileResult> {
-      const compiled = compileFdqlRead(request.source, compileOptions(request));
+      const compiled = compileFdql(request.source, compileOptions(request));
       return { diagnostics: compiled.diagnostics, ok: compiled.ok };
     },
 
@@ -83,7 +84,7 @@ export function createFirebaseFdqlRepository(
       activeRuns.set(request.runId, controller);
       emit({ runId: request.runId, type: 'started' });
 
-      const compiled = compileFdqlRead(request.source, compileOptions(request));
+      const compiled = compileFdql(request.source, compileOptions(request));
       if (!compiled.ok || !compiled.plan) {
         const result = failedCompileResult(compiled.diagnostics, startedAt);
         for (const diagnostic of compiled.diagnostics) {
@@ -95,6 +96,13 @@ export function createFirebaseFdqlRepository(
           runId: request.runId,
           type: 'failed',
         });
+        activeRuns.delete(request.runId);
+        return result;
+      }
+
+      if (compiled.plan.kind === 'clearCache') {
+        const result = await clearCacheResult(compiled.plan, options.persistentCache, startedAt);
+        emit({ result, runId: request.runId, type: 'completed' });
         activeRuns.delete(request.runId);
         return result;
       }
@@ -482,6 +490,31 @@ function failedCompileResult(
 ): FdqlRunResult {
   return {
     diagnostics,
+    durationMs: Math.max(0, Date.now() - startedAt),
+    rows: [],
+    stats: null,
+  };
+}
+
+async function clearCacheResult(
+  plan: FdqlClearCacheCommandPlan,
+  persistentCache: FdqlPersistentCache | undefined,
+  startedAt: number,
+): Promise<FdqlRunResult> {
+  const result = await persistentCache?.clear?.({
+    profile: 'desktop',
+    ...(plan.projectId ? { projectId: plan.projectId } : {}),
+    ...(plan.provider ? { provider: plan.provider } : {}),
+  }) ?? { clearedEntries: 0 };
+  return {
+    command: {
+      clearedEntries: result.clearedEntries,
+      kind: 'clearCache',
+      message: `Cleared ${result.clearedEntries} cache ${
+        result.clearedEntries === 1 ? 'entry' : 'entries'
+      }.`,
+    },
+    diagnostics: [],
     durationMs: Math.max(0, Date.now() - startedAt),
     rows: [],
     stats: null,

@@ -55,8 +55,15 @@ export interface FdqlRunRequest extends FdqlCompileRequest {
   readonly runId: string;
 }
 
+export interface FdqlRunCommandResult {
+  readonly clearedEntries: number;
+  readonly kind: 'clearCache';
+  readonly message: string;
+}
+
 export interface FdqlRunResult {
   readonly cancelled?: boolean | undefined;
+  readonly command?: FdqlRunCommandResult | undefined;
   readonly diagnostics: readonly FdqlDiagnostic[];
   readonly durationMs: number;
   readonly rows: readonly Record<string, unknown>[];

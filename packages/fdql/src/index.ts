@@ -1,6 +1,8 @@
 import {
+  compileFdql as compileFdqlCore,
   compileFdqlRead as compileFdqlReadCore,
   type FdqlCompileOptions,
+  type FdqlCompileResult,
   type FdqlProviderDialect,
   type FdqlReadCompileResult,
 } from '@firebase-desk/fdql-core';
@@ -18,6 +20,16 @@ export function compileFdqlRead(
   options: FdqlCompileOptions = {},
 ): FdqlReadCompileResult {
   return compileFdqlReadCore(source, {
+    ...options,
+    providers: [...builtinProviderDialects, ...(options.providers ?? [])],
+  });
+}
+
+export function compileFdql(
+  source: string,
+  options: FdqlCompileOptions = {},
+): FdqlCompileResult {
+  return compileFdqlCore(source, {
     ...options,
     providers: [...builtinProviderDialects, ...(options.providers ?? [])],
   });

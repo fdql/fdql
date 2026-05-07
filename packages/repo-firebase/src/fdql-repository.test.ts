@@ -176,6 +176,39 @@ return fs.id(d) as id, team.name as teamName`,
     });
   });
 
+  it('runs cache clear commands through persistent cache', async () => {
+    const clear = vi.fn(async () => ({ clearedEntries: 12 }));
+    const repository = createFirebaseFdqlRepository(providerFor({ collection: vi.fn() }), {
+      persistentCache: {
+        clear,
+        async get() {
+          return null;
+        },
+        async set() {
+          return { evictedEntries: 0, sizeBytes: 0 };
+        },
+      },
+    });
+
+    const result = await repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source: 'clear cache provider fs project "local"',
+    });
+
+    expect(clear).toHaveBeenCalledWith({ profile: 'desktop', projectId: 'local', provider: 'fs' });
+    expect(result).toMatchObject({
+      command: {
+        clearedEntries: 12,
+        kind: 'clearCache',
+        message: 'Cleared 12 cache entries.',
+      },
+      diagnostics: [],
+      rows: [],
+      stats: null,
+    });
+  });
+
   it('returns compile diagnostics without touching Firestore', async () => {
     const db = {
       collection: vi.fn(),
@@ -263,6 +296,11 @@ function createMemoryPersistentCache(): FdqlPersistentCache {
     }
   >();
   return {
+    async clear() {
+      const clearedEntries = entries.size;
+      entries.clear();
+      return { clearedEntries };
+    },
     async get(request) {
       const entry = entries.get(request.key.canonicalJson);
       if (!entry || entry.expiresAtMs <= request.nowMs) return null;

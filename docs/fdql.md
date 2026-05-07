@@ -1254,7 +1254,9 @@ clear cache provider fs
 clear cache provider fs project "project-id"
 ```
 
-Manual cache commands are reserved syntax until wired to UI/IPC execution.
+Manual cache commands run through the FDQL Run action. They are standalone commands, not
+pipeline stages, and clear only the current app profile cache. Provider and project selectors
+narrow the cleared entries.
 
 ## Generated Scripts
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileFdqlRead } from './compiler.ts';
+import { compileFdql, compileFdqlRead } from './compiler.ts';
 import { testProviderDialect } from './test-helpers/provider.ts';
 
 const options = {
@@ -169,6 +169,54 @@ return p.name`,
     expect(result.diagnostics).toEqual([
       expect.objectContaining({ code: 'FDQL_UNSUPPORTED_COMMAND', line: 1 }),
     ]);
+  });
+
+  it.each([
+    ['clear cache', {}],
+    ['clear cache provider mem', { provider: 'mem' }],
+    ['clear cache provider mem project "local"', { projectId: 'local', provider: 'mem' }],
+  ])('compiles cache clear command: %s', (source, plan) => {
+    const result = compileFdql(source, options);
+
+    expect(result).toMatchObject({
+      diagnostics: [],
+      ok: true,
+      plan: { kind: 'clearCache', ...plan },
+    });
+  });
+
+  it('rejects cache clear command mixed with a pipeline', () => {
+    const result = compileFdql(
+      `clear cache
+alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+return p.name`,
+      options,
+    );
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_COMMAND_MIXED_WITH_PIPELINE', line: 1 }),
+    );
+  });
+
+  it('rejects cache clear command with unknown provider namespace', () => {
+    const result = compileFdql('clear cache provider fb', options);
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNKNOWN_NAMESPACE', line: 1 }),
+    );
+  });
+
+  it('rejects malformed cache clear project selector', () => {
+    const result = compileFdql('clear cache provider mem project local', options);
+
+    expect(result).toMatchObject({ ok: false });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_COMMAND', line: 1 }),
+    );
   });
 
   it('rejects persistent cache TTL over 30 days', () => {

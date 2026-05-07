@@ -59,8 +59,15 @@ export const FdqlRunRequestSchema = FdqlCompileRequestSchema.extend({
   runId: z.string(),
 });
 
+export const FdqlRunCommandResultSchema = z.object({
+  clearedEntries: z.number().int().nonnegative(),
+  kind: z.literal('clearCache'),
+  message: z.string(),
+});
+
 export const FdqlRunResultSchema = z.object({
   cancelled: z.boolean().optional(),
+  command: FdqlRunCommandResultSchema.optional(),
   diagnostics: z.array(FdqlDiagnosticSchema),
   durationMs: z.number(),
   rows: z.array(z.record(z.string(), z.unknown())),

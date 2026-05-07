@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { builtinProviderDialects, compileFdqlRead, firestoreProviderDialect } from './index.ts';
+import {
+  builtinProviderDialects,
+  compileFdql,
+  compileFdqlRead,
+  firestoreProviderDialect,
+} from './index.ts';
 
 describe('FDQL facade', () => {
   it('registers built-in Firestore provider dialects', () => {
@@ -26,6 +31,16 @@ return fs.id(d) as id, d.firstName`,
           },
         },
       },
+    });
+  });
+
+  it('compiles Firestore cache clear command without explicit provider registration', () => {
+    const result = compileFdql('clear cache provider fs project "local"');
+
+    expect(result).toMatchObject({
+      diagnostics: [],
+      ok: true,
+      plan: { kind: 'clearCache', projectId: 'local', provider: 'fs' },
     });
   });
 });

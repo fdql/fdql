@@ -2,6 +2,7 @@ import { FDQL_LANGUAGE_ID } from '@firebase-desk/fdql-language';
 import type {
   FdqlCompileResult,
   FdqlDiagnostic,
+  FdqlRunCommandResult,
   FdqlRunResult,
   FdqlStats,
   FirestoreDocumentResult,
@@ -118,6 +119,7 @@ export function FdqlSurface(
         <ResizableHandle className={isWide ? 'mx-2 h-full w-px' : 'my-2 h-px w-full'} />
         <ResizablePanel defaultSize={isWide ? '52%' : '48%'} minSize={isWide ? '420px' : '240px'}>
           <FdqlOutputPanel
+            command={result?.command ?? null}
             diagnostics={diagnostics}
             durationMs={result?.durationMs ?? 0}
             isRunning={isRunning}
@@ -131,7 +133,8 @@ export function FdqlSurface(
 }
 
 function FdqlOutputPanel(
-  { diagnostics, durationMs, isRunning, rows, stats }: {
+  { command, diagnostics, durationMs, isRunning, rows, stats }: {
+    readonly command: FdqlRunCommandResult | null;
     readonly diagnostics: readonly FdqlDiagnostic[];
     readonly durationMs: number;
     readonly isRunning: boolean;
@@ -149,9 +152,9 @@ function FdqlOutputPanel(
                 <Table2 size={14} aria-hidden='true' /> Results
                 <Badge
                   className='px-1.5 py-0 text-[10px]'
-                  variant={statusVariant(stats, isRunning)}
+                  variant={statusVariant(stats, isRunning, command)}
                 >
-                  {statusLabel(stats, isRunning)}
+                  {statusLabel(stats, isRunning, command)}
                 </Badge>
               </TabsTrigger>
               <TabsTrigger className='h-7 gap-1.5 border-b-0 px-2' value='issues'>
@@ -171,6 +174,7 @@ function FdqlOutputPanel(
         </PanelHeader>
         <TabsContent className='min-h-0 overflow-hidden' value='results'>
           <ResultsView
+            command={command}
             durationMs={durationMs}
             isRunning={isRunning}
             rows={rows}
@@ -186,7 +190,8 @@ function FdqlOutputPanel(
 }
 
 function ResultsView(
-  { durationMs, isRunning, rows, stats }: {
+  { command, durationMs, isRunning, rows, stats }: {
+    readonly command: FdqlRunCommandResult | null;
     readonly durationMs: number;
     readonly isRunning: boolean;
     readonly rows: readonly Record<string, unknown>[];
@@ -252,10 +257,9 @@ function ResultsView(
         {rows.length === 0
           ? (
             <EmptyState
-              title={isRunning ? 'Waiting for rows' : 'No rows yet'}
-              description={isRunning
-                ? 'Rows stream here as FDQL runs.'
-                : 'Run a bounded FDQL read.'}
+              title={command ? 'Cache cleared' : isRunning ? 'Waiting for rows' : 'No rows yet'}
+              description={command?.message
+                ?? (isRunning ? 'Rows stream here as FDQL runs.' : 'Run a bounded FDQL read.')}
             />
           )
           : (
@@ -394,8 +398,13 @@ function defaultFdqlTreeExpansion(
   return new Set([rootId, documentId, `${documentId}:fields`]);
 }
 
-function statusLabel(stats: FdqlStats | null, isRunning: boolean): string {
+function statusLabel(
+  stats: FdqlStats | null,
+  isRunning: boolean,
+  command: FdqlRunCommandResult | null,
+): string {
   if (isRunning) return 'running';
+  if (command) return 'completed';
   if (stats?.stoppedReason && stats.stoppedReason !== 'completed') return stats.stoppedReason;
   if (stats) return 'completed';
   return 'idle';
@@ -404,8 +413,10 @@ function statusLabel(stats: FdqlStats | null, isRunning: boolean): string {
 function statusVariant(
   stats: FdqlStats | null,
   isRunning: boolean,
+  command: FdqlRunCommandResult | null,
 ): 'neutral' | 'success' | 'warning' {
   if (isRunning) return 'warning';
+  if (command) return 'success';
   if (stats?.stoppedReason && stats.stoppedReason !== 'completed') return 'warning';
   return stats ? 'success' : 'neutral';
 }
