@@ -29,6 +29,18 @@ Reserved namespaces have no semantics until a provider dialect defines them. Usi
 - Stages preserve row shape unless the stage explicitly reshapes or expands it.
 - The same FDQL plan drives integrated execution and generated scripts.
 
+## Current Read Direction
+
+The next read work is ordered by product value and implementation risk:
+
+1. Stabilize read correctness and diagnostics.
+2. Add Firestore subcollection reads.
+3. Add Firestore native aggregate reads.
+4. Complete common read expressions.
+5. Improve editor assistance from the implemented language surface.
+
+This is an implementation order, not separate language versions.
+
 ## Provider Semantics
 
 FDQL separates provider work from Firebase Desk local work.
@@ -554,7 +566,7 @@ return fs.id(d), d.firstName, roundStats.total, roundStats.lastRoundAt
 Rules:
 
 - Lookup clauses are provider-native.
-- Valid lookup headers are `then lookup one`, `then lookup required one`, and `then lookup many`.
+- Valid lookup headers are `then lookup one`, `then lookup required one`, `then lookup many`, and `then lookup aggregate`.
 - Lookup row aliases are available inside their provider clauses.
 - Correlated references must use previous row fields or metadata functions such as `fs.id(d)`.
 - `cache run`, `cache persistent`, `cache persistent 60s`, or `cache off` on a lookup overrides `set fdql.cache` for that lookup only.
@@ -777,6 +789,7 @@ Rules:
 
 - `fs.subcollection(parent, name, fields?)` reads `parent/{id}/name`.
 - `fs.subcollections(parent)` lists direct child collection metadata.
+- Subcollection sources may appear directly in lookup stages because they usually depend on the current row.
 - Subcollection lookup must show read counts per parent.
 
 ## Union All

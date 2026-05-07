@@ -14,6 +14,24 @@ Scope: read features only. Write operations are out of this tracker. This docume
 - Partial: works for a narrow path, but does not match the spec yet.
 - Missing: not implemented.
 
+## Registered Decisions
+
+- Keep FDQL read-only for the next work. Writes stay out of this tracker.
+- Do read correctness polish before adding broader syntax.
+- Add subcollection reads before Firestore aggregate reads.
+- Treat subcollection reads as dynamic provider source expressions, not only top-level aliases, because they depend on the current row.
+- Add provider-native Firestore aggregate reads after subcollections.
+- Add expression completeness after provider read shape is stronger.
+- Keep editor/language improvements incremental and driven by implemented syntax.
+
+Current priority order:
+
+1. Read correctness polish: cancel/timeout coverage, row/source diagnostics, field-path fidelity, issue-click navigation.
+2. Subcollection reads: `fs.subcollection(parent, name, fields?)` and `fs.subcollections(parent)`.
+3. Firestore native aggregate reads: `lookup aggregate` plus `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max`.
+4. Expression completeness: null/missing predicates, `not in`, `case`, math, and remaining Firestore helpers.
+5. Language/editor follow-up: context-aware completions, field hints, and diagnostics for masked-out fields.
+
 ## Current Read Slice
 
 | Area            | Status  | Notes                                                                                                                                                       |
@@ -236,7 +254,10 @@ These block the read implementation from being honest at production scale.
 ## Suggested Next Order
 
 1. Add deterministic cancel/timeout coverage.
-2. Add named database coverage.
-3. Add row/source context to execution diagnostics.
-4. Implement missing read syntax from P1/P2.
-5. Add issue-click editor navigation.
+2. Add row/source context to execution diagnostics.
+3. Fix field-path fidelity for field masks and provider paths.
+4. Add issue-click editor navigation.
+5. Add subcollection reads.
+6. Add Firestore native aggregate reads.
+7. Add expression completeness.
+8. Add context-aware editor/language polish.
