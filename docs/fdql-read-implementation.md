@@ -160,22 +160,21 @@ These block the read implementation from being honest at production scale.
 
 ## P3 Product/Quality Gaps
 
-| Area               | Status                     | Notes                                                                                                                          |
-| ------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Full grammar       | Partial                    | Parser now uses source-located statements, but expression and pipeline grammar still need broader syntax coverage.             |
-| Source-located AST | Done                       | Top-level declarations and stages carry source columns/ranges; parser expression diagnostics use source columns.               |
-| Editor language    | Missing                    | Monaco treats FDQL as plain text. Needs language id, syntax highlighting, bracket/comment rules, completions, and diagnostics. |
-| FDQL type model    | Done                       | Core/runtime values are tagged internally and encoded at output.                                                               |
-| Provider adapters  | Partial                    | Firestore values normalize/encode in provider repos; core FDQL has no Firestore-shaped runtime API.                            |
-| Type inference     | Missing                    | Compiler does not infer expression, stage, or result column types.                                                             |
-| Row-shape analysis | Missing                    | Unknown fields are runtime missing values; compiler does not prove row shape.                                                  |
-| Lineage UI         | Partial                    | Events carry provider-neutral row lineage, but UI does not expose source exploration.                                          |
-| More E2E           | Partial                    | Covers main read paths. Still needs deterministic cancel/timeout and named DB coverage.                                        |
-| Generated scripts  | Not planned for current UI | Spec mentions generated scripts, but current product slice intentionally has no JS snippet panel. Revisit before implementing. |
+| Area               | Status                     | Notes                                                                                                                            |
+| ------------------ | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Full grammar       | Partial                    | Parser now uses source-located statements, but expression and pipeline grammar still need broader syntax coverage.               |
+| Source-located AST | Done                       | Top-level declarations and stages carry source columns/ranges; parser expression diagnostics use source columns.                 |
+| Editor language    | Done                       | FDQL has a reusable language service plus Monaco language id, highlighting, bracket/comment rules, completions, and diagnostics. |
+| FDQL type model    | Done                       | Core/runtime values are tagged internally and encoded at output.                                                                 |
+| Provider adapters  | Partial                    | Firestore values normalize/encode in provider repos; core FDQL has no Firestore-shaped runtime API.                              |
+| Type inference     | Missing                    | Compiler does not infer expression, stage, or result column types.                                                               |
+| Row-shape analysis | Missing                    | Unknown fields are runtime missing values; compiler does not prove row shape.                                                    |
+| Lineage UI         | Partial                    | Events carry provider-neutral row lineage, but UI does not expose source exploration.                                            |
+| More E2E           | Partial                    | Covers main read paths. Still needs deterministic cancel/timeout and named DB coverage.                                          |
+| Generated scripts  | Not planned for current UI | Spec mentions generated scripts, but current product slice intentionally has no JS snippet panel. Revisit before implementing.   |
 
 ## Suggested Next Order
 
-1. Add FDQL editor language support.
-2. Implement Firestore aggregation lookups.
-3. Add missing read syntax from P1/P2.
-4. Add E2E per completed feature.
+1. Implement Firestore aggregation lookups.
+2. Add missing read syntax from P1/P2.
+3. Add E2E per completed feature.

@@ -1,3 +1,4 @@
+import { FDQL_LANGUAGE_ID } from '@firebase-desk/fdql-language';
 import type { FdqlRunResult } from '@firebase-desk/repo-contracts';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -26,7 +27,8 @@ vi.mock('@tanstack/react-virtual', () => ({
 
 vi.mock('../../code-editor/CodeEditor.tsx', () => ({
   CodeEditor: (
-    { onChange, readOnly, value }: {
+    { language, onChange, readOnly, value }: {
+      readonly language: string;
       readonly onChange?: (value: string) => void;
       readonly readOnly?: boolean;
       readonly value: string;
@@ -34,6 +36,7 @@ vi.mock('../../code-editor/CodeEditor.tsx', () => ({
   ) => (
     <textarea
       aria-label='FDQL source'
+      data-language={language}
       readOnly={readOnly}
       value={value}
       onChange={(event) => onChange?.(event.currentTarget.value)}
@@ -116,6 +119,21 @@ describe('FdqlSurface', () => {
     const json = await screen.findByLabelText('FDQL JSON results');
     expect(json).toHaveProperty('value', expect.stringContaining('"version": 3166'));
     expect(json).toHaveProperty('value', expect.stringContaining('"__fdqlType": "timestamp"'));
+  });
+
+  it('uses the FDQL editor language', () => {
+    render(
+      <FdqlSurface
+        source='return *'
+        onCancel={() => undefined}
+        onRun={() => undefined}
+        onSourceChange={() => undefined}
+      />,
+    );
+
+    expect(screen.getByLabelText('FDQL source').getAttribute('data-language')).toBe(
+      FDQL_LANGUAGE_ID,
+    );
   });
 });
 

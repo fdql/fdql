@@ -1,3 +1,4 @@
+import { FDQL_LANGUAGE_ID } from '@firebase-desk/fdql-language';
 import type {
   FdqlCompileResult,
   FdqlDiagnostic,
@@ -106,7 +107,7 @@ export function FdqlSurface(
             </PanelHeader>
             <PanelBody className='min-h-0 p-0'>
               <CodeEditor
-                language='sql'
+                language={FDQL_LANGUAGE_ID}
                 readOnly={isRunning}
                 value={source}
                 onChange={onSourceChange}

@@ -58,6 +58,29 @@ export interface FdqlProviderSettingResolveInput {
 
 export type FdqlProviderSettingResolution = Readonly<Record<string, unknown>>;
 
+export interface FdqlProviderLanguageItem {
+  readonly detail?: string | undefined;
+  readonly documentation?: string | undefined;
+  readonly insertText?: string | undefined;
+  readonly label?: string | undefined;
+  readonly name: string;
+}
+
+export interface FdqlProviderLanguageClause {
+  readonly detail?: string | undefined;
+  readonly documentation?: string | undefined;
+  readonly insertText?: string | undefined;
+  readonly keyword: string;
+  readonly label?: string | undefined;
+}
+
+export interface FdqlProviderLanguageMetadata {
+  readonly clauses?: readonly FdqlProviderLanguageClause[] | undefined;
+  readonly settings?: readonly FdqlProviderLanguageItem[] | undefined;
+  readonly sourceFunctions?: readonly FdqlProviderLanguageItem[] | undefined;
+  readonly valueFunctions?: readonly FdqlProviderLanguageItem[] | undefined;
+}
+
 export interface FdqlProviderCallEvaluationInput {
   readonly args: readonly FdqlExpression[];
   readonly context: FdqlProviderEvaluationContext;
@@ -75,6 +98,7 @@ export interface FdqlProviderEvaluationContext {
 }
 
 export interface FdqlProviderDialect {
+  readonly language?: FdqlProviderLanguageMetadata | undefined;
   readonly namespace: string;
   readonly sourceFunctions: ReadonlySet<string>;
   readonly valueFunctions: ReadonlySet<string>;

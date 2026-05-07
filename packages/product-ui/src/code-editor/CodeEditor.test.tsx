@@ -1,3 +1,4 @@
+import { FDQL_LANGUAGE_ID } from '@firebase-desk/fdql-language';
 import { MockSettingsRepository } from '@firebase-desk/repo-mocks';
 import { render, screen } from '@testing-library/react';
 import type { editor as MonacoEditorTypes } from 'monaco-editor';
@@ -7,21 +8,43 @@ import { CodeEditor, DiffCodeEditor } from './CodeEditor.tsx';
 
 const monacoMock = vi.hoisted(() => ({
   diffContentListener: null as (() => void) | null,
+  editorContentListener: null as (() => void) | null,
+  editorLanguage: 'json',
+  editorValue: '',
   javascriptContribution: vi.fn(),
   javascriptAddExtraLib: vi.fn(() => ({ dispose: vi.fn() })),
   loaderConfig: vi.fn(),
   modifiedValue: '',
+  registerCompletionItemProvider: vi.fn(() => ({ dispose: vi.fn() })),
+  registerLanguage: vi.fn(),
+  setLanguageConfiguration: vi.fn(),
+  setModelMarkers: vi.fn(),
+  setMonarchTokensProvider: vi.fn(),
   typescriptAddExtraLib: vi.fn(() => ({ dispose: vi.fn() })),
   typescriptContribution: vi.fn(),
 }));
 const monacoApiMock = vi.hoisted(() => ({
-  editor: {},
+  editor: {
+    setModelMarkers: monacoMock.setModelMarkers,
+  },
   languages: {
+    CompletionItemInsertTextRule: { InsertAsSnippet: 4 },
+    CompletionItemKind: {
+      Function: 1,
+      Keyword: 2,
+      Property: 3,
+      Snippet: 4,
+    },
+    register: monacoMock.registerLanguage,
+    registerCompletionItemProvider: monacoMock.registerCompletionItemProvider,
+    setLanguageConfiguration: monacoMock.setLanguageConfiguration,
+    setMonarchTokensProvider: monacoMock.setMonarchTokensProvider,
     typescript: {
       javascriptDefaults: { addExtraLib: monacoMock.javascriptAddExtraLib },
       typescriptDefaults: { addExtraLib: monacoMock.typescriptAddExtraLib },
     },
   },
+  MarkerSeverity: { Error: 8, Warning: 4 },
 }));
 
 vi.mock('monaco-editor/esm/vs/editor/editor.api', () => monacoApiMock);
@@ -44,22 +67,49 @@ vi.mock('@monaco-editor/react', async () => {
     default: (
       {
         beforeMount,
+        language,
+        onMount,
         options,
         theme,
         value,
       }: {
         readonly beforeMount?: (monaco: typeof monacoApiMock) => void;
+        readonly language: string;
+        readonly onMount?: (
+          editor: MonacoEditorTypes.IStandaloneCodeEditor,
+          monaco: typeof monacoApiMock,
+        ) => void;
         readonly options?: { readonly ariaLabel?: string; };
         readonly theme: string;
         readonly value: string;
       },
     ) => {
       React.useEffect(() => {
+        monacoMock.editorLanguage = language;
+        monacoMock.editorValue = value;
         beforeMount?.(monacoApiMock);
-      }, [beforeMount]);
+        onMount?.({
+          getModel: () => ({
+            getLanguageId: () => monacoMock.editorLanguage,
+            getValue: () => monacoMock.editorValue,
+            getWordUntilPosition: () => ({ endColumn: 1, startColumn: 1, word: '' }),
+          }),
+          onDidChangeModelContent: (listener: () => void) => {
+            monacoMock.editorContentListener = listener;
+            return {
+              dispose: () => {
+                if (monacoMock.editorContentListener === listener) {
+                  monacoMock.editorContentListener = null;
+                }
+              },
+            };
+          },
+        } as unknown as MonacoEditorTypes.IStandaloneCodeEditor, monacoApiMock);
+      }, [beforeMount, language, onMount, value]);
       return (
         <textarea
           aria-label={options?.ariaLabel}
+          data-language={language}
           data-testid='monaco'
           data-theme={theme}
           readOnly
@@ -154,6 +204,76 @@ describe('CodeEditor', () => {
       extraLib.content,
       extraLib.filePath,
     );
+  });
+
+  it('registers FDQL language services with Monaco', async () => {
+    render(
+      <AppearanceProvider settings={new MockSettingsRepository()}>
+        <CodeEditor language={FDQL_LANGUAGE_ID} value='return *' />
+      </AppearanceProvider>,
+    );
+    await screen.findByTestId('monaco');
+
+    expect(monacoMock.registerLanguage).toHaveBeenCalledWith({ id: FDQL_LANGUAGE_ID });
+    expect(monacoMock.setLanguageConfiguration).toHaveBeenCalledWith(
+      FDQL_LANGUAGE_ID,
+      expect.any(Object),
+    );
+    expect(monacoMock.setMonarchTokensProvider).toHaveBeenCalledWith(
+      FDQL_LANGUAGE_ID,
+      expect.any(Object),
+    );
+    expect(monacoMock.registerCompletionItemProvider).toHaveBeenCalledWith(
+      FDQL_LANGUAGE_ID,
+      expect.objectContaining({
+        provideCompletionItems: expect.any(Function),
+      }),
+    );
+  });
+
+  it('sets and clears FDQL diagnostics markers', async () => {
+    render(
+      <AppearanceProvider settings={new MockSettingsRepository()}>
+        <CodeEditor
+          language={FDQL_LANGUAGE_ID}
+          value={`set readBudget = 5000
+alias $orders = fs.collection("orders")
+from $orders as o
+fs limit 1
+return fs.id(o) as id`}
+        />
+      </AppearanceProvider>,
+    );
+    await screen.findByTestId('monaco');
+
+    expect(monacoMock.setModelMarkers).toHaveBeenCalledWith(
+      expect.any(Object),
+      'fdql',
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'FDQL_INVALID_SET_KEY',
+        }),
+      ]),
+    );
+
+    try {
+      vi.useFakeTimers();
+      monacoMock.setModelMarkers.mockClear();
+      monacoMock.editorValue = `alias $orders = fs.collection("orders")
+from $orders as o
+fs limit 1
+return fs.id(o) as id`;
+      monacoMock.editorContentListener?.();
+      vi.advanceTimersByTime(250);
+
+      expect(monacoMock.setModelMarkers).toHaveBeenLastCalledWith(
+        expect.any(Object),
+        'fdql',
+        [],
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('exposes Monaco when mounted for integration diagnostics', async () => {
