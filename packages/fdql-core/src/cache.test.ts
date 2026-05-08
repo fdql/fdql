@@ -94,6 +94,36 @@ describe('FDQL provider read cache key', () => {
 
     expect(second.canonicalJson).toBe(first.canonicalJson);
   });
+
+  it('canonicalizes case and postfix expressions', () => {
+    const first = createFdqlProviderReadCacheKey({
+      request: request({
+        predicate: {
+          branches: [{
+            condition: postfix(field('team', 'deletedAt'), 'is null'),
+            value: literal('active'),
+          }],
+          elseExpression: literal('archived'),
+          kind: 'case',
+        },
+      }),
+    });
+    const second = createFdqlProviderReadCacheKey({
+      request: request({
+        predicate: {
+          branches: [{
+            condition: postfix(field('team', 'deletedAt'), 'is null'),
+            value: literal('active'),
+          }],
+          elseExpression: literal('archived'),
+          kind: 'case',
+          range: range(2, 1, 2, 50),
+        },
+      }),
+    });
+
+    expect(second.canonicalJson).toBe(first.canonicalJson);
+  });
 });
 
 describe('FDQL provider aggregate cache key', () => {
@@ -205,6 +235,13 @@ function eq(left: FdqlExpression, right: FdqlExpression): FdqlExpression {
 
 function and(left: FdqlExpression, right: FdqlExpression): FdqlExpression {
   return { kind: 'binary', left, operator: 'and', right };
+}
+
+function postfix(
+  expression: FdqlExpression,
+  operator: Extract<FdqlExpression, { readonly kind: 'postfix'; }>['operator'],
+): FdqlExpression {
+  return { expression, kind: 'postfix', operator };
 }
 
 function wildcard(sourceRange: FdqlSourceRange): FdqlExpression {

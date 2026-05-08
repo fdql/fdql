@@ -168,10 +168,29 @@ function normalizedExpression(
       kind: 'map',
     };
   }
+  if (expression.kind === 'case') {
+    return {
+      branches: expression.branches.map((branch) => ({
+        condition: normalizedExpression(branch.condition, input),
+        value: normalizedExpression(branch.value, input),
+      })),
+      elseExpression: expression.elseExpression
+        ? normalizedExpression(expression.elseExpression, input)
+        : null,
+      kind: 'case',
+    };
+  }
   if (expression.kind === 'unary') {
     return {
       expression: normalizedExpression(expression.expression, input),
       kind: 'unary',
+      operator: expression.operator,
+    };
+  }
+  if (expression.kind === 'postfix') {
+    return {
+      expression: normalizedExpression(expression.expression, input),
+      kind: 'postfix',
       operator: expression.operator,
     };
   }
@@ -219,7 +238,20 @@ function containsCorrelatedReference(
   if (expression.kind === 'map') {
     return expression.entries.some((entry) => containsCorrelatedReference(entry.value, request));
   }
+  if (expression.kind === 'case') {
+    return expression.branches.some((branch) =>
+      containsCorrelatedReference(branch.condition, request)
+      || containsCorrelatedReference(branch.value, request)
+    )
+      || Boolean(
+        expression.elseExpression
+          && containsCorrelatedReference(expression.elseExpression, request),
+      );
+  }
   if (expression.kind === 'unary') {
+    return containsCorrelatedReference(expression.expression, request);
+  }
+  if (expression.kind === 'postfix') {
     return containsCorrelatedReference(expression.expression, request);
   }
   if (expression.kind === 'binary') {

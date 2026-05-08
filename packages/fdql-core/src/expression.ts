@@ -2,6 +2,7 @@ import { createToken, type IToken, Lexer, type TokenType } from 'chevrotain';
 import type {
   FdqlArrayExpression,
   FdqlBinaryExpression,
+  FdqlCaseBranch,
   FdqlDiagnostic,
   FdqlExpression,
   FdqlMapEntry,
@@ -13,13 +14,17 @@ const StringLiteral = createToken({
   name: 'StringLiteral',
   pattern: /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/,
 });
-const NumberLiteral = createToken({ name: 'NumberLiteral', pattern: /-?(?:0|[1-9]\d*)(?:\.\d+)?/ });
+const NumberLiteral = createToken({ name: 'NumberLiteral', pattern: /(?:0|[1-9]\d*)(?:\.\d+)?/ });
+const Plus = createToken({ name: 'Plus', pattern: /\+/ });
+const Minus = createToken({ name: 'Minus', pattern: /-/ });
 const GreaterEqual = createToken({ name: 'GreaterEqual', pattern: />=/ });
 const LessEqual = createToken({ name: 'LessEqual', pattern: /<=/ });
 const NotEqual = createToken({ name: 'NotEqual', pattern: /!=|<>/ });
 const Equal = createToken({ name: 'Equal', pattern: /=/ });
 const Greater = createToken({ name: 'Greater', pattern: />/ });
 const Less = createToken({ name: 'Less', pattern: /</ });
+const Slash = createToken({ name: 'Slash', pattern: /\// });
+const Percent = createToken({ name: 'Percent', pattern: /%/ });
 const LParen = createToken({ name: 'LParen', pattern: /\(/ });
 const RParen = createToken({ name: 'RParen', pattern: /\)/ });
 const LBracket = createToken({ name: 'LBracket', pattern: /\[/ });
@@ -40,12 +45,16 @@ const tokenTypes = [
   WhiteSpace,
   StringLiteral,
   NumberLiteral,
+  Plus,
+  Minus,
   GreaterEqual,
   LessEqual,
   NotEqual,
   Equal,
   Greater,
   Less,
+  Slash,
+  Percent,
   LParen,
   RParen,
   LBracket,
@@ -169,10 +178,79 @@ function createExpressionParser(
   }
 
   function parseComparison(): FdqlExpression | undefined {
+    let left = parseAdditive();
+    while (true) {
+      const token = peek();
+      if (isIdentifierToken(token, 'is')) {
+        consume();
+        const not = matchIdentifier('not');
+        const kindToken = peek();
+        const kind = isIdentifierToken(kindToken, 'null')
+          ? 'null'
+          : isIdentifierToken(kindToken, 'missing')
+          ? 'missing'
+          : null;
+        if (!kind) {
+          fail('Expected null or missing after is.', kindToken);
+          return left;
+        }
+        consume();
+        if (!left) return left;
+        left = {
+          expression: left,
+          kind: 'postfix',
+          operator: `is ${not ? 'not ' : ''}${kind}` as
+            | 'is missing'
+            | 'is not missing'
+            | 'is not null'
+            | 'is null',
+          ...rangeProp(spanRange(left.range, tokenRange(kindToken))),
+        };
+        continue;
+      }
+      if (isIdentifierToken(token, 'not') && isIdentifierToken(peek(1), 'in')) {
+        const notToken = consume();
+        const inToken = consume();
+        const right = parseAdditive();
+        if (!left || !right) return left;
+        left = binaryExpression(left, 'not in', right, tokenRange(notToken, inToken));
+        continue;
+      }
+      const operator = comparisonOperator(token);
+      if (!token || !operator) break;
+      consume();
+      const right = parseAdditive();
+      if (!left || !right) return left;
+      left = binaryExpression(left, operator, right);
+    }
+    return left;
+  }
+
+  function parseAdditive(): FdqlExpression | undefined {
+    let left = parseMultiplicative();
+    while (true) {
+      const token = peek();
+      const operator = isToken(token, Plus) ? '+' : isToken(token, Minus) ? '-' : null;
+      if (!token || !operator) break;
+      consume();
+      const right = parseMultiplicative();
+      if (!left || !right) return left;
+      left = binaryExpression(left, operator, right);
+    }
+    return left;
+  }
+
+  function parseMultiplicative(): FdqlExpression | undefined {
     let left = parseUnary();
     while (true) {
       const token = peek();
-      const operator = comparisonOperator(token);
+      const operator = isToken(token, Star)
+        ? '*'
+        : isToken(token, Slash)
+        ? '/'
+        : isToken(token, Percent)
+        ? '%'
+        : null;
       if (!token || !operator) break;
       consume();
       const right = parseUnary();
@@ -191,6 +269,16 @@ function createExpressionParser(
         expression,
         kind: 'unary',
         operator: 'not',
+        ...rangeProp(spanRange(tokenRange(token), expression.range)),
+      };
+    }
+    if (token && isToken(token, Minus)) {
+      consume();
+      const expression = parseUnary() ?? literalExpression(null);
+      return {
+        expression,
+        kind: 'unary',
+        operator: 'negate',
         ...rangeProp(spanRange(tokenRange(token), expression.range)),
       };
     }
@@ -227,6 +315,7 @@ function createExpressionParser(
       consume();
       return literalExpression(null, tokenRange(token));
     }
+    if (isIdentifierToken(token, 'case')) return parseCase();
     if (isToken(token, LParen)) return parseParenthesized();
     if (isToken(token, LBracket)) return parseArray();
     if (isToken(token, LBrace)) return parseMap();
@@ -238,6 +327,31 @@ function createExpressionParser(
     fail(`Unexpected token ${token.image}.`, token);
     consume();
     return undefined;
+  }
+
+  function parseCase(): FdqlExpression {
+    const start = consumeExpected(Identifier);
+    const branches: FdqlCaseBranch[] = [];
+    while (matchIdentifier('when')) {
+      const condition = parseOr() ?? literalExpression(null);
+      consumeExpectedIdentifier('then');
+      const value = parseOr() ?? literalExpression(null);
+      branches.push({ condition, value });
+    }
+    let elseExpression: FdqlExpression | undefined;
+    if (matchIdentifier('else')) {
+      elseExpression = parseOr() ?? literalExpression(null);
+    }
+    const end = consumeExpectedIdentifier('end');
+    if (branches.length === 0) {
+      fail('Case expression needs at least one when branch.', start);
+    }
+    return {
+      branches,
+      ...(elseExpression ? { elseExpression } : {}),
+      kind: 'case',
+      ...rangeProp(tokenRange(start, end)),
+    };
   }
 
   function parseParenthesized(): FdqlExpression | undefined {
@@ -357,14 +471,21 @@ function createExpressionParser(
     return undefined;
   }
 
+  function consumeExpectedIdentifier(value: string): IToken | undefined {
+    const token = peek();
+    if (isIdentifierToken(token, value)) return consume();
+    fail(`Expected ${value}.`, token);
+    return undefined;
+  }
+
   function consume(): IToken | undefined {
     const token = peek();
     index += 1;
     return token;
   }
 
-  function peek(): IToken | undefined {
-    return tokens[index];
+  function peek(offset = 0): IToken | undefined {
+    return tokens[index + offset];
   }
 
   function fail(message: string, token?: IToken): void {
@@ -401,12 +522,13 @@ function binaryExpression(
   left: FdqlExpression,
   operator: FdqlBinaryExpression['operator'],
   right: FdqlExpression,
+  operatorRange?: FdqlSourceRange | undefined,
 ): FdqlBinaryExpression {
   return {
     kind: 'binary',
     left,
     operator,
-    ...rangeProp(spanRange(left.range, right.range)),
+    ...rangeProp(spanRange(spanRange(left.range, operatorRange), right.range)),
     right,
   };
 }

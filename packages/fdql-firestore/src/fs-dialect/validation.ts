@@ -4,11 +4,14 @@ import type {
   FdqlProviderAggregateValidationInput,
   FdqlProviderOrderByValidationInput,
   FdqlProviderPredicateValidationInput,
+  FdqlValue,
 } from '@firebase-desk/fdql-core';
+import { evaluateExpression } from '@firebase-desk/fdql-core';
 import { readFieldPathSegments } from './field-mask.ts';
 import { firestoreError, walkExpression } from './helpers.ts';
 
 export function validateFirestoreWhere(input: FdqlProviderPredicateValidationInput): void {
+  validateNotInConstraints(input);
   validateFirestorePredicate(
     input.expression,
     input.rowAlias,
@@ -22,9 +25,12 @@ export function validateFirestoreWhere(input: FdqlProviderPredicateValidationInp
       && ![
         'bytes',
         'fs.arrayContains',
+        'fs.arrayContainsAny',
         'fs.fieldPath',
         'fs.id',
+        'fs.parentPath',
         'fs.ref',
+        'fs.databaseId',
         'geoPoint',
         'timestamp',
       ].includes(node.name)
@@ -33,6 +39,36 @@ export function validateFirestoreWhere(input: FdqlProviderPredicateValidationInp
         firestoreError(
           'FDQL_LOCAL_EXPRESSION_IN_PROVIDER_CLAUSE',
           `${node.name} is not valid in ${input.lookup ? 'lookup ' : ''}fs where.`,
+          input.line,
+        ),
+      );
+    }
+    if (node.kind === 'case') {
+      input.diagnostics.push(
+        firestoreError(
+          'FDQL_LOCAL_EXPRESSION_IN_PROVIDER_CLAUSE',
+          `case is not valid in ${input.lookup ? 'lookup ' : ''}fs where.`,
+          input.line,
+        ),
+      );
+    }
+    if (node.kind === 'postfix' && node.operator.includes('missing')) {
+      input.diagnostics.push(
+        firestoreError(
+          'FDQL_LOCAL_EXPRESSION_IN_PROVIDER_CLAUSE',
+          `${node.operator} is not valid in ${input.lookup ? 'lookup ' : ''}fs where.`,
+          input.line,
+        ),
+      );
+    }
+    if (
+      node.kind === 'binary'
+      && ['+', '-', '*', '/', '%'].includes(node.operator)
+    ) {
+      input.diagnostics.push(
+        firestoreError(
+          'FDQL_LOCAL_EXPRESSION_IN_PROVIDER_CLAUSE',
+          `Math expressions are not valid in ${input.lookup ? 'lookup ' : ''}fs where.`,
           input.line,
         ),
       );
@@ -130,7 +166,39 @@ function validateFirestorePredicate(
     validateFirestorePredicate(expression.right, rowAlias, lookup, diagnostics, line);
     return;
   }
+  if (expression.kind === 'postfix') {
+    if (expression.operator === 'is missing' || expression.operator === 'is not missing') {
+      diagnostics.push(
+        firestoreError(
+          'FDQL_UNSUPPORTED_FS_WHERE',
+          '`fs where` cannot query missing fields natively.',
+          line,
+        ),
+      );
+      return;
+    }
+    if (!isProviderOperand(expression.expression, rowAlias)) {
+      diagnostics.push(
+        firestoreError(
+          'FDQL_UNSUPPORTED_FS_WHERE',
+          '`fs where` null checks need a provider field.',
+          line,
+        ),
+      );
+    }
+    return;
+  }
   if (expression.kind === 'binary') {
+    if (!isFirestoreComparisonOperator(expression.operator)) {
+      diagnostics.push(
+        firestoreError(
+          'FDQL_LOCAL_EXPRESSION_IN_PROVIDER_CLAUSE',
+          `Operator ${expression.operator} is not valid in ${lookup ? 'lookup ' : ''}fs where.`,
+          line,
+        ),
+      );
+      return;
+    }
     if (!isProviderOperand(expression.left, rowAlias)) {
       diagnostics.push(
         firestoreError(
@@ -153,14 +221,15 @@ function validateFirestorePredicate(
     }
     return;
   }
-  if (expression.kind === 'call' && expression.name === 'fs.arrayContains') {
+  if (
+    expression.kind === 'call'
+    && (expression.name === 'fs.arrayContains' || expression.name === 'fs.arrayContainsAny')
+  ) {
     if (!isProviderOperand(expression.args[0], rowAlias)) {
       diagnostics.push(
         firestoreError(
           'FDQL_UNSUPPORTED_FS_WHERE',
-          lookup
-            ? '`fs.arrayContains` needs a lookup provider field.'
-            : '`fs.arrayContains` needs a provider field and a provider value.',
+          `${expression.name} needs a provider field.`,
           line,
         ),
       );
@@ -169,7 +238,7 @@ function validateFirestorePredicate(
       diagnostics.push(
         firestoreError(
           'FDQL_UNSUPPORTED_FS_WHERE',
-          '`fs.arrayContains` needs a provider field and a provider value.',
+          `${expression.name} needs a provider field and a provider value.`,
           line,
         ),
       );
@@ -232,12 +301,75 @@ function isProviderValueExpression(expression: FdqlExpression | undefined): bool
   return false;
 }
 
+function validateNotInConstraints(input: FdqlProviderPredicateValidationInput): void {
+  const operators: string[] = [];
+  walkExpression(input.expression, (node) => {
+    if (node.kind === 'binary') operators.push(node.operator);
+    if (node.kind === 'call' && node.name === 'fs.arrayContainsAny') {
+      operators.push('arrayContainsAny');
+    }
+  });
+  const notInCount = operators.filter((operator) => operator === 'not in').length;
+  if (notInCount === 0) return;
+  const forbidden = operators.some((operator) =>
+    operator === 'or'
+    || operator === 'in'
+    || operator === 'arrayContainsAny'
+    || operator === '!='
+  );
+  if (notInCount > 1 || forbidden) {
+    input.diagnostics.push(
+      firestoreError(
+        'FDQL_UNSUPPORTED_FS_WHERE',
+        '`not in` cannot be combined with or, in, arrayContainsAny, !=, or another not in.',
+        input.line,
+      ),
+    );
+  }
+  walkExpression(input.expression, (node) => {
+    if (node.kind !== 'binary' || node.operator !== 'not in') return;
+    const values = staticArrayValues(node.right, input);
+    if (!values) return;
+    if (values.length === 0 || values.length > 10) {
+      input.diagnostics.push(
+        firestoreError(
+          'FDQL_UNSUPPORTED_FS_WHERE',
+          '`not in` needs 1 to 10 comparison values.',
+          input.line,
+        ),
+      );
+    }
+  });
+}
+
+function staticArrayValues(
+  expression: FdqlExpression,
+  input: FdqlProviderPredicateValidationInput,
+): readonly FdqlValue[] | null {
+  if (expression.kind === 'array') {
+    return expression.items.map((item) => evaluateExpression(item, { aliases: input.aliases }));
+  }
+  if (expression.kind === 'alias') {
+    const value = input.aliases[expression.name];
+    return value?.kind === 'array' ? value.value : null;
+  }
+  return null;
+}
+
+function isFirestoreComparisonOperator(
+  operator: Extract<FdqlExpression, { readonly kind: 'binary'; }>['operator'],
+): boolean {
+  return ['=', '!=', '<', '<=', '>', '>=', 'in', 'not in'].includes(operator);
+}
+
 function isMetadataArgument(
   expression: Extract<FdqlExpression, { readonly kind: 'field'; }>,
   parent: FdqlExpression | undefined,
 ): boolean {
   return parent?.kind === 'call'
-    && ['fs.id', 'fs.path', 'fs.projectId', 'fs.ref'].includes(parent.name)
+    && ['fs.databaseId', 'fs.id', 'fs.parentPath', 'fs.path', 'fs.projectId', 'fs.ref'].includes(
+      parent.name,
+    )
     && parent.args[0] === expression
     && expression.path.length === 1;
 }

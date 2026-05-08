@@ -13,6 +13,7 @@ import {
   missingValue,
   nullValue,
   numberScalar,
+  numberValue,
   stringScalar,
   stringValue,
   timestampValue,
@@ -46,9 +47,13 @@ export function evaluateExpression(
     case 'call':
       return evaluateCall(expression.name, expression.args, context);
     case 'unary':
-      return booleanValue(!truthy(evaluateExpression(expression.expression, context)));
+      return evaluateUnary(expression, context);
     case 'binary':
-      return booleanValue(evaluateBinary(expression, context));
+      return evaluateBinary(expression, context);
+    case 'postfix':
+      return evaluatePostfix(expression, context);
+    case 'case':
+      return evaluateCase(expression, context);
     case 'wildcard':
       return mapValue({});
   }
@@ -121,6 +126,12 @@ function evaluateCall(
     const value = evaluateExpression(args[0]!, context);
     return value.kind === 'string' ? stringValue(value.value.toLowerCase()) : value;
   }
+  if (name === 'exists') {
+    return booleanValue(evaluateExpression(args[0]!, context).kind !== 'missing');
+  }
+  if (name === 'missing') {
+    return booleanValue(evaluateExpression(args[0]!, context).kind === 'missing');
+  }
   if (name === 'entries') {
     const value = evaluateExpression(args[0]!, context);
     if (value.kind !== 'map') return arrayValue([]);
@@ -139,38 +150,107 @@ function evaluateCall(
   return missingValue;
 }
 
+function evaluateUnary(
+  expression: Extract<FdqlExpression, { readonly kind: 'unary'; }>,
+  context: EvalContext,
+): FdqlValue {
+  const value = evaluateExpression(expression.expression, context);
+  if (expression.operator === 'not') return booleanValue(!truthy(value));
+  return value.kind === 'number' && Number.isFinite(value.value)
+    ? numberValue(-value.value)
+    : missingValue;
+}
+
 function evaluateBinary(
   expression: Extract<FdqlExpression, { readonly kind: 'binary'; }>,
   context: EvalContext,
-): boolean {
+): FdqlValue {
   if (expression.operator === 'and') {
-    return truthy(evaluateExpression(expression.left, context))
-      && truthy(evaluateExpression(expression.right, context));
+    return booleanValue(
+      truthy(evaluateExpression(expression.left, context))
+        && truthy(evaluateExpression(expression.right, context)),
+    );
   }
   if (expression.operator === 'or') {
-    return truthy(evaluateExpression(expression.left, context))
-      || truthy(evaluateExpression(expression.right, context));
+    return booleanValue(
+      truthy(evaluateExpression(expression.left, context))
+        || truthy(evaluateExpression(expression.right, context)),
+    );
   }
   const left = evaluateExpression(expression.left, context);
   const right = evaluateExpression(expression.right, context);
   switch (expression.operator) {
     case '=':
-      return equalValues(left, right);
+      return booleanValue(equalValues(left, right));
     case '!=':
-      return !equalValues(left, right);
+      return booleanValue(!equalValues(left, right));
     case '<':
-      return compare(left, right) < 0;
+      return booleanValue(compare(left, right) < 0);
     case '<=':
-      return compare(left, right) <= 0;
+      return booleanValue(compare(left, right) <= 0);
     case '>':
-      return compare(left, right) > 0;
+      return booleanValue(compare(left, right) > 0);
     case '>=':
-      return compare(left, right) >= 0;
+      return booleanValue(compare(left, right) >= 0);
     case 'in':
-      return right.kind === 'array' && right.value.some((item) => equalValues(item, left));
+      return booleanValue(
+        right.kind === 'array' && right.value.some((item) => equalValues(item, left)),
+      );
+    case 'not in':
+      return booleanValue(
+        right.kind === 'array' && !right.value.some((item) => equalValues(item, left)),
+      );
+    case '+':
+    case '-':
+    case '*':
+    case '/':
+    case '%':
+      return evaluateMath(left, expression.operator, right);
     default:
-      return false;
+      return booleanValue(false);
   }
+}
+
+function evaluateMath(
+  left: FdqlValue,
+  operator: '+' | '-' | '*' | '/' | '%',
+  right: FdqlValue,
+): FdqlValue {
+  if (left.kind !== 'number' || right.kind !== 'number') return missingValue;
+  if (!Number.isFinite(left.value) || !Number.isFinite(right.value)) return missingValue;
+  if ((operator === '/' || operator === '%') && right.value === 0) return missingValue;
+  if (operator === '+') return numberValue(left.value + right.value);
+  if (operator === '-') return numberValue(left.value - right.value);
+  if (operator === '*') return numberValue(left.value * right.value);
+  if (operator === '/') return numberValue(left.value / right.value);
+  return numberValue(left.value % right.value);
+}
+
+function evaluatePostfix(
+  expression: Extract<FdqlExpression, { readonly kind: 'postfix'; }>,
+  context: EvalContext,
+): FdqlValue {
+  const value = evaluateExpression(expression.expression, context);
+  if (expression.operator === 'is null') return booleanValue(value.kind === 'null');
+  if (expression.operator === 'is not null') {
+    return booleanValue(value.kind !== 'missing' && value.kind !== 'null');
+  }
+  if (expression.operator === 'is missing') return booleanValue(value.kind === 'missing');
+  return booleanValue(value.kind !== 'missing');
+}
+
+function evaluateCase(
+  expression: Extract<FdqlExpression, { readonly kind: 'case'; }>,
+  context: EvalContext,
+): FdqlValue {
+  for (const branch of expression.branches) {
+    if (truthy(evaluateExpression(branch.condition, context))) {
+      return evaluateExpression(branch.value, context);
+    }
+  }
+  return expression.elseExpression
+    ? evaluateExpression(expression.elseExpression, context)
+    : nullValue;
 }
 
 function compare(left: FdqlValue, right: FdqlValue): number {

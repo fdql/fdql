@@ -32,10 +32,12 @@ export type FdqlExpression =
   | FdqlAliasExpression
   | FdqlArrayExpression
   | FdqlBinaryExpression
+  | FdqlCaseExpression
   | FdqlCallExpression
   | FdqlFieldExpression
   | FdqlLiteralExpression
   | FdqlMapExpression
+  | FdqlPostfixExpression
   | FdqlUnaryExpression
   | FdqlWildcardExpression;
 
@@ -89,16 +91,50 @@ export interface FdqlWildcardExpression {
 export interface FdqlUnaryExpression {
   readonly expression: FdqlExpression;
   readonly kind: 'unary';
-  readonly operator: 'not';
+  readonly operator: 'negate' | 'not';
   readonly range?: FdqlSourceRange | undefined;
 }
 
 export interface FdqlBinaryExpression {
   readonly kind: 'binary';
   readonly left: FdqlExpression;
-  readonly operator: '=' | '!=' | '<' | '<=' | '>' | '>=' | 'and' | 'in' | 'or';
+  readonly operator:
+    | '!='
+    | '%'
+    | '*'
+    | '+'
+    | '-'
+    | '/'
+    | '<'
+    | '<='
+    | '='
+    | '>'
+    | '>='
+    | 'and'
+    | 'in'
+    | 'not in'
+    | 'or';
   readonly range?: FdqlSourceRange | undefined;
   readonly right: FdqlExpression;
+}
+
+export interface FdqlPostfixExpression {
+  readonly expression: FdqlExpression;
+  readonly kind: 'postfix';
+  readonly operator: 'is missing' | 'is not missing' | 'is not null' | 'is null';
+  readonly range?: FdqlSourceRange | undefined;
+}
+
+export interface FdqlCaseBranch {
+  readonly condition: FdqlExpression;
+  readonly value: FdqlExpression;
+}
+
+export interface FdqlCaseExpression {
+  readonly branches: readonly FdqlCaseBranch[];
+  readonly elseExpression?: FdqlExpression | undefined;
+  readonly kind: 'case';
+  readonly range?: FdqlSourceRange | undefined;
 }
 
 export interface FdqlSetDeclaration {

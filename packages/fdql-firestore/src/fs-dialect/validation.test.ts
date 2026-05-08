@@ -1,6 +1,6 @@
 import type { FdqlDiagnostic } from '@firebase-desk/fdql-core';
 import { describe, expect, it } from 'vitest';
-import { binary, call, field, literal } from '../test-helpers/ast.ts';
+import { array, binary, call, field, literal } from '../test-helpers/ast.ts';
 import {
   hasBoundedIdPredicate,
   validateFirestoreAggregate,
@@ -30,10 +30,23 @@ describe('Firestore FDQL validation', () => {
       lookup: false,
       rowAlias: 'd',
     });
+    validateFirestoreWhere({
+      aliases: {},
+      availableRowAliases: new Set(['d']),
+      diagnostics,
+      expression: call(
+        'fs.arrayContainsAny',
+        field('d', 'tags'),
+        array(literal('admin'), literal('staff')),
+      ),
+      line: 5,
+      lookup: false,
+      rowAlias: 'd',
+    });
     validateFirestoreOrderBy({
       diagnostics,
       expression: call('fs.fieldPath', literal('literal.with.dot')),
-      line: 5,
+      line: 6,
       rowAlias: 'd',
     });
 
@@ -96,6 +109,73 @@ describe('Firestore FDQL validation', () => {
     expect(diagnostics).toEqual([]);
   });
 
+  it('accepts native null and not-in predicates', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+
+    validateFirestoreWhere({
+      aliases: {},
+      availableRowAliases: new Set(['d']),
+      diagnostics,
+      expression: binary(
+        binary(field('d', 'status'), 'not in', array(literal('deleted'), literal('archived'))),
+        'and',
+        { expression: field('d', 'deletedAt'), kind: 'postfix', operator: 'is null' },
+      ),
+      line: 3,
+      lookup: false,
+      rowAlias: 'd',
+    });
+
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('rejects invalid native not-in combinations', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+
+    validateFirestoreWhere({
+      aliases: {},
+      availableRowAliases: new Set(['d']),
+      diagnostics,
+      expression: binary(
+        binary(field('d', 'status'), 'not in', array(literal('deleted'))),
+        'or',
+        call('fs.arrayContainsAny', field('d', 'tags'), array(literal('admin'))),
+      ),
+      line: 3,
+      lookup: false,
+      rowAlias: 'd',
+    });
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_UNSUPPORTED_FS_WHERE',
+        message:
+          '`not in` cannot be combined with or, in, arrayContainsAny, !=, or another not in.',
+      }),
+    );
+  });
+
+  it('rejects invalid native not-in value counts', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+
+    validateFirestoreWhere({
+      aliases: {},
+      availableRowAliases: new Set(['d']),
+      diagnostics,
+      expression: binary(field('d', 'status'), 'not in', array()),
+      line: 3,
+      lookup: false,
+      rowAlias: 'd',
+    });
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_UNSUPPORTED_FS_WHERE',
+        message: '`not in` needs 1 to 10 comparison values.',
+      }),
+    );
+  });
+
   it('rejects local expressions and unqualified fields in provider clauses', () => {
     const diagnostics: FdqlDiagnostic[] = [];
 
@@ -117,10 +197,19 @@ describe('Firestore FDQL validation', () => {
       lookup: false,
       rowAlias: 'd',
     });
+    validateFirestoreWhere({
+      aliases: {},
+      availableRowAliases: new Set(['d']),
+      diagnostics,
+      expression: { expression: field('d', 'deletedAt'), kind: 'postfix', operator: 'is missing' },
+      line: 6,
+      lookup: false,
+      rowAlias: 'd',
+    });
     validateFirestoreOrderBy({
       diagnostics,
       expression: call('lower', field('d', 'firstName')),
-      line: 5,
+      line: 7,
       rowAlias: 'd',
     });
 
@@ -128,7 +217,8 @@ describe('Firestore FDQL validation', () => {
       expect.arrayContaining([
         expect.objectContaining({ code: 'FDQL_LOCAL_EXPRESSION_IN_PROVIDER_CLAUSE', line: 3 }),
         expect.objectContaining({ code: 'FDQL_UNQUALIFIED_PROVIDER_FIELD', line: 4 }),
-        expect.objectContaining({ code: 'FDQL_UNSUPPORTED_FS_ORDER_BY', line: 5 }),
+        expect.objectContaining({ code: 'FDQL_LOCAL_EXPRESSION_IN_PROVIDER_CLAUSE', line: 6 }),
+        expect.objectContaining({ code: 'FDQL_UNSUPPORTED_FS_ORDER_BY', line: 7 }),
       ]),
     );
   });

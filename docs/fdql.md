@@ -386,10 +386,14 @@ Rules:
 ```sql
 fs where d.active = true
 fs where d.status in ("active", "pending")
+fs where d.status not in ["deleted", "archived"]
+fs where d.deletedAt is null
+fs where d.archivedAt is not null
 fs where d.status = "active" or d.status = "pending"
 fs where d.active = true and (d.status = "active" or d.status = "pending")
 fs where d.createdAt >= timestamp("2025-10-01T00:00:00.000Z")
 fs where fs.arrayContains(d.tags, "admin")
+fs where fs.arrayContainsAny(d.tags, ["admin", "staff"])
 fs where fs.id(d) = $driverId
 fs where fs.fieldPath("literal.with.dot") = "value"
 ```
@@ -403,6 +407,8 @@ Rules:
 - `fs.fieldPath(...)` inside an `fs` clause names exact Firestore field path segments.
 - Correlated values are allowed on the value side in lookup stages.
 - Local expressions such as `lower(d.name) = "vini"` are invalid in `fs where`; use `filter`.
+- `not in` must have 1 to 10 values and cannot be combined with `or`, `in`, `arrayContainsAny`, `!=`, or another `not in`.
+- `is missing`, `exists(...)`, `missing(...)`, `case`, and math expressions are local-only and invalid in `fs where`.
 
 `fs order by` maps to Firestore ordering:
 
@@ -423,6 +429,32 @@ Singleton stages:
 - `fs order by` can appear once for the current provider source.
 - `return` can appear once in the pipeline.
 - Duplicate singleton provider stages are diagnostics; FDQL must not silently overwrite the earlier clause.
+
+## Local Expressions
+
+Local stages and `return` support FDQL expressions:
+
+```sql
+then filter exists(d.teamId) and missing(d.deletedAt)
+then filter d.status not in ["deleted", "archived"]
+then with
+  case when d.score > 10 then "podium" else "field" end as bucket,
+  d.score + d.bonus * 2 as totalScore
+return bucket, totalScore
+```
+
+Rules:
+
+- `missing` and `null` are distinct.
+- `expr is null` is true only for `null`.
+- `expr is not null` is true for present non-null values.
+- `expr is missing` is true only when the field/path is absent.
+- `expr is not missing` is true for present values, including `null`.
+- `exists(expr)` is the same as `expr is not missing`; `missing(expr)` is the same as `expr is missing`.
+- `case when ... then ... else ... end` returns the first truthy branch. Missing `else` returns `null`.
+- Math operators are numeric-only: `+`, `-`, `*`, `/`, `%`, and unary `-`.
+- Math with non-numbers, missing/null values, divide by zero, or modulo by zero returns `missing`.
+- `+` does not concatenate strings.
 
 Provider read bounds:
 
@@ -518,7 +550,7 @@ Rules:
 - Spread collisions append a sequence suffix to the later field: `total`, `total_2`, `total_3`.
 - Return expression roots must be current row bindings. After `then fs.aggregate ... yield fs.count() as total`,
   `total` is in scope. After `yield { fs.count() as total } as stats`, use `stats.total`.
-- Firestore metadata functions such as `fs.id(d)`, `fs.path(d)`, `fs.ref(d)`, `fs.parentPath(d)`, and `fs.projectId(d)` are valid for Firestore document row bindings.
+- Firestore metadata functions such as `fs.id(d)`, `fs.path(d)`, `fs.ref(d)`, `fs.parentPath(d)`, `fs.projectId(d)`, and `fs.databaseId(d)` are valid for Firestore document row bindings.
 - In `from $drivers as d`, `d` is the document row binding. `fs.id(d)` returns that document id.
 - In `lookup one $teams as team`, `team` is the joined document row binding or `null`. `fs.id(team)` returns the joined document id when present.
 - `fs.id(...)` is not called with a source alias such as `$drivers`; it is called with the row alias created by `as`.

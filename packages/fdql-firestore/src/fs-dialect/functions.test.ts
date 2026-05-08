@@ -1,5 +1,5 @@
 import type { FdqlExpression, FdqlProviderRow, FdqlProviderSource } from '@firebase-desk/fdql-core';
-import { missingValue, stringValue } from '@firebase-desk/fdql-core';
+import { arrayValue, booleanValue, missingValue, stringValue } from '@firebase-desk/fdql-core';
 import { describe, expect, it } from 'vitest';
 import { field, literal } from '../test-helpers/ast.ts';
 import { evaluateFirestoreCall } from './functions.ts';
@@ -25,6 +25,9 @@ describe('Firestore FDQL functions', () => {
     expect(evaluate('fs.id', field('d'))).toEqual(stringValue('drv_1'));
     expect(evaluate('fs.path', field('d'))).toEqual(stringValue('drivers/drv_1'));
     expect(evaluate('fs.projectId', field('d'))).toEqual(stringValue('local'));
+    expect(evaluate('fs.databaseId', field('d'))).toEqual(stringValue('(default)'));
+    expect(evaluate('fs.parentPath', field('d'))).toEqual(stringValue('drivers'));
+    expect(evaluate('fs.parentPath', field('missing'))).toEqual(missingValue);
   });
 
   it('evaluates field path and reference provider values', () => {
@@ -48,6 +51,21 @@ describe('Firestore FDQL functions', () => {
       provider: 'fs',
       valueType: 'documentRef',
     });
+  });
+
+  it('evaluates array contains any predicates', () => {
+    expect(
+      evaluateFirestoreCall({
+        args: [literal('array'), literal('values')],
+        context,
+        evaluate(expression) {
+          return expression.kind === 'literal' && expression.value === 'array'
+            ? arrayValue([stringValue('admin'), stringValue('staff')])
+            : arrayValue([stringValue('guest'), stringValue('staff')]);
+        },
+        name: 'fs.arrayContainsAny',
+      }),
+    ).toEqual(booleanValue(true));
   });
 });
 

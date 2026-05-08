@@ -48,6 +48,60 @@ describe('FDQL evaluator', () => {
       geoPointValue(-37.8136, 144.9631),
     );
   });
+
+  it('evaluates null and missing predicates', () => {
+    const rows = { d: { deletedAt: nullValue, name: stringValue('Vini') } };
+
+    expect(evaluateExpression(parse('d.deletedAt is null'), { rows })).toEqual(boolean(true));
+    expect(evaluateExpression(parse('d.deletedAt is not null'), { rows })).toEqual(boolean(false));
+    expect(evaluateExpression(parse('d.name is not missing'), { rows })).toEqual(boolean(true));
+    expect(evaluateExpression(parse('d.unknown is missing'), { rows })).toEqual(boolean(true));
+  });
+
+  it('evaluates exists and missing helpers', () => {
+    const rows = { d: { deletedAt: nullValue, name: stringValue('Vini') } };
+
+    expect(evaluateExpression(parse('exists(d.deletedAt)'), { rows })).toEqual(boolean(true));
+    expect(evaluateExpression(parse('missing(d.deletedAt)'), { rows })).toEqual(boolean(false));
+    expect(evaluateExpression(parse('missing(d.unknown)'), { rows })).toEqual(boolean(true));
+  });
+
+  it('evaluates not in comparisons', () => {
+    const rows = { d: { status: stringValue('paid') } };
+
+    expect(evaluateExpression(parse('d.status not in ["draft", "void"]'), { rows })).toEqual(
+      boolean(true),
+    );
+    expect(evaluateExpression(parse('d.status not in ["paid", "void"]'), { rows })).toEqual(
+      boolean(false),
+    );
+  });
+
+  it('evaluates searched case expressions', () => {
+    const rows = { d: { score: numberValue(12) } };
+
+    expect(
+      evaluateExpression(
+        parse('case when d.score > 10 then "podium" when d.score > 0 then "points" end'),
+        { rows },
+      ),
+    ).toEqual(stringValue('podium'));
+    expect(evaluateExpression(parse('case when d.score < 0 then "bad" end'), { rows })).toEqual(
+      nullValue,
+    );
+  });
+
+  it('evaluates numeric math only', () => {
+    const rows = {
+      d: { bonus: numberValue(2), name: stringValue('Vini'), score: numberValue(12) },
+    };
+
+    expect(evaluateExpression(parse('d.score + d.bonus * 3'), { rows })).toEqual(numberValue(18));
+    expect(evaluateExpression(parse('-d.score / 3'), { rows })).toEqual(numberValue(-4));
+    expect(evaluateExpression(parse('d.score % 5'), { rows })).toEqual(numberValue(2));
+    expect(evaluateExpression(parse('d.score / 0'), { rows })).toEqual(missingValue);
+    expect(evaluateExpression(parse('d.name + 1'), { rows })).toEqual(missingValue);
+  });
 });
 
 function parse(source: string) {
@@ -56,4 +110,8 @@ function parse(source: string) {
     throw new Error(result.diagnostics.map((item) => item.message).join('\n'));
   }
   return result.expression;
+}
+
+function boolean(value: boolean) {
+  return { kind: 'boolean' as const, value };
 }

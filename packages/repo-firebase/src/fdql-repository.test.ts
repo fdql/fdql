@@ -36,6 +36,63 @@ return fs.id(o) as id`,
     });
   });
 
+  it('maps common FDQL predicates to native Firestore filters', async () => {
+    const query = fakeQuery([fakeSnapshot('drv_1', 'drivers/drv_1', {})]);
+    const db = {
+      collection: vi.fn(() => query),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    await repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source: `alias $drivers = fs.collection("drivers", [])
+from $drivers as d
+fs where d.status not in ["deleted"]
+fs limit 1
+return fs.id(d) as id`,
+    });
+    expectFilter(query.where.mock.calls.at(-1)?.[0], ['status'], 'not-in', ['deleted']);
+
+    await repository.run({
+      connectionId: 'local',
+      runId: 'run_2',
+      source: `alias $drivers = fs.collection("drivers", [])
+from $drivers as d
+fs where d.deletedAt is null
+fs limit 1
+return fs.id(d) as id`,
+    });
+    expectFilter(query.where.mock.calls.at(-1)?.[0], ['deletedAt'], '==', null);
+
+    await repository.run({
+      connectionId: 'local',
+      runId: 'run_3',
+      source: `alias $drivers = fs.collection("drivers", [])
+from $drivers as d
+fs where d.deletedAt is not null
+fs limit 1
+return fs.id(d) as id`,
+    });
+    expectFilter(query.where.mock.calls.at(-1)?.[0], ['deletedAt'], '!=', null);
+
+    await repository.run({
+      connectionId: 'local',
+      runId: 'run_4',
+      source: `alias $drivers = fs.collection("drivers", [])
+from $drivers as d
+fs where fs.arrayContainsAny(d.tags, ["admin", "staff"])
+fs limit 1
+return fs.id(d) as id`,
+    });
+    expectFilter(
+      query.where.mock.calls.at(-1)?.[0],
+      ['tags'],
+      'array-contains-any',
+      ['admin', 'staff'],
+    );
+  });
+
   it('pages live reads and caps pages by read budget', async () => {
     const query = fakeQuery([
       [fakeSnapshot('ord_1', 'orders/ord_1', {})],
@@ -589,6 +646,16 @@ function expectFieldPath(path: readonly string[]) {
   };
 }
 
+function expectFilter(
+  filter: unknown,
+  path: readonly string[],
+  operator: string,
+  value: unknown,
+) {
+  expect(filter).toMatchObject({ operator, value });
+  expect((filter as { readonly field?: FieldPath; }).field).toEqual(expectFieldPath(path));
+}
+
 function providerFor(db: unknown): AdminFirestoreProvider {
   return {
     getFirestoreConnection: vi.fn(async (connectionId: string) => ({
@@ -645,10 +712,10 @@ function project(projectId: string): ProjectSummary {
   };
 }
 
-async function waitUntil(predicate: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  throw new Error('Timed out waiting for condition.');
+function waitUntil(predicate: () => boolean, attempt = 0): Promise<void> {
+  if (predicate()) return Promise.resolve();
+  if (attempt >= 20) return Promise.reject(new Error('Timed out waiting for condition.'));
+  return new Promise((resolve) => setTimeout(resolve, 0)).then(() =>
+    waitUntil(predicate, attempt + 1)
+  );
 }

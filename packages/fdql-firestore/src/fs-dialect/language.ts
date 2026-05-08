@@ -104,6 +104,16 @@ export const firestoreLanguage: FdqlProviderLanguageMetadata = {
       name: 'fs.projectId',
     },
     {
+      detail: 'Database id for a Firestore row',
+      insertText: 'fs.databaseId(${1:row})',
+      name: 'fs.databaseId',
+    },
+    {
+      detail: 'Parent path for a Firestore row',
+      insertText: 'fs.parentPath(${1:row})',
+      name: 'fs.parentPath',
+    },
+    {
       detail: 'Firestore document reference value',
       insertText: 'fs.ref(${1:rowOrPath})',
       name: 'fs.ref',
@@ -117,6 +127,11 @@ export const firestoreLanguage: FdqlProviderLanguageMetadata = {
       detail: 'Firestore array-contains predicate',
       insertText: 'fs.arrayContains(${1:field}, ${2:value})',
       name: 'fs.arrayContains',
+    },
+    {
+      detail: 'Firestore array-contains-any predicate',
+      insertText: 'fs.arrayContainsAny(${1:field}, ${2:values})',
+      name: 'fs.arrayContainsAny',
     },
   ],
 };

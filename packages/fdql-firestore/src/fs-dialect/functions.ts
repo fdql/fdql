@@ -15,8 +15,11 @@ import { isProviderRow, rowArg } from './helpers.ts';
 
 export const firestoreValueFunctions = new Set([
   'fs.arrayContains',
+  'fs.arrayContainsAny',
+  'fs.databaseId',
   'fs.fieldPath',
   'fs.id',
+  'fs.parentPath',
   'fs.path',
   'fs.projectId',
   'fs.ref',
@@ -35,6 +38,18 @@ export function evaluateFirestoreCall(input: FdqlProviderCallEvaluationInput): F
     const row = rowArg(input.args[0], input.context);
     const projectId = isProviderRow(row) ? providerContextValue(row, 'projectId') : undefined;
     return typeof projectId === 'string' ? stringValue(projectId) : missingValue;
+  }
+  if (input.name === 'fs.databaseId') {
+    const row = rowArg(input.args[0], input.context);
+    if (!isProviderRow(row)) return missingValue;
+    const databaseId = providerContextValue(row, 'databaseId');
+    return stringValue(typeof databaseId === 'string' ? databaseId : '(default)');
+  }
+  if (input.name === 'fs.parentPath') {
+    const row = rowArg(input.args[0], input.context);
+    return isProviderRow(row)
+      ? stringValue(row.path.split('/').slice(0, -1).join('/'))
+      : missingValue;
   }
   if (input.name === 'fs.ref') {
     const row = rowArg(input.args[0], input.context);
@@ -60,6 +75,15 @@ export function evaluateFirestoreCall(input: FdqlProviderCallEvaluationInput): F
     const value = input.evaluate(input.args[1]!, input.context);
     return booleanValue(
       array.kind === 'array' && array.value.some((item) => equalValues(item, value)),
+    );
+  }
+  if (input.name === 'fs.arrayContainsAny') {
+    const array = input.evaluate(input.args[0]!, input.context);
+    const values = input.evaluate(input.args[1]!, input.context);
+    return booleanValue(
+      array.kind === 'array'
+        && values.kind === 'array'
+        && values.value.some((value) => array.value.some((item) => equalValues(item, value))),
     );
   }
   return missingValue;

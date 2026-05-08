@@ -154,7 +154,15 @@ export function walkExpression(
     for (const entry of expression.entries) walkExpression(entry.value, visit, expression);
   } else if (expression.kind === 'call') {
     for (const arg of expression.args) walkExpression(arg, visit, expression);
+  } else if (expression.kind === 'case') {
+    for (const branch of expression.branches) {
+      walkExpression(branch.condition, visit, expression);
+      walkExpression(branch.value, visit, expression);
+    }
+    if (expression.elseExpression) walkExpression(expression.elseExpression, visit, expression);
   } else if (expression.kind === 'unary') {
+    walkExpression(expression.expression, visit, expression);
+  } else if (expression.kind === 'postfix') {
     walkExpression(expression.expression, visit, expression);
   } else if (expression.kind === 'binary') {
     walkExpression(expression.left, visit, expression);

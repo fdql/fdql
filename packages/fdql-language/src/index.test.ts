@@ -19,7 +19,7 @@ describe('FDQL language service', () => {
       expect.arrayContaining(['fs where', 'fs order by', 'fs limit']),
     );
     expect(labels(service.metadata.expressionFunctions)).toEqual(
-      expect.arrayContaining(['timestamp', 'fs.id', 'fs.fieldPath']),
+      expect.arrayContaining(['timestamp', 'exists', 'missing', 'fs.id', 'fs.fieldPath']),
     );
     expect(labels(service.metadata.aggregateFunctions)).toEqual(
       expect.arrayContaining(['fs.count', 'fs.sum', 'fs.avg', 'fs.min', 'fs.max']),
@@ -65,7 +65,14 @@ describe('FDQL language service', () => {
       ]),
     );
     expect(completionLabels(service, 'return ', 1, 8)).toEqual(
-      expect.arrayContaining(['timestamp', 'entries', 'fs.id', 'fs.fieldPath']),
+      expect.arrayContaining([
+        'timestamp',
+        'entries',
+        'exists',
+        'missing',
+        'fs.id',
+        'fs.fieldPath',
+      ]),
     );
     expect(completionLabels(service, 'from ', 1, 6)).toEqual(
       expect.arrayContaining(['fs.aggregate']),
@@ -194,7 +201,14 @@ return entries(o.entriesById).`;
     );
     expect(completionLabelsAtEnd(service, 'alias $events = fs.')).not.toContain('fs.id');
     expect(completionLabelsAtEnd(service, 'return fs.')).toEqual(
-      expect.arrayContaining(['fs.id', 'fs.path', 'fs.projectId']),
+      expect.arrayContaining([
+        'fs.arrayContainsAny',
+        'fs.databaseId',
+        'fs.id',
+        'fs.parentPath',
+        'fs.path',
+        'fs.projectId',
+      ]),
     );
     expect(completionLabelsAtEnd(service, 'return fs.')).not.toContain('fs.collection');
   });

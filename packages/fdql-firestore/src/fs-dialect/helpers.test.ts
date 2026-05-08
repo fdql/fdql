@@ -106,14 +106,20 @@ describe('Firestore FDQL helpers', () => {
 
   it('walks expression trees with parent context', () => {
     const expression: FdqlExpression = {
-      kind: 'binary',
-      left: field('row', 'active'),
-      operator: '=',
-      right: {
-        args: [literal(true)],
-        kind: 'call',
-        name: 'lower',
-      },
+      branches: [{
+        condition: {
+          expression: field('row', 'deletedAt'),
+          kind: 'postfix',
+          operator: 'is null',
+        },
+        value: {
+          kind: 'binary',
+          left: field('row', 'score'),
+          operator: '+',
+          right: literal(1),
+        },
+      }],
+      kind: 'case',
     };
     const visited: string[] = [];
 
@@ -122,10 +128,12 @@ describe('Firestore FDQL helpers', () => {
     });
 
     expect(visited).toEqual([
-      'root>binary',
+      'root>case',
+      'case>postfix',
+      'postfix>field',
+      'case>binary',
       'binary>field',
-      'binary>call',
-      'call>literal',
+      'binary>literal',
     ]);
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseExpression } from '../expression.ts';
 import { createProviderDialectRegistry } from '../provider.ts';
 import { testProviderDialect } from '../test-helpers/provider.ts';
 import type { FdqlDiagnostic, FdqlProjectionItem, FdqlStage } from '../types.ts';
@@ -61,6 +62,28 @@ describe('FDQL compiler expression validation', () => {
       expect.objectContaining({ code: 'FDQL_INVALID_SPREAD_PROJECTION' }),
     );
   });
+
+  it('accepts common read expressions in local stages', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+
+    validateLocalStageExpressions(
+      {
+        column: 1,
+        expression: parse(
+          'exists(order.status) and case when order.score + 1 > 10 then true else false end',
+        ),
+        kind: 'filter',
+        line: 1,
+        range: sourceRange(),
+      },
+      {},
+      new Set(['order']),
+      providers,
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual([]);
+  });
 });
 
 function spread(name: string): FdqlProjectionItem {
@@ -75,4 +98,12 @@ function spread(name: string): FdqlProjectionItem {
 
 function sourceRange(): FdqlStage['range'] {
   return { endColumn: 1, endLine: 1, startColumn: 1, startLine: 1 };
+}
+
+function parse(source: string) {
+  const result = parseExpression(source, 1);
+  if (!result.expression) {
+    throw new Error(result.diagnostics.map((item) => item.message).join('\n'));
+  }
+  return result.expression;
 }

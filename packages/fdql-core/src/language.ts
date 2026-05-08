@@ -5,15 +5,23 @@ export const fdqlCoreKeywords = [
   'and',
   'as',
   'by',
+  'case',
   'clear',
   'desc',
+  'else',
+  'end',
   'from',
   'in',
+  'is',
+  'missing',
+  'not',
+  'null',
   'or',
   'return',
   'set',
   'then',
   'union all',
+  'when',
 ] as const;
 
 export type FdqlCoreKeyword = typeof fdqlCoreKeywords[number];
@@ -57,6 +65,12 @@ const fdqlCoreExpressionFunctionByName = {
   },
   lower: {
     insertText: 'lower(${1:value})',
+  },
+  exists: {
+    insertText: 'exists(${1:value})',
+  },
+  missing: {
+    insertText: 'missing(${1:value})',
   },
   entries: {
     insertText: 'entries(${1:map})',
@@ -108,6 +122,9 @@ const fdqlCoreSnippetByName = {
   },
   'then filter': {
     insertText: 'then filter ${1:expression}',
+  },
+  'case expression': {
+    insertText: 'case when ${1:condition} then ${2:value} else ${3:fallback} end',
   },
   'then lookup many': {
     insertText: 'then lookup many $${1:source} as ${2:rows}',

@@ -67,6 +67,76 @@ return fs.id(v) as id, v.version`,
       await page.getByRole('tab', { name: 'Table' }).click();
     });
 
+    await test.step('native Firestore predicates support common read operators', async () => {
+      await runFdql(
+        page,
+        `alias $drivers = fs.collection("${data.drivers}", ["firstName", "tags", "retiredAt"])
+
+from $drivers as d
+fs where d.firstName not in ["Alex"]
+fs limit 1
+return fs.id(d) as id, "notIn" as check
+
+union all
+
+from $drivers as d
+fs where d.retiredAt is null
+fs limit 1
+return fs.id(d) as id, "isNull" as check
+
+union all
+
+from $drivers as d
+fs where d.retiredAt is not null
+fs limit 1
+return fs.id(d) as id, "isNotNull" as check
+
+union all
+
+from $drivers as d
+fs where fs.arrayContainsAny(d.tags, ["admin", "staff"])
+fs limit 1
+return fs.id(d) as id, "arrayAny" as check`,
+      );
+
+      await expectFdqlTable(
+        page,
+        ['id', 'check'],
+        [
+          ['drv_1', 'notIn'],
+          ['drv_1', 'isNull'],
+          ['drv_2', 'isNotNull'],
+          ['drv_1', 'arrayAny'],
+        ],
+      );
+      await expect(page.getByText('4 rows')).toBeVisible();
+    });
+
+    await test.step('local expressions support case, math, exists, and missing', async () => {
+      await runFdql(
+        page,
+        `alias $drivers = fs.collection("${data.drivers}", ["firstName", "score", "retiredAt", "metadata"])
+
+from $drivers as d
+fs where fs.id(d) = "drv_1"
+
+then filter exists(d.retiredAt) and missing(d.archivedAt)
+
+return
+  case when d.score + 1 > 10 then "podium" else "field" end as bucket,
+  d.score * 2 as doubled,
+  -d.score + 15 as adjusted,
+  d.unknown is missing as unknownMissing`,
+      );
+
+      await expectFdqlTable(
+        page,
+        ['bucket', 'doubled', 'adjusted', 'unknownMissing'],
+        [['podium', '24', '3', 'true']],
+      );
+      await expect(page.getByText('1 rows')).toBeVisible();
+    });
+
     await test.step('read budget stops after partial rows', async () => {
       await runFdql(
         page,
@@ -621,11 +691,17 @@ async function seedFdqlReadData(): Promise<{
     setFirestoreEmulatorDocument(`${drivers}/drv_1`, {
       firstName: 'Vini',
       metadata: { region: 'apac', tier: 'gold' },
+      retiredAt: null,
+      score: 12,
+      tags: ['admin', 'staff'],
       teamId: 'team_1',
     }),
     setFirestoreEmulatorDocument(`${drivers}/drv_2`, {
       firstName: 'Alex',
       metadata: { region: 'emea', tier: 'silver' },
+      retiredAt: '2026-01-01T00:00:00.000Z',
+      score: 4,
+      tags: ['guest'],
       teamId: 'team_2',
     }),
     setFirestoreEmulatorDocument(`${eventDrivers}/steam_ada`, {

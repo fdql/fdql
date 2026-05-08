@@ -21,15 +21,14 @@ Scope: read features only. Write operations are out of this tracker. This docume
 - Subcollection reads and Firestore aggregate reads are implemented.
 - Treat subcollection reads as dynamic provider source expressions, not only top-level aliases, because they depend on the current row.
 - Provider split is complete: `fdql-core` is provider-neutral, `fdql-firestore` owns Firestore dialect semantics, and `fdql` is the bundled facade.
-- Add expression completeness after provider read shape is stronger.
+- Keep expression completeness incremental around real read workflows.
 - Keep editor/language improvements incremental and driven by implemented syntax.
 
 Current priority order:
 
-1. Expression completeness: `is null`, `is missing`, `exists`, `not in`, `case`, math, and `fs.arrayContainsAny`.
-2. Firestore provider validation parity: operator/value/index-shape diagnostics before execution.
-3. Language/editor follow-up: context-aware completions, field hints, and diagnostics for masked-out fields.
-4. Lineage/source exploration for lookup, unwind, union, and aggregate output.
+1. Firestore provider validation parity: broader operator/value/index-shape diagnostics before execution.
+2. Language/editor follow-up: context-aware completions, field hints, and diagnostics for masked-out fields.
+3. Lineage/source exploration for lookup, unwind, union, and aggregate output.
 
 ## Current Read Slice
 
@@ -79,8 +78,6 @@ Current implementation does not parse or execute:
 - `fs.subcollections(...)`.
 - Dynamic field masks.
 - Final global stages after `union all`.
-- `not in`, `is null`, `case`, or math expressions.
-- `fs.parentPath(row)` and `fs.databaseId(row)` metadata helpers.
 
 ## Implemented Read Syntax
 
@@ -175,10 +172,13 @@ Implemented expression/runtime basics:
 - qualified field paths like `d.firstName`
 - comparisons: `=`, `!=`, `<`, `<=`, `>`, `>=`
 - `and`, `or`, unary `not`
-- `in`
-- `fs.id(row)`, `fs.path(row)`, `fs.projectId(row)`
+- `in`, `not in`
+- `is null`, `is not null`, `is missing`, `is not missing`, `exists(...)`, `missing(...)`
+- `case when ... then ... else ... end`
+- numeric math: `+`, `-`, `*`, `/`, `%`, unary `-`
+- `fs.id(row)`, `fs.path(row)`, `fs.projectId(row)`, `fs.parentPath(row)`, `fs.databaseId(row)`
 - `timestamp(value)`
-- `fs.arrayContains(field, value)`
+- `fs.arrayContains(field, value)`, `fs.arrayContainsAny(field, values)`
 - `lower(value)`
 - `entries(map)`
 - `mapGet(map, key)`
@@ -222,24 +222,24 @@ These block the read implementation from being honest at production scale.
 
 ## P2 Expression Gaps
 
-| Expression                | Status  | Notes                                                                 |
-| ------------------------- | ------- | --------------------------------------------------------------------- |
-| `not in`                  | Missing | Parser supports unary `not`, not `not in` as one operator.            |
-| `is null` / `is not null` | Missing | Needs parser and Firestore/local semantics.                           |
-| `exists` / `missing`      | Partial | Runtime now distinguishes missing from null; syntax still missing.    |
-| `fs.arrayContainsAny`     | Missing | Firestore-native operator.                                            |
-| `case`                    | Missing | Local expression only.                                                |
-| math expressions          | Missing | `+`, `-`, `*`, `/`, `%` not parsed.                                   |
-| `mapGet(map, key)`        | Done    | Local dynamic map lookup; missing keys return missing.                |
-| `entries(map)`            | Done    | Local helper for map-entry unwind.                                    |
-| `timestamp(value)`        | Done    | Core constructor.                                                     |
-| `bytes(value)`            | Done    | Core constructor.                                                     |
-| `geoPoint(lat, lng)`      | Done    | Core constructor.                                                     |
-| `fs.ref(row)`             | Done    | Firestore document reference provider value.                          |
-| `fs.ref(path)`            | Done    | Firestore document reference provider value constructor.              |
-| `fs.fieldPath(...)`       | Done    | Exact field-path segments for masks and live Firestore filters/order. |
-| `fs.parentPath(row)`      | Missing | Metadata function from spec.                                          |
-| `fs.databaseId(row)`      | Missing | Useful with named database reads.                                     |
+| Expression                | Status | Notes                                                                 |
+| ------------------------- | ------ | --------------------------------------------------------------------- |
+| `not in`                  | Done   | Local and Firestore-native, with Firestore `not-in` constraints.      |
+| `is null` / `is not null` | Done   | Local and Firestore-native null checks.                               |
+| `exists` / `missing`      | Done   | Local helpers backed by missing/null-aware FDQL values.               |
+| `fs.arrayContainsAny`     | Done   | Firestore-native operator.                                            |
+| `case`                    | Done   | Local searched case expression.                                       |
+| math expressions          | Done   | Numeric-only `+`, `-`, `*`, `/`, `%`, and unary `-`.                  |
+| `mapGet(map, key)`        | Done   | Local dynamic map lookup; missing keys return missing.                |
+| `entries(map)`            | Done   | Local helper for map-entry unwind.                                    |
+| `timestamp(value)`        | Done   | Core constructor.                                                     |
+| `bytes(value)`            | Done   | Core constructor.                                                     |
+| `geoPoint(lat, lng)`      | Done   | Core constructor.                                                     |
+| `fs.ref(row)`             | Done   | Firestore document reference provider value.                          |
+| `fs.ref(path)`            | Done   | Firestore document reference provider value constructor.              |
+| `fs.fieldPath(...)`       | Done   | Exact field-path segments for masks and live Firestore filters/order. |
+| `fs.parentPath(row)`      | Done   | Parent collection path metadata helper.                               |
+| `fs.databaseId(row)`      | Done   | Returns named database id or `(default)`.                             |
 
 ## P3 Product/Quality Gaps
 
@@ -259,7 +259,6 @@ These block the read implementation from being honest at production scale.
 
 ## Suggested Next Order
 
-1. Complete common read expressions.
-2. Tighten Firestore provider validation diagnostics.
-3. Improve context-aware editor assistance.
-4. Add lineage/source exploration for aggregate and expanded rows.
+1. Tighten Firestore provider validation diagnostics.
+2. Improve context-aware editor assistance.
+3. Add lineage/source exploration for aggregate and expanded rows.

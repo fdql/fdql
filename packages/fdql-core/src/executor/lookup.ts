@@ -284,7 +284,20 @@ function expressionHasMissingCorrelatedValue(
       expressionHasMissingCorrelatedValue(entry.value, request, context)
     );
   }
+  if (expression.kind === 'case') {
+    return expression.branches.some((branch) =>
+      expressionHasMissingCorrelatedValue(branch.condition, request, context)
+      || expressionHasMissingCorrelatedValue(branch.value, request, context)
+    )
+      || Boolean(
+        expression.elseExpression
+          && expressionHasMissingCorrelatedValue(expression.elseExpression, request, context),
+      );
+  }
   if (expression.kind === 'unary') {
+    return expressionHasMissingCorrelatedValue(expression.expression, request, context);
+  }
+  if (expression.kind === 'postfix') {
     return expressionHasMissingCorrelatedValue(expression.expression, request, context);
   }
   if (expression.kind === 'binary') {
@@ -314,7 +327,20 @@ function expressionContainsCorrelatedReference(
       expressionContainsCorrelatedReference(entry.value, request)
     );
   }
+  if (expression.kind === 'case') {
+    return expression.branches.some((branch) =>
+      expressionContainsCorrelatedReference(branch.condition, request)
+      || expressionContainsCorrelatedReference(branch.value, request)
+    )
+      || Boolean(
+        expression.elseExpression
+          && expressionContainsCorrelatedReference(expression.elseExpression, request),
+      );
+  }
   if (expression.kind === 'unary') {
+    return expressionContainsCorrelatedReference(expression.expression, request);
+  }
+  if (expression.kind === 'postfix') {
     return expressionContainsCorrelatedReference(expression.expression, request);
   }
   if (expression.kind === 'binary') {

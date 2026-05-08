@@ -383,17 +383,33 @@ function filterFromExpression(
     );
   }
   if (expression.kind === 'binary') {
+    const value = valueFor(db, expression.right, request);
+    validateProviderFilterValue(expression.operator, value, expression, request);
     return Filter.where(
       fieldPathFromExpression(expression.left, request.rowAlias),
       operatorFor(expression.operator),
-      valueFor(db, expression.right, request),
+      value,
     );
   }
-  if (expression.kind === 'call' && expression.name === 'fs.arrayContains') {
+  if (expression.kind === 'postfix') {
+    if (expression.operator === 'is null' || expression.operator === 'is not null') {
+      return Filter.where(
+        fieldPathFromExpression(expression.expression, request.rowAlias),
+        expression.operator === 'is null' ? '==' : '!=',
+        null,
+      );
+    }
+    return null;
+  }
+  if (
+    expression.kind === 'call'
+    && (expression.name === 'fs.arrayContains' || expression.name === 'fs.arrayContainsAny')
+  ) {
+    const value = valueFor(db, expression.args[1]!, request);
     return Filter.where(
       fieldPathFromExpression(expression.args[0]!, request.rowAlias),
-      'array-contains',
-      valueFor(db, expression.args[1]!, request),
+      expression.name === 'fs.arrayContains' ? 'array-contains' : 'array-contains-any',
+      value,
     );
   }
   return null;
@@ -470,7 +486,24 @@ function operatorFor(
     return operator;
   }
   if (operator === 'in') return 'in';
+  if (operator === 'not in') return 'not-in';
   return '==';
+}
+
+function validateProviderFilterValue(
+  operator: Extract<FdqlExpression, { readonly kind: 'binary'; }>['operator'],
+  value: unknown,
+  expression: FdqlExpression,
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
+): void {
+  if (operator !== 'not in') return;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 10) {
+    throw errorForExpression(
+      '`not in` needs 1 to 10 comparison values.',
+      expression,
+      request,
+    );
+  }
 }
 
 function valueFor(
@@ -557,6 +590,8 @@ function expressionLabel(expression: FdqlExpression): string {
       }`;
     case 'call':
       return `${expression.name}(${expression.args.map(expressionLabel).join(', ')})`;
+    case 'case':
+      return 'case';
     case 'field':
       return expression.path.join('.');
     case 'literal':
@@ -567,8 +602,12 @@ function expressionLabel(expression: FdqlExpression): string {
           ', ',
         )
       }}`;
+    case 'postfix':
+      return `${expressionLabel(expression.expression)} ${expression.operator}`;
     case 'unary':
-      return `${expression.operator} ${expressionLabel(expression.expression)}`;
+      return `${expression.operator === 'negate' ? '-' : expression.operator} ${
+        expressionLabel(expression.expression)
+      }`;
     case 'wildcard':
       return '*';
   }
