@@ -722,6 +722,8 @@ Rules:
 - `from fs.aggregate $source` emits exactly one pipeline row.
 - `then fs.aggregate $source` preserves the current row and appends yielded bindings.
 - `then fs.aggregate $source of parent` binds a parent-bound subcollection source per input row.
+- Pipeline provider aggregates can override query-level cache with `cache off`, `cache run`, `cache persistent`, or `cache persistent 60s`.
+- Top-level provider aggregates are not cached.
 - Aggregate `yield` aliases become current row bindings.
 - `yield { ... } as name` creates one FDQL map binding.
 - `as providerRowAlias` declares a provider row alias for provider clauses and aggregate field expressions.
@@ -962,13 +964,13 @@ then lookup many $orders of c as orders
 
 Rules:
 
-- `fs.subcollection("orders/ord_1", "items", fields?)` reads static collection path `orders/ord_1/items` and can be used in `from` or `lookup`.
-- `fs.subcollection(parent, "items", fields?)` reads from the current parent row and is lookup-only.
-- `fs.subcollection("items", fields?)` creates a template and needs `of parent` in lookup.
+- `fs.subcollection("orders/ord_1", "items", fields?)` reads static collection path `orders/ord_1/items` and can be used in `from`, `lookup`, or `fs.aggregate`.
+- `fs.subcollection(parent, "items", fields?)` reads from the current parent row and is valid in lookup or pipeline `fs.aggregate`.
+- `fs.subcollection("items", fields?)` creates a template and needs `of parent` in lookup or pipeline `fs.aggregate`.
 - Static parent path strings must be document paths.
 - Subcollection names must be one collection id, not a path.
-- Missing/null parents skip optional lookup reads; `lookup required one` drops the row.
-- Subcollection lookup shows read counts per parent.
+- Missing/null parents skip optional lookup reads and attach aggregate defaults in pipeline `fs.aggregate`; `lookup required one` drops the row.
+- Subcollection lookup and aggregate stages show read/aggregate counts per parent.
 
 ## Union All
 
@@ -1406,18 +1408,18 @@ persistent
 
 Rules:
 
-- Run cache dedupes repeated lookup reads during one query run.
-- Persistent cache dedupes lookup reads across runs using the app profile cache database.
+- Run cache dedupes repeated lookup reads and pipeline provider aggregates during one query run.
+- Persistent cache dedupes lookup reads and pipeline provider aggregates across runs using the app profile cache database.
 - Persistent cache TTL uses `set fdql.cacheTtl = 60s|10m|6h|30d`; default is `24h`; maximum is `30d`.
-- Lookup stages can override query-level cache with `cache off`, `cache run`, `cache persistent`, or `cache persistent 60s`.
+- Lookup and pipeline provider aggregate stages can override query-level cache with `cache off`, `cache run`, `cache persistent`, or `cache persistent 60s`.
 - Cache modes are bare keywords, not strings.
 - Cache must be visible in execution stats.
-- Provider-native results and lookup results must not silently come from stale cache.
+- Provider-native results, lookup results, and pipeline aggregate results must not silently come from stale cache.
 - Failed, cancelled, timed out, budget-stopped, or partial provider reads must not be persisted.
 - Persistent cache size is capped at 256 MB and evicts least-recently-used entries.
 - Cache keys are canonical JSON hashed with SHA-256. Field mask order and provider `and`/`or` predicate order must not create different keys.
 - Cache keys store field paths as normalized segment arrays, so nested `"a.b"` and literal `fs.fieldPath("a.b")` stay distinct.
-- Cache keys include provider, connection/profile context, project, database, source, field mask, provider predicates, provider ordering, provider limit, and correlated lookup values.
+- Cache keys include provider, connection/profile context, project, database, source, field mask, provider predicates, provider ordering, provider limit, aggregate yield list, and correlated values.
 - Cache keys exclude aliases, row alias names, comments, whitespace, page size, read budget, timeout, and local pipeline stages.
 
 Manual cache commands:

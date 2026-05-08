@@ -191,16 +191,16 @@ Implemented expression/runtime basics:
 
 These block the read implementation from being honest at production scale.
 
-| Feature                          | Status  | Notes                                                                                                                                                                         |
-| -------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Live streaming/pages             | Done    | Live repo uses cursor pages and caps each page by configured page size and remaining read budget/provider limit.                                                              |
-| Read budget in live repo         | Done    | Runtime read requests cap Firestore page reads before docs are fetched.                                                                                                       |
-| Cancel in live repo              | Done    | App-level cancellation stops output deterministically and ignores late SDK page results. Admin SDK network abort is not guaranteed.                                           |
-| Timeout in live repo             | Done    | Page reads race against deadline and stop output deterministically, preserving partial rows/stats with timeout status.                                                        |
-| Cache modes                      | Done    | `off`, `run`, and `persistent` are implemented for lookup reads with TTL, hashed canonical keys, stats, desktop SQLite storage, and `clear cache` command execution.          |
-| Output row streaming             | Partial | Read events stream as provider rows arrive, but final row events are emitted after the branch source read and local stages finish.                                            |
-| Provider query validation parity | Partial | Firestore dialect validates simple provider shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.                                                          |
-| Field path fidelity              | Done    | Field masks carry segment arrays. Live Firestore maps `fs.fieldPath(...)` in masks/where/order to Admin `FieldPath`; mock support is limited to masks and normal field paths. |
+| Feature                          | Status  | Notes                                                                                                                                                                                                 |
+| -------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Live streaming/pages             | Done    | Live repo uses cursor pages and caps each page by configured page size and remaining read budget/provider limit.                                                                                      |
+| Read budget in live repo         | Done    | Runtime read requests cap Firestore page reads before docs are fetched.                                                                                                                               |
+| Cancel in live repo              | Done    | App-level cancellation stops output deterministically and ignores late SDK page results. Admin SDK network abort is not guaranteed.                                                                   |
+| Timeout in live repo             | Done    | Page reads race against deadline and stop output deterministically, preserving partial rows/stats with timeout status.                                                                                |
+| Cache modes                      | Done    | `off`, `run`, and `persistent` are implemented for lookup reads and pipeline provider aggregates with TTL, hashed canonical keys, stats, desktop SQLite storage, and `clear cache` command execution. |
+| Output row streaming             | Partial | Read events stream as provider rows arrive, but final row events are emitted after the branch source read and local stages finish.                                                                    |
+| Provider query validation parity | Partial | Firestore dialect validates simple provider shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.                                                                                  |
+| Field path fidelity              | Done    | Field masks carry segment arrays. Live Firestore maps `fs.fieldPath(...)` in masks/where/order to Admin `FieldPath`; mock support is limited to masks and normal field paths.                         |
 
 ## P1 Spec Features Not Implemented
 
@@ -210,7 +210,7 @@ These block the read implementation from being honest at production scale.
 | `lookup required one`                     | Done    | Drops rows when correlated values are missing or no match exists.                                                                               |
 | `lookup many`                             | Done    | Optional; missing correlated values attach `[]`, counts lookup reads separately, supports cache override.                                       |
 | `fs.aggregate`                            | Done    | Native provider aggregate at `from` or `then`; `yield` creates flat bindings or map bindings; supports cache on pipeline aggregates.            |
-| `fs.subcollection(parent, name, fields?)` | Done    | Supports static paths, dynamic lookup sources, and reusable templates with `of parent`.                                                         |
+| `fs.subcollection(parent, name, fields?)` | Done    | Supports static paths, dynamic lookup/aggregate sources, and reusable templates with `of parent`.                                               |
 | `fs.subcollections(parent)`               | Missing | Deferred child-collection-name discovery.                                                                                                       |
 | `unwind array`                            | Done    | Expands arrays into one row per item.                                                                                                           |
 | `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.                                                                             |
