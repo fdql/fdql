@@ -137,6 +137,41 @@ return
       await expect(page.getByText('1 rows')).toBeVisible();
     });
 
+    await test.step('invalid native query limits show issues before reads', async () => {
+      await runFdql(
+        page,
+        `alias $drivers = fs.collection("${data.drivers}", ["firstName", "score"])
+
+from $drivers as d
+fs where d.score >= 1
+fs order by d.firstName asc
+fs limit 1
+
+return fs.id(d) as id, d.score`,
+      );
+
+      await page.getByRole('tab', { name: /Issues/ }).click();
+      await expect(page.getByText('FDQL_UNSUPPORTED_FS_ORDER_BY')).toBeVisible();
+      await page.getByRole('tab', { name: /Results/ }).click();
+      await expect(page.getByText('No rows yet')).toBeVisible();
+      await expect(page.getByRole('table')).toHaveCount(0);
+
+      await runFdql(
+        page,
+        `alias $drivers = fs.collection("${data.drivers}", ["firstName", "score"])
+
+from $drivers as d
+fs where d.score >= 1
+fs order by d.score desc
+fs limit 1
+
+return fs.id(d) as id, d.score`,
+      );
+
+      await expectFdqlTable(page, ['id', 'score'], [['drv_1', '12']]);
+      await expect(page.getByText('1 reads')).toBeVisible();
+    });
+
     await test.step('read budget stops after partial rows', async () => {
       await runFdql(
         page,

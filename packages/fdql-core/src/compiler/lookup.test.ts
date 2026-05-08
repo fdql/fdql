@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseFdql } from '../parser.ts';
-import { createProviderDialectRegistry } from '../provider.ts';
+import { createProviderDialectRegistry, type FdqlProviderDialect } from '../provider.ts';
 import { testProviderDialect } from '../test-helpers/provider.ts';
 import type { FdqlDiagnostic, FdqlLookupStage, FdqlProgram, FdqlStage } from '../types.ts';
 import type { ResolvedAliasValue } from './aliases.ts';
@@ -161,6 +161,25 @@ describe('FDQL compiler lookup stages', () => {
     });
   });
 
+  it('passes lookup provider clauses to provider query validation', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    compileLookupStage(
+      lookupStage(`then lookup many $teams as team
+  mem where team.id = p.teamId
+  mem order by team.name asc`),
+      aliases,
+      new Set(['p']),
+      {},
+      {},
+      createProviderDialectRegistry([queryValidationProvider()]),
+      diagnostics,
+    );
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'TEST_PROVIDER_QUERY', line: 5 }),
+    );
+  });
+
   it('rejects TTL on non-persistent lookup cache', () => {
     const diagnostics: FdqlDiagnostic[] = [];
     compileLookupStage(
@@ -195,4 +214,19 @@ return *`);
 
 function isLookupStage(stage: FdqlStage): stage is FdqlLookupStage {
   return stage.kind === 'lookup';
+}
+
+function queryValidationProvider(): FdqlProviderDialect {
+  return {
+    ...testProviderDialect,
+    validateQuery(input) {
+      if (!input.lookup || !input.predicate || !input.orderBy) return;
+      input.diagnostics.push({
+        code: 'TEST_PROVIDER_QUERY',
+        ...(input.orderByLine === undefined ? {} : { line: input.orderByLine }),
+        message: 'Lookup provider query validation ran.',
+        severity: 'error',
+      });
+    },
+  };
 }

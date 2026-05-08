@@ -46,6 +46,7 @@ export function compileLookupStage(
   const sourceDialect = providers[sourceProvider];
   const cacheTtlMs = resolveLookupCacheTtl(stage, diagnostics);
   let providerPredicate: FdqlExpression | undefined;
+  let providerPredicateLine: number | undefined;
   let providerOrderBy: FdqlProviderOrderByClause | undefined;
   let providerOrderByLine: number | undefined;
   let providerLimit: number | undefined;
@@ -78,6 +79,7 @@ export function compileLookupStage(
       providerPredicate = providerPredicate
         ? { kind: 'binary', left: providerPredicate, operator: 'and', right: clause.expression }
         : clause.expression;
+      providerPredicateLine ??= clause.line;
     } else if (clause.kind === 'providerOrderBy') {
       if (providerOrderByLine !== undefined) {
         diagnostics.push(
@@ -120,6 +122,18 @@ export function compileLookupStage(
       providerLimitLine = clause.line;
     }
   }
+
+  sourceDialect?.validateQuery?.({
+    aliases: scalarAliases,
+    availableRowAliases: rowsForLookup,
+    diagnostics,
+    lookup: true,
+    ...(providerOrderBy ? { orderBy: providerOrderBy } : {}),
+    ...(providerOrderByLine === undefined ? {} : { orderByLine: providerOrderByLine }),
+    ...(providerPredicate ? { predicate: providerPredicate } : {}),
+    ...(providerPredicateLine === undefined ? {} : { predicateLine: providerPredicateLine }),
+    rowAlias: stage.rowAlias,
+  });
 
   return {
     ...(stage.cache ? { cache: stage.cache } : {}),

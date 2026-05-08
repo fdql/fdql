@@ -26,9 +26,7 @@ export interface ResolvedPreambleSettings {
   readonly settings: FdqlExecutionSettings;
 }
 
-export function defaultProviderContext(
-  options: FdqlCompileOptions,
-): FdqlDefaultProviderContext {
+function defaultProviderContext(options: FdqlCompileOptions): FdqlDefaultProviderContext {
   return cloneProviderContext(options.defaultProviderContext ?? {});
 }
 

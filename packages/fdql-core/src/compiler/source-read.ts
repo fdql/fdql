@@ -35,7 +35,7 @@ import {
 } from './provider-aggregate.ts';
 import { type ResolvedPreambleSettings, resolveSettings } from './settings.ts';
 
-export function providerRegistry(options: FdqlCompileOptions): FdqlProviderDialectRegistry {
+function providerRegistry(options: FdqlCompileOptions): FdqlProviderDialectRegistry {
   return createProviderDialectRegistry(options.providers ?? []);
 }
 
@@ -111,6 +111,7 @@ export function compileSingleFdqlRead(
   const availableRowAliases = new Set([rowAlias]);
   const localStages: FdqlLocalPlanStage[] = [];
   let providerPredicate: FdqlExpression | undefined;
+  let providerPredicateLine: number | undefined;
   let providerOrderBy: FdqlProviderOrderByClause | undefined;
   let providerOrderByLine: number | undefined;
   let providerLimit: number | undefined;
@@ -143,6 +144,7 @@ export function compileSingleFdqlRead(
         providerPredicate = providerPredicate
           ? { kind: 'binary', left: providerPredicate, operator: 'and', right: stage.expression }
           : stage.expression;
+        providerPredicateLine ??= stage.line;
         break;
       case 'providerOrderBy':
         if (
@@ -285,6 +287,18 @@ export function compileSingleFdqlRead(
     );
   }
 
+  sourceDialect?.validateQuery?.({
+    aliases: scalarAliasValues,
+    availableRowAliases,
+    diagnostics,
+    lookup: false,
+    ...(providerOrderBy ? { orderBy: providerOrderBy } : {}),
+    ...(providerOrderByLine === undefined ? {} : { orderByLine: providerOrderByLine }),
+    ...(providerPredicate ? { predicate: providerPredicate } : {}),
+    ...(providerPredicateLine === undefined ? {} : { predicateLine: providerPredicateLine }),
+    rowAlias,
+  });
+
   if (
     !providerLimit && !preamble.settings.allowUnboundedReads
     && !sourceDialect?.hasBoundedPredicate?.(providerPredicate, rowAlias)
@@ -359,6 +373,7 @@ function compileAggregateSourceRead(input: {
   const providerRowAlias = from.providerRowAlias;
   const providerClauseRowAliases = new Set(providerRowAlias ? [providerRowAlias] : []);
   let providerPredicate: FdqlExpression | undefined;
+  let providerPredicateLine: number | undefined;
   const localStages: FdqlLocalPlanStage[] = [];
   let returnStage: FdqlReturnStage | undefined;
   let returnLine: number | undefined;
@@ -414,7 +429,18 @@ function compileAggregateSourceRead(input: {
     providerPredicate = providerPredicate
       ? { kind: 'binary', left: providerPredicate, operator: 'and', right: clause.expression }
       : clause.expression;
+    providerPredicateLine ??= clause.line;
   }
+
+  sourceDialect?.validateQuery?.({
+    aliases: input.scalarAliasValues,
+    availableRowAliases: providerClauseRowAliases,
+    diagnostics: input.diagnostics,
+    lookup: false,
+    ...(providerPredicate ? { predicate: providerPredicate } : {}),
+    ...(providerPredicateLine === undefined ? {} : { predicateLine: providerPredicateLine }),
+    rowAlias: providerRowAlias ?? '__aggregate',
+  });
 
   const aggregate = compileProviderAggregatePlan({
     diagnostics: input.diagnostics,

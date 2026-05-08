@@ -385,7 +385,7 @@ Rules:
 
 ```sql
 fs where d.active = true
-fs where d.status in ("active", "pending")
+fs where d.status in ["active", "pending"]
 fs where d.status not in ["deleted", "archived"]
 fs where d.deletedAt is null
 fs where d.archivedAt is not null
@@ -402,12 +402,16 @@ Rules:
 
 - `fs where` must use Firestore-supported operators and value shapes.
 - `and`, `or`, and parentheses are valid when Firestore can compile the filter.
-- Firestore `or`, `in`, and `arrayContainsAny` limits apply.
+- `in` and `arrayContainsAny` need 1 to 30 comparison values when values are statically known.
+- `not in` needs 1 to 10 comparison values when values are statically known.
+- `not in` cannot be combined with `or`, `in`, `arrayContainsAny`, `!=`, `is not null`, or another `not in`.
+- Firestore supports only one negative filter in a native query: `!=`, `not in`, or `is not null`.
+- Firestore supports only one `arrayContainsAny` in the same disjunction.
+- Firestore cannot combine `fs.arrayContains(...)` and `fs.arrayContainsAny(...)` in the same disjunction.
 - `fs.id(rowAlias)` inside an `fs` clause means the Firestore document id for that document row binding.
 - `fs.fieldPath(...)` inside an `fs` clause names exact Firestore field path segments.
-- Correlated values are allowed on the value side in lookup stages.
+- Correlated values are allowed on the value side in lookup and pipeline aggregate stages. Dynamic `in`, `arrayContainsAny`, and `not in` value shape is checked at runtime before Firestore receives the query.
 - Local expressions such as `lower(d.name) = "vini"` are invalid in `fs where`; use `filter`.
-- `not in` must have 1 to 10 values and cannot be combined with `or`, `in`, `arrayContainsAny`, `!=`, or another `not in`.
 - `is missing`, `exists(...)`, `missing(...)`, `case`, and math expressions are local-only and invalid in `fs where`.
 
 `fs order by` maps to Firestore ordering:
@@ -416,6 +420,8 @@ Rules:
 fs order by d.createdAt desc
 fs order by fs.fieldPath("literal.with.dot") asc
 ```
+
+If a query has `<`, `<=`, `>`, `>=`, `!=`, `not in`, or `is not null` and also has `fs order by`, the first `fs order by` must use the same Firestore provider field. If no `fs order by` exists, Firestore implicit ordering is allowed.
 
 `fs limit` caps provider reads for the current provider source:
 

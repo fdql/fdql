@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { FdqlProviderDialect } from '../provider.ts';
 import { testProviderDialect } from '../test-helpers/provider.ts';
 import { compileSingleFdqlRead } from './source-read.ts';
 
@@ -31,6 +32,22 @@ return mem.id(p) as id, p.name`,
         },
       },
     });
+  });
+
+  it('passes completed provider read clauses to provider query validation', () => {
+    const result = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem where p.active = true
+mem order by p.createdAt desc
+mem limit 25
+return mem.id(p) as id`,
+      { providers: [queryValidationProvider()] },
+    );
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'TEST_PROVIDER_QUERY', line: 4 }),
+    );
   });
 
   it('plans provider aggregate source reads', () => {
@@ -319,3 +336,18 @@ return score`,
     );
   });
 });
+
+function queryValidationProvider(): FdqlProviderDialect {
+  return {
+    ...testProviderDialect,
+    validateQuery(input) {
+      if (!input.predicate || !input.orderBy) return;
+      input.diagnostics.push({
+        code: 'TEST_PROVIDER_QUERY',
+        ...(input.orderByLine === undefined ? {} : { line: input.orderByLine }),
+        message: 'Provider query validation ran.',
+        severity: 'error',
+      });
+    },
+  };
+}

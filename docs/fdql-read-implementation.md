@@ -26,9 +26,8 @@ Scope: read features only. Write operations are out of this tracker. This docume
 
 Current priority order:
 
-1. Firestore provider validation parity: broader operator/value/index-shape diagnostics before execution.
-2. Language/editor follow-up: context-aware completions, field hints, and diagnostics for masked-out fields.
-3. Lineage/source exploration for lookup, unwind, union, and aggregate output.
+1. Language/editor follow-up: context-aware completions, field hints, and diagnostics for masked-out fields.
+2. Lineage/source exploration for lookup, unwind, union, and aggregate output.
 
 ## Current Read Slice
 
@@ -199,7 +198,7 @@ These block the read implementation from being honest at production scale.
 | Timeout in live repo             | Done    | Page reads race against deadline and stop output deterministically, preserving partial rows/stats with timeout status.                                                                                |
 | Cache modes                      | Done    | `off`, `run`, and `persistent` are implemented for lookup reads and pipeline provider aggregates with TTL, hashed canonical keys, stats, desktop SQLite storage, and `clear cache` command execution. |
 | Output row streaming             | Partial | Read events stream as provider rows arrive, but final row events are emitted after the branch source read and local stages finish.                                                                    |
-| Provider query validation parity | Partial | Firestore dialect validates simple provider shapes. Needs stronger Firestore limit/operator/index-shape diagnostics.                                                                                  |
+| Provider query validation parity | Partial | Firestore dialect validates documented hard operator/value/order constraints before execution. Missing-index errors still come from Firestore.                                                        |
 | Field path fidelity              | Done    | Field masks carry segment arrays. Live Firestore maps `fs.fieldPath(...)` in masks/where/order to Admin `FieldPath`; mock support is limited to masks and normal field paths.                         |
 
 ## P1 Spec Features Not Implemented
@@ -259,6 +258,5 @@ These block the read implementation from being honest at production scale.
 
 ## Suggested Next Order
 
-1. Tighten Firestore provider validation diagnostics.
-2. Improve context-aware editor assistance.
-3. Add lineage/source exploration for aggregate and expanded rows.
+1. Improve context-aware editor assistance.
+2. Add lineage/source exploration for aggregate and expanded rows.

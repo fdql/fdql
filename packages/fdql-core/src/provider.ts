@@ -6,6 +6,7 @@ import type {
   FdqlFieldMaskField,
   FdqlProviderAggregateRequest,
   FdqlProviderAggregateResult,
+  FdqlProviderOrderByClause,
   FdqlProviderReadControls,
   FdqlProviderReadRequest,
   FdqlProviderRow,
@@ -62,6 +63,18 @@ export interface FdqlProviderOrderByValidationInput {
   readonly diagnostics: FdqlDiagnostic[];
   readonly expression: FdqlExpression;
   readonly line: number;
+  readonly rowAlias: string;
+}
+
+export interface FdqlProviderQueryValidationInput {
+  readonly aliases: Readonly<Record<string, FdqlValue>>;
+  readonly availableRowAliases: ReadonlySet<string>;
+  readonly diagnostics: FdqlDiagnostic[];
+  readonly lookup: boolean;
+  readonly orderBy?: FdqlProviderOrderByClause | undefined;
+  readonly orderByLine?: number | undefined;
+  readonly predicate?: FdqlExpression | undefined;
+  readonly predicateLine?: number | undefined;
   readonly rowAlias: string;
 }
 
@@ -157,6 +170,7 @@ export interface FdqlProviderDialect {
   validateAggregate?:
     | ((input: FdqlProviderAggregateValidationInput) => void)
     | undefined;
+  validateQuery?: ((input: FdqlProviderQueryValidationInput) => void) | undefined;
 }
 
 export type FdqlProviderDialectRegistry = Readonly<Record<string, FdqlProviderDialect>>;

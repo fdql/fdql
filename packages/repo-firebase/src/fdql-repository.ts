@@ -406,6 +406,9 @@ function filterFromExpression(
     && (expression.name === 'fs.arrayContains' || expression.name === 'fs.arrayContainsAny')
   ) {
     const value = valueFor(db, expression.args[1]!, request);
+    if (expression.name === 'fs.arrayContainsAny') {
+      validateArrayFilterValue('arrayContainsAny', value, expression, request);
+    }
     return Filter.where(
       fieldPathFromExpression(expression.args[0]!, request.rowAlias),
       expression.name === 'fs.arrayContains' ? 'array-contains' : 'array-contains-any',
@@ -496,14 +499,25 @@ function validateProviderFilterValue(
   expression: FdqlExpression,
   request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
 ): void {
-  if (operator !== 'not in') return;
-  if (!Array.isArray(value) || value.length === 0 || value.length > 10) {
-    throw errorForExpression(
-      '`not in` needs 1 to 10 comparison values.',
-      expression,
-      request,
-    );
-  }
+  if (operator === 'in') validateArrayFilterValue('in', value, expression, request);
+  if (operator === 'not in') validateArrayFilterValue('not in', value, expression, request);
+}
+
+function validateArrayFilterValue(
+  operator: 'arrayContainsAny' | 'in' | 'not in',
+  value: unknown,
+  expression: FdqlExpression,
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
+): void {
+  const max = operator === 'not in' ? 10 : 30;
+  if (Array.isArray(value) && value.length > 0 && value.length <= max) return;
+  throw errorForExpression(
+    `${
+      operator === 'arrayContainsAny' ? operator : `\`${operator}\``
+    } needs 1 to ${max} comparison values.`,
+    expression,
+    request,
+  );
 }
 
 function valueFor(

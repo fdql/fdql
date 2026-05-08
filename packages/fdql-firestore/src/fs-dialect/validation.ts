@@ -4,14 +4,11 @@ import type {
   FdqlProviderAggregateValidationInput,
   FdqlProviderOrderByValidationInput,
   FdqlProviderPredicateValidationInput,
-  FdqlValue,
 } from '@firebase-desk/fdql-core';
-import { evaluateExpression } from '@firebase-desk/fdql-core';
 import { readFieldPathSegments } from './field-mask.ts';
 import { firestoreError, walkExpression } from './helpers.ts';
 
 export function validateFirestoreWhere(input: FdqlProviderPredicateValidationInput): void {
-  validateNotInConstraints(input);
   validateFirestorePredicate(
     input.expression,
     input.rowAlias,
@@ -299,61 +296,6 @@ function isProviderValueExpression(expression: FdqlExpression | undefined): bool
     return expression.args.every(isProviderValueExpression);
   }
   return false;
-}
-
-function validateNotInConstraints(input: FdqlProviderPredicateValidationInput): void {
-  const operators: string[] = [];
-  walkExpression(input.expression, (node) => {
-    if (node.kind === 'binary') operators.push(node.operator);
-    if (node.kind === 'call' && node.name === 'fs.arrayContainsAny') {
-      operators.push('arrayContainsAny');
-    }
-  });
-  const notInCount = operators.filter((operator) => operator === 'not in').length;
-  if (notInCount === 0) return;
-  const forbidden = operators.some((operator) =>
-    operator === 'or'
-    || operator === 'in'
-    || operator === 'arrayContainsAny'
-    || operator === '!='
-  );
-  if (notInCount > 1 || forbidden) {
-    input.diagnostics.push(
-      firestoreError(
-        'FDQL_UNSUPPORTED_FS_WHERE',
-        '`not in` cannot be combined with or, in, arrayContainsAny, !=, or another not in.',
-        input.line,
-      ),
-    );
-  }
-  walkExpression(input.expression, (node) => {
-    if (node.kind !== 'binary' || node.operator !== 'not in') return;
-    const values = staticArrayValues(node.right, input);
-    if (!values) return;
-    if (values.length === 0 || values.length > 10) {
-      input.diagnostics.push(
-        firestoreError(
-          'FDQL_UNSUPPORTED_FS_WHERE',
-          '`not in` needs 1 to 10 comparison values.',
-          input.line,
-        ),
-      );
-    }
-  });
-}
-
-function staticArrayValues(
-  expression: FdqlExpression,
-  input: FdqlProviderPredicateValidationInput,
-): readonly FdqlValue[] | null {
-  if (expression.kind === 'array') {
-    return expression.items.map((item) => evaluateExpression(item, { aliases: input.aliases }));
-  }
-  if (expression.kind === 'alias') {
-    const value = input.aliases[expression.name];
-    return value?.kind === 'array' ? value.value : null;
-  }
-  return null;
 }
 
 function isFirestoreComparisonOperator(

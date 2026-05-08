@@ -237,6 +237,63 @@ return fs.id(d) as id, team.name as teamName`,
     });
   });
 
+  it('returns diagnostics for invalid dynamic lookup array filters', async () => {
+    const operators = [
+      {
+        expression: 'fs.id(team) in d.lookupValues',
+        message: '`in` needs 1 to 30 comparison values.',
+      },
+      {
+        expression: 'fs.arrayContainsAny(team.tags, d.lookupValues)',
+        message: 'arrayContainsAny needs 1 to 30 comparison values.',
+      },
+      {
+        expression: 'fs.id(team) not in d.lookupValues',
+        message: '`not in` needs 1 to 10 comparison values.',
+      },
+    ];
+
+    for (const [index, operator] of operators.entries()) {
+      const driversQuery = fakeQuery([
+        fakeSnapshot('drv_1', 'drivers/drv_1', { lookupValues: [] }),
+      ]);
+      const teamsQuery = fakeQuery([]);
+      const db = {
+        collection: vi.fn((path: string) => path === 'drivers' ? driversQuery : teamsQuery),
+      };
+      const repository = createFirebaseFdqlRepository(providerFor(db));
+
+      // oxlint-disable no-await-in-loop -- Each case owns isolated fake Firestore state.
+      const result = await repository.run({
+        connectionId: 'local',
+        runId: `run_${index}`,
+        source: `alias $drivers = fs.collection("drivers", ["lookupValues"])
+alias $teams = fs.collection("teams", ["tags"])
+from $drivers as d
+fs limit 1
+then lookup many $teams as team
+  fs where ${operator.expression}
+return fs.id(d) as id, team`,
+      });
+      // oxlint-enable no-await-in-loop
+
+      expect(teamsQuery.where).not.toHaveBeenCalled();
+      expect(result.diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: 'FDQL_EXECUTION_FAILED',
+          context: expect.objectContaining({
+            provider: 'fs',
+            rowAlias: 'team',
+            rowPath: 'drivers/drv_1',
+            source: '$teams',
+            stage: 'lookup',
+          }),
+          message: operator.message,
+        }),
+      );
+    }
+  });
+
   it('reads static and dynamic subcollection sources', async () => {
     const ordersQuery = fakeQuery([fakeSnapshot('ord_1', 'orders/ord_1', { status: 'paid' })]);
     const itemsQueries: ReturnType<typeof fakeQuery>[] = [];

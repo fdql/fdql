@@ -129,53 +129,6 @@ describe('Firestore FDQL validation', () => {
     expect(diagnostics).toEqual([]);
   });
 
-  it('rejects invalid native not-in combinations', () => {
-    const diagnostics: FdqlDiagnostic[] = [];
-
-    validateFirestoreWhere({
-      aliases: {},
-      availableRowAliases: new Set(['d']),
-      diagnostics,
-      expression: binary(
-        binary(field('d', 'status'), 'not in', array(literal('deleted'))),
-        'or',
-        call('fs.arrayContainsAny', field('d', 'tags'), array(literal('admin'))),
-      ),
-      line: 3,
-      lookup: false,
-      rowAlias: 'd',
-    });
-
-    expect(diagnostics).toContainEqual(
-      expect.objectContaining({
-        code: 'FDQL_UNSUPPORTED_FS_WHERE',
-        message:
-          '`not in` cannot be combined with or, in, arrayContainsAny, !=, or another not in.',
-      }),
-    );
-  });
-
-  it('rejects invalid native not-in value counts', () => {
-    const diagnostics: FdqlDiagnostic[] = [];
-
-    validateFirestoreWhere({
-      aliases: {},
-      availableRowAliases: new Set(['d']),
-      diagnostics,
-      expression: binary(field('d', 'status'), 'not in', array()),
-      line: 3,
-      lookup: false,
-      rowAlias: 'd',
-    });
-
-    expect(diagnostics).toContainEqual(
-      expect.objectContaining({
-        code: 'FDQL_UNSUPPORTED_FS_WHERE',
-        message: '`not in` needs 1 to 10 comparison values.',
-      }),
-    );
-  });
-
   it('rejects local expressions and unqualified fields in provider clauses', () => {
     const diagnostics: FdqlDiagnostic[] = [];
 

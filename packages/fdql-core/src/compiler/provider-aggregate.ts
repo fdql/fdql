@@ -54,6 +54,7 @@ export function compileProviderAggregateStage(
   ]);
   const cacheTtlMs = resolveProviderAggregateCacheTtl(stage, diagnostics);
   let providerPredicate: FdqlExpression | undefined;
+  let providerPredicateLine: number | undefined;
   let providerOrderByLine: number | undefined;
   let providerLimitLine: number | undefined;
 
@@ -112,7 +113,18 @@ export function compileProviderAggregateStage(
     providerPredicate = providerPredicate
       ? { kind: 'binary', left: providerPredicate, operator: 'and', right: clause.expression }
       : clause.expression;
+    providerPredicateLine ??= clause.line;
   }
+
+  sourceDialect?.validateQuery?.({
+    aliases: scalarAliases,
+    availableRowAliases: rowsForAggregate,
+    diagnostics,
+    lookup: true,
+    ...(providerPredicate ? { predicate: providerPredicate } : {}),
+    ...(providerPredicateLine === undefined ? {} : { predicateLine: providerPredicateLine }),
+    rowAlias: providerRowAlias ?? '__aggregate',
+  });
 
   const aggregate = compileProviderAggregatePlan({
     diagnostics,

@@ -1,6 +1,7 @@
 import type { FdqlProviderDialect } from '@firebase-desk/fdql-core';
 import { evaluateFirestoreCall, firestoreValueFunctions } from './fs-dialect/functions.ts';
 import { firestoreLanguage } from './fs-dialect/language.ts';
+import { validateFirestoreQueryConstraints } from './fs-dialect/query-constraints.ts';
 import { resolveFirestoreSetting } from './fs-dialect/settings.ts';
 import {
   bindFirestoreSource,
@@ -20,29 +21,14 @@ export const firestoreProviderDialect: FdqlProviderDialect = {
   namespace: 'fs',
   sourceFunctions: new Set(['collection', 'collectionGroup', 'db', 'project', 'subcollection']),
   valueFunctions: firestoreValueFunctions,
-  evaluateCall(input) {
-    return evaluateFirestoreCall(input);
-  },
+  evaluateCall: evaluateFirestoreCall,
   hasBoundedPredicate: hasBoundedIdPredicate,
-  bindSource(input) {
-    return bindFirestoreSource(input);
-  },
-  resolveSourceAlias(input) {
-    return resolveFirestoreSourceAlias(input);
-  },
-  resolveSourceExpression(input) {
-    return resolveFirestoreSourceExpression(input);
-  },
-  resolveSetting(input) {
-    return resolveFirestoreSetting(input);
-  },
-  validateOrderBy(input) {
-    validateFirestoreOrderBy(input);
-  },
-  validateAggregate(input) {
-    validateFirestoreAggregate(input);
-  },
-  validateWhere(input) {
-    validateFirestoreWhere(input);
-  },
+  bindSource: bindFirestoreSource,
+  resolveSourceAlias: resolveFirestoreSourceAlias,
+  resolveSourceExpression: resolveFirestoreSourceExpression,
+  resolveSetting: resolveFirestoreSetting,
+  validateOrderBy: validateFirestoreOrderBy,
+  validateAggregate: validateFirestoreAggregate,
+  validateWhere: validateFirestoreWhere,
+  validateQuery: validateFirestoreQueryConstraints,
 };
