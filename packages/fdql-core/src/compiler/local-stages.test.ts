@@ -21,7 +21,7 @@ describe('FDQL compiler local stages', () => {
     const aggregate = compileLocalStage(
       stageFor(`then aggregate
   by r.driverId as driverId
-  count() as total`),
+  yield count() as total`),
       availableRowAliases,
       {},
       providers,

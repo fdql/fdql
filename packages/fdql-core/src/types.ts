@@ -118,13 +118,30 @@ export interface FdqlAliasDeclaration {
   readonly value: FdqlExpression;
 }
 
-export interface FdqlFromStage {
+export type FdqlFromStage = FdqlAggregateFromStage | FdqlSourceFromStage;
+
+export interface FdqlSourceFromStage {
   readonly column: number;
   readonly kind: 'from';
   readonly line: number;
+  readonly mode?: 'source' | undefined;
   readonly range: FdqlSourceRange;
   readonly rowAlias: string;
   readonly sourceAlias: string;
+}
+
+export interface FdqlAggregateFromStage {
+  readonly clauses: readonly FdqlLookupClause[];
+  readonly column: number;
+  readonly kind: 'from';
+  readonly line: number;
+  readonly mode: 'aggregate';
+  readonly provider: string;
+  readonly providerRowAlias?: string | undefined;
+  readonly range: FdqlSourceRange;
+  readonly sourceAlias: string;
+  readonly sourceExpression?: FdqlExpression | undefined;
+  readonly yieldItems?: readonly FdqlProjectionItem[] | undefined;
 }
 
 export type FdqlStage =
@@ -203,7 +220,7 @@ export interface FdqlAggregateStage {
   readonly range: FdqlSourceRange;
 }
 
-export type FdqlLookupMode = 'many' | 'one';
+export type FdqlLookupMode = 'aggregate' | 'many' | 'one';
 export type FdqlCacheMode = 'off' | 'persistent' | 'run';
 
 export type FdqlLookupClause = FdqlWhereStage | FdqlOrderByStage | FdqlLimitStage;
@@ -217,11 +234,13 @@ export interface FdqlLookupStage {
   readonly line: number;
   readonly mode: FdqlLookupMode;
   readonly parent?: FdqlExpression | undefined;
+  readonly providerRowAlias?: string | undefined;
   readonly range: FdqlSourceRange;
   readonly required: boolean;
   readonly rowAlias: string;
   readonly sourceAlias: string;
   readonly sourceExpression?: FdqlExpression | undefined;
+  readonly yieldItems?: readonly FdqlProjectionItem[] | undefined;
 }
 
 export interface FdqlUnwindStage {
@@ -316,6 +335,7 @@ export interface FdqlSingleReadPlan {
   readonly kind: 'read';
   readonly localStages: readonly FdqlLocalPlanStage[];
   readonly provider: FdqlProviderReadPlan;
+  readonly providerAggregate?: FdqlProviderAggregatePlan | undefined;
   readonly returnStage: FdqlReturnStage;
   readonly rowAlias: string;
   readonly settings: FdqlExecutionSettings;
@@ -367,6 +387,7 @@ export type FdqlLocalPlanStage =
   | FdqlWithStage;
 
 export interface FdqlLookupPlanStage {
+  readonly aggregate?: FdqlProviderAggregatePlan | undefined;
   readonly cache?: FdqlCacheMode | undefined;
   readonly cacheTtlMs?: number | undefined;
   readonly column: number;
@@ -378,6 +399,17 @@ export interface FdqlLookupPlanStage {
   readonly required: boolean;
   readonly rowAlias: string;
   readonly sourceAlias: string;
+}
+
+export interface FdqlProviderAggregatePlan {
+  readonly items: readonly FdqlProviderAggregateItem[];
+  readonly rowAlias: string;
+}
+
+export interface FdqlProviderAggregateItem {
+  readonly alias: string;
+  readonly expression?: FdqlExpression | undefined;
+  readonly functionName: string;
 }
 
 export type FdqlReadCompileResult =
@@ -437,6 +469,23 @@ export interface FdqlProviderReadRequest {
   readonly stage: 'lookup' | 'source';
 }
 
+export interface FdqlProviderAggregateRequest {
+  readonly aggregates: readonly FdqlProviderAggregateItem[];
+  readonly aliases?: Readonly<Record<string, FdqlValue>> | undefined;
+  readonly maxDocuments: number;
+  readonly predicate?: FdqlExpression | undefined;
+  readonly rowAlias: string;
+  readonly rows?: EvalRows | undefined;
+  readonly source: FdqlProviderSource;
+  readonly stage: 'lookupAggregate' | 'sourceAggregate';
+}
+
+export interface FdqlProviderAggregateResult {
+  readonly aggregateReads: number;
+  readonly documentReads?: readonly FdqlProviderRow[] | undefined;
+  readonly values: Readonly<Record<string, FdqlValue>>;
+}
+
 export interface FdqlExecutionOptions {
   readonly cacheContext?: Readonly<Record<string, unknown>> | undefined;
   readonly persistentCache?: FdqlPersistentCache | undefined;
@@ -465,6 +514,7 @@ export interface FdqlProviderReadControls {
 export type FdqlStopReason = 'budget' | 'cancelled' | 'completed' | 'timeout';
 
 export interface FdqlStats {
+  readonly aggregateReads: number;
   readonly aggregateSourceRows: number;
   readonly cacheBytes: number;
   readonly cacheEvictions: number;
@@ -472,6 +522,7 @@ export interface FdqlStats {
   readonly cacheMisses: number;
   readonly cacheWrites: number;
   readonly lookupReads: number;
+  readonly providerAggregateReads: Readonly<Record<string, number>>;
   readonly providerReads: Readonly<Record<string, number>>;
   readonly readBudget: number;
   readonly reads: number;

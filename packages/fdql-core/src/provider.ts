@@ -4,6 +4,8 @@ import type {
   FdqlDiagnostic,
   FdqlExpression,
   FdqlFieldMaskField,
+  FdqlProviderAggregateRequest,
+  FdqlProviderAggregateResult,
   FdqlProviderReadControls,
   FdqlProviderReadRequest,
   FdqlProviderRow,
@@ -89,6 +91,7 @@ export interface FdqlProviderLanguageClause {
 }
 
 export interface FdqlProviderLanguageMetadata {
+  readonly aggregateFunctions?: readonly FdqlProviderLanguageItem[] | undefined;
   readonly clauses?: readonly FdqlProviderLanguageClause[] | undefined;
   readonly settings?: readonly FdqlProviderLanguageItem[] | undefined;
   readonly sourceFunctions?: readonly FdqlProviderLanguageItem[] | undefined;
@@ -124,6 +127,7 @@ export type FdqlProviderSourceBindResult =
   | { readonly kind: 'skip'; };
 
 export interface FdqlProviderDialect {
+  readonly aggregateFunctions?: ReadonlySet<string> | undefined;
   readonly cacheVersion?: number | string | undefined;
   readonly language?: FdqlProviderLanguageMetadata | undefined;
   readonly namespace: string;
@@ -150,11 +154,28 @@ export interface FdqlProviderDialect {
     | undefined;
   validateOrderBy: (input: FdqlProviderOrderByValidationInput) => void;
   validateWhere: (input: FdqlProviderPredicateValidationInput) => void;
+  validateAggregate?:
+    | ((input: FdqlProviderAggregateValidationInput) => void)
+    | undefined;
 }
 
 export type FdqlProviderDialectRegistry = Readonly<Record<string, FdqlProviderDialect>>;
 
+export interface FdqlProviderAggregateValidationInput {
+  readonly diagnostics: FdqlDiagnostic[];
+  readonly expression: FdqlExpression;
+  readonly functionName: string;
+  readonly line: number;
+  readonly rowAlias: string;
+}
+
 export interface FdqlProviderRuntime {
+  readonly aggregate?:
+    | ((
+      request: FdqlProviderAggregateRequest,
+      controls: FdqlProviderReadControls,
+    ) => Promise<FdqlProviderAggregateResult>)
+    | undefined;
   readonly read: (
     request: FdqlProviderReadRequest,
     controls: FdqlProviderReadControls,

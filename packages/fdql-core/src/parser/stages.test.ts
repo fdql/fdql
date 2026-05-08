@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { FdqlDiagnostic } from '../types.ts';
+import { createSourceLines } from './source-text.ts';
 import {
-  parseAggregate,
+  parseAggregateFrom,
+  parseAggregateStage,
   parseFrom,
   parseProviderClause,
   parseSortBy,
@@ -40,15 +42,70 @@ describe('FDQL parser stages', () => {
     expect(from).toMatchObject({ kind: 'from', rowAlias: 'd', sourceAlias: '$drivers' });
   });
 
-  it('requires aggregate aliases', () => {
+  it('parses local aggregate by and yield blocks', () => {
     const diagnostics: FdqlDiagnostic[] = [];
-    parseAggregate('by d.teamId\ncount()', 1, 1, 1, 1, range, diagnostics);
-
-    expect(diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: 'FDQL_PARSE_ERROR', line: 1 }),
-        expect.objectContaining({ code: 'FDQL_PARSE_ERROR', line: 1 }),
-      ]),
+    const aggregate = parseAggregateStage(
+      createSourceLines(`then aggregate
+  by d.teamId as teamId
+  yield count() as total`),
+      0,
+      diagnostics,
     );
+
+    expect(diagnostics).toEqual([]);
+    expect(aggregate.stage.groups).toHaveLength(1);
+    expect(aggregate.stage.items).toHaveLength(1);
+  });
+
+  it('requires local aggregate yield aliases', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    parseAggregateStage(
+      createSourceLines(`then aggregate
+  by d.teamId
+  yield count()`),
+      0,
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'FDQL_PARSE_ERROR', line: 1 }),
+      expect.objectContaining({ code: 'FDQL_PARSE_ERROR', line: 1 }),
+    ]));
+  });
+
+  it('rejects old local aggregate bodies without yield', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    parseAggregateStage(
+      createSourceLines(`then aggregate
+  count() as total`),
+      0,
+      diagnostics,
+    );
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_PARSE_ERROR',
+        message: 'Aggregate blocks need `yield`.',
+      }),
+    );
+  });
+
+  it('parses provider aggregate from sources', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    const parsed = parseAggregateFrom(
+      createSourceLines(`from fs.aggregate($orders as o)
+  fs where o.status = "paid"
+  yield fs.count() as total`),
+      0,
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(parsed?.from).toMatchObject({
+      mode: 'aggregate',
+      provider: 'fs',
+      providerRowAlias: 'o',
+      sourceAlias: '$orders',
+    });
   });
 });

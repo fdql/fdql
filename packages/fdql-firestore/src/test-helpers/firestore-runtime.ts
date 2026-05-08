@@ -2,6 +2,7 @@ import {
   compareValues,
   createProviderDialectRegistry,
   evaluateExpression,
+  type FdqlProviderAggregateRequest,
   type FdqlProviderReadRequest,
   type FdqlProviderRow,
   type FdqlProviderRuntimeRegistry,
@@ -9,6 +10,9 @@ import {
   isMissingValue,
   mapValue,
   missingValue,
+  nullValue,
+  numberValue,
+  numericValue,
   toFdqlValue,
   truthy,
 } from '@firebase-desk/fdql-core';
@@ -30,6 +34,24 @@ export function createTestFirestoreRuntime(
     dialects,
     providers: {
       fs: {
+        async aggregate(request) {
+          const projectId = stringTarget(request, 'projectId');
+          const project = input.projects[projectId] ?? {};
+          const rows = filteredAggregateRows(project, request, dialects);
+          return {
+            aggregateReads:
+              request.aggregates.some((item) =>
+                  ['fs.avg', 'fs.count', 'fs.sum'].includes(item.functionName)
+                )
+                ? 1
+                : 0,
+            documentReads:
+              request.aggregates.some((item) => ['fs.max', 'fs.min'].includes(item.functionName))
+                ? rows.slice(0, 1)
+                : [],
+            values: aggregateValues(request, rows, dialects),
+          };
+        },
         async *read(request) {
           const projectId = stringTarget(request, 'projectId');
           const project = input.projects[projectId] ?? {};
@@ -49,6 +71,88 @@ export function createTestFirestoreRuntime(
       },
     },
   };
+}
+
+function filteredAggregateRows(
+  project: TestFirestoreProject,
+  request: FdqlProviderAggregateRequest,
+  dialects: ReturnType<typeof createProviderDialectRegistry>,
+): readonly FdqlProviderRow[] {
+  return readDocuments(project, readRequestForAggregate(request))
+    .filter((document) =>
+      !request.predicate
+      || truthy(evaluateExpression(request.predicate, {
+        aliases: request.aliases,
+        providers: dialects,
+        rows: { ...request.rows, [request.rowAlias]: document },
+      }))
+    );
+}
+
+function readRequestForAggregate(
+  request: FdqlProviderAggregateRequest,
+): FdqlProviderReadRequest {
+  return {
+    aliases: request.aliases,
+    maxDocuments: request.maxDocuments,
+    pageSize: request.maxDocuments,
+    ...(request.predicate ? { predicate: request.predicate } : {}),
+    rowAlias: request.rowAlias,
+    ...(request.rows ? { rows: request.rows } : {}),
+    source: request.source,
+    stage: 'lookup',
+  };
+}
+
+function aggregateValues(
+  request: FdqlProviderAggregateRequest,
+  rows: readonly FdqlProviderRow[],
+  dialects: ReturnType<typeof createProviderDialectRegistry>,
+): Record<string, FdqlValue> {
+  return Object.fromEntries(
+    request.aggregates.map((item) => [
+      item.alias,
+      aggregateValue(request, rows, dialects, item.functionName, item.expression),
+    ]),
+  );
+}
+
+function aggregateValue(
+  request: FdqlProviderAggregateRequest,
+  rows: readonly FdqlProviderRow[],
+  dialects: ReturnType<typeof createProviderDialectRegistry>,
+  functionName: string,
+  expression: Parameters<typeof evaluateExpression>[0] | undefined,
+): FdqlValue {
+  if (functionName === 'fs.count') return numberValue(rows.length);
+  const values = rows.map((row) =>
+    expression
+      ? evaluateExpression(expression, {
+        aliases: request.aliases,
+        providers: dialects,
+        rows: { ...request.rows, [request.rowAlias]: row },
+      })
+      : missingValue
+  ).filter((value) => value.kind !== 'missing' && value.kind !== 'null');
+  if (functionName === 'fs.sum') {
+    return numberValue(values.reduce((total, value) => total + numericValue(value), 0));
+  }
+  if (functionName === 'fs.avg') {
+    return values.length
+      ? numberValue(values.reduce((total, value) => total + numericValue(value), 0) / values.length)
+      : nullValue;
+  }
+  if (functionName === 'fs.min' || functionName === 'fs.max') {
+    const direction = functionName === 'fs.max' ? 1 : -1;
+    let selected: FdqlValue = nullValue;
+    for (const value of values) {
+      if (selected.kind === 'null' || compareValues(value, selected) * direction > 0) {
+        selected = value;
+      }
+    }
+    return selected;
+  }
+  return nullValue;
 }
 
 function readDocuments(
@@ -130,7 +234,10 @@ function applyFieldMask(
   return { ...document, data };
 }
 
-function stringTarget(request: FdqlProviderReadRequest, key: string): string {
+function stringTarget(
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
+  key: string,
+): string {
   const value = request.source.target[key];
   return typeof value === 'string' ? value : '';
 }

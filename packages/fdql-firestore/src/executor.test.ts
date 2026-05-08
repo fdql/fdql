@@ -110,6 +110,128 @@ return fs.id(order) as orderId, item.status`,
     expect(completed(optionalEvents)).toMatchObject({ lookupReads: 0, reads: 1 });
     expect(completed(requiredEvents)).toMatchObject({ lookupReads: 0, reads: 1 });
   });
+
+  it('runs aggregate lookups with Firestore aggregate helpers', async () => {
+    const runtime = createTestFirestoreRuntime({
+      projects: {
+        local: {
+          drivers: {
+            drv_1: { firstName: 'Vini' },
+            drv_2: { firstName: 'Alex' },
+          },
+          rounds: {
+            rnd_1: { createdAt: '2026-01-01T00:00:00.000Z', driverId: 'drv_1', points: 10 },
+            rnd_2: { createdAt: '2026-02-01T00:00:00.000Z', driverId: 'drv_1', points: 20 },
+          },
+        },
+      },
+    });
+
+    const events = await execute(
+      `alias $drivers = fs.collection("drivers", ["firstName"])
+alias $rounds = fs.collection("rounds", ["driverId", "points", "createdAt"])
+from $drivers as d
+fs limit 2
+then lookup aggregate $rounds as roundStats from round
+  fs where round.driverId = fs.id(d)
+  yield fs.count() as total, fs.sum(round.points) as points, fs.avg(round.points) as avgPoints, fs.max(round.createdAt) as lastRoundAt
+return fs.id(d) as id, roundStats.total, roundStats.points, roundStats.avgPoints, roundStats.lastRoundAt`,
+      runtime,
+    );
+
+    expect(rows(events)).toEqual([
+      {
+        avgPoints: 15,
+        id: 'drv_1',
+        lastRoundAt: '2026-02-01T00:00:00.000Z',
+        points: 30,
+        total: 2,
+      },
+      {
+        avgPoints: null,
+        id: 'drv_2',
+        lastRoundAt: null,
+        points: 0,
+        total: 0,
+      },
+    ]);
+    expect(completed(events)).toMatchObject({ aggregateReads: 2, lookupReads: 1, reads: 3 });
+  });
+
+  it('runs top-level aggregate sources', async () => {
+    const runtime = createTestFirestoreRuntime({
+      projects: {
+        local: {
+          rounds: {
+            rnd_1: { active: true, createdAt: '2026-01-01T00:00:00.000Z', points: 10 },
+            rnd_2: { active: true, createdAt: '2026-02-01T00:00:00.000Z', points: 20 },
+            rnd_3: { active: false, createdAt: '2026-03-01T00:00:00.000Z', points: 99 },
+          },
+        },
+      },
+    });
+
+    const countEvents = await execute(
+      `alias $rounds = fs.collection("rounds", ["active"])
+from fs.aggregate($rounds)
+  yield fs.count() as total
+return total`,
+      runtime,
+    );
+    const statsEvents = await execute(
+      `alias $rounds = fs.collection("rounds", ["active", "points", "createdAt"])
+from fs.aggregate($rounds as round)
+  fs where round.active = true
+  yield fs.count() as total, fs.sum(round.points) as points, fs.avg(round.points) as avgPoints, fs.min(round.createdAt) as firstRoundAt, fs.max(round.createdAt) as lastRoundAt
+return total, points, avgPoints, firstRoundAt, lastRoundAt`,
+      runtime,
+    );
+
+    expect(rows(countEvents)).toEqual([{ total: 3 }]);
+    expect(completed(countEvents)).toMatchObject({ aggregateReads: 1, reads: 0, rowsOutput: 1 });
+    expect(rows(statsEvents)).toEqual([{
+      avgPoints: 15,
+      firstRoundAt: '2026-01-01T00:00:00.000Z',
+      lastRoundAt: '2026-02-01T00:00:00.000Z',
+      points: 30,
+      total: 2,
+    }]);
+    expect(completed(statsEvents)).toMatchObject({
+      aggregateReads: 1,
+      reads: 1,
+      rowsOutput: 1,
+      rowsScanned: 1,
+    });
+  });
+
+  it('runs static subcollection aggregate sources', async () => {
+    const runtime = createTestFirestoreRuntime({
+      projects: {
+        local: {
+          orders: {
+            ord_1: { status: 'paid' },
+          },
+          'orders/ord_1/items': {
+            item_1: { status: 'paid', total: 10 },
+            item_2: { status: 'paid', total: 5 },
+            item_3: { status: 'draft', total: 99 },
+          },
+        },
+      },
+    });
+
+    const events = await execute(
+      `alias $items = fs.subcollection("orders/ord_1", "items", ["status", "total"])
+from fs.aggregate($items as item)
+  fs where item.status = "paid"
+  yield fs.count() as total, fs.sum(item.total) as value
+return total, value`,
+      runtime,
+    );
+
+    expect(rows(events)).toEqual([{ total: 2, value: 15 }]);
+    expect(completed(events)).toMatchObject({ aggregateReads: 1, reads: 0, rowsOutput: 1 });
+  });
 });
 
 async function execute(

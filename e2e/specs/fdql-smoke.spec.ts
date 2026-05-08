@@ -144,8 +144,8 @@ fs limit 10
 
 then aggregate
   by r.driverId as driverId
-  count() as total,
-  sum(r.score) as score
+  yield count() as total,
+        sum(r.score) as score
 
 then sort by driverId asc
 
@@ -162,6 +162,58 @@ return driverId, total, score`,
       );
       await expect(page.getByText('2 rows')).toBeVisible();
       await expect(page.getByText('3 reads')).toBeVisible();
+    });
+
+    await test.step('provider aggregate counts documents in one collection', async () => {
+      await runFdql(
+        page,
+        `alias $rounds = fs.collection("${data.rounds}", [])
+
+from fs.aggregate($rounds)
+  yield fs.count() as total
+
+return total`,
+      );
+
+      await expectFdqlTable(page, ['total'], [['3']]);
+      await expect(page.getByText('1 rows')).toBeVisible();
+      await expect(page.getByText('0 reads')).toBeVisible();
+      await expect(page.getByText('1 aggregate')).toBeVisible();
+    });
+
+    await test.step('provider aggregate reads a collection without where', async () => {
+      await runFdql(
+        page,
+        `alias $rounds = fs.collection("${data.rounds}", ["score"])
+
+from fs.aggregate($rounds as r)
+  yield fs.count() as total,
+        fs.sum(r.score) as score
+
+return total, score`,
+      );
+
+      await expectFdqlTable(page, ['total', 'score'], [['3', '22']]);
+      await expect(page.getByText('1 rows')).toBeVisible();
+      await expect(page.getByText('0 reads')).toBeVisible();
+      await expect(page.getByText('1 aggregate')).toBeVisible();
+    });
+
+    await test.step('provider aggregate reads static subcollections', async () => {
+      await runFdql(
+        page,
+        `alias $orders = fs.subcollection("${data.parent}/parent_1", "orders", ["status"])
+
+from fs.aggregate($orders)
+  yield fs.count() as total
+
+return total`,
+      );
+
+      await expectFdqlTable(page, ['total'], [['1']]);
+      await expect(page.getByText('1 rows')).toBeVisible();
+      await expect(page.getByText('0 reads')).toBeVisible();
+      await expect(page.getByText('1 aggregate')).toBeVisible();
     });
 
     await test.step('union all streams branches in order', async () => {
@@ -346,6 +398,64 @@ return eventDriver.steamId, driver.firstName, event.slug, event.name, event.sche
       await page.getByRole('tab', { name: 'Table' }).click();
     });
 
+    await test.step('aggregate lookup returns exact cells and uses run cache', async () => {
+      await runFdql(
+        page,
+        `set fdql.cache = run
+
+alias $events = fs.collection("${data.events}", ["name", "slug", "schedule", "entriesById"])
+alias $rounds = fs.collection("${data.eventRounds}", ["driverId", "points", "createdAt"])
+
+from $events as event
+fs order by event.schedule.startsAt desc
+fs limit 20
+then unwind entries(event.entriesById) as entry
+then unwind entry.value.drivers as eventDriver
+then take 3
+then lookup aggregate $rounds as stats from round cache run
+  fs where round.driverId = eventDriver.steamId
+  yield fs.count() as total, fs.sum(round.points) as points, fs.avg(round.points) as avgPoints, fs.min(round.createdAt) as firstRoundAt, fs.max(round.createdAt) as lastRoundAt
+return eventDriver.steamId, stats.total, stats.points, stats.avgPoints, stats.firstRoundAt, stats.lastRoundAt`,
+      );
+
+      await expectFdqlTable(
+        page,
+        ['steamId', 'total', 'points', 'avgPoints', 'firstRoundAt', 'lastRoundAt'],
+        [
+          [
+            'steam_ada',
+            '2',
+            '14',
+            '7',
+            '2026-01-05T10:00:00.000Z',
+            '2026-02-05T10:00:00.000Z',
+          ],
+          [
+            'steam_ada',
+            '2',
+            '14',
+            '7',
+            '2026-01-05T10:00:00.000Z',
+            '2026-02-05T10:00:00.000Z',
+          ],
+          [
+            'steam_ben',
+            '1',
+            '7',
+            '7',
+            '2026-03-05T10:00:00.000Z',
+            '2026-03-05T10:00:00.000Z',
+          ],
+        ],
+      );
+      await expect(page.getByText('3 rows')).toBeVisible();
+      await expect(page.getByText('5 reads')).toBeVisible();
+      await expect(page.getByText('5 scanned')).toBeVisible();
+      await expect(page.getByText('2 aggregates')).toBeVisible();
+      await expect(page.getByText('1 cache hit')).toBeVisible();
+      await expect(page.getByText('2 cache misses')).toBeVisible();
+    });
+
     await test.step('required lookup one drops missing correlated rows', async () => {
       await runFdql(
         page,
@@ -406,6 +516,7 @@ return fs.id(o) as id`,
 
 async function seedFdqlReadData(): Promise<{
   readonly drivers: string;
+  readonly eventRounds: string;
   readonly eventDrivers: string;
   readonly events: string;
   readonly nestedOrderId: string;
@@ -416,6 +527,7 @@ async function seedFdqlReadData(): Promise<{
   const suffix = uniqueSmokeId('fdql').replace(/-/g, '_');
   const drivers = `fdqlDrivers_${suffix}`;
   const eventDrivers = `fdqlEventDrivers_${suffix}`;
+  const eventRounds = `fdqlEventRounds_${suffix}`;
   const events = `fdqlEvents_${suffix}`;
   const teams = `fdqlTeams_${suffix}`;
   const rounds = `fdqlRounds_${suffix}`;
@@ -461,13 +573,28 @@ async function seedFdqlReadData(): Promise<{
     setFirestoreEmulatorDocument(`${rounds}/round_1`, { driverId: 'drv_1', score: 10 }),
     setFirestoreEmulatorDocument(`${rounds}/round_2`, { driverId: 'drv_1', score: 5 }),
     setFirestoreEmulatorDocument(`${rounds}/round_3`, { driverId: 'drv_2', score: 7 }),
+    setFirestoreEmulatorDocument(`${eventRounds}/round_ada_1`, {
+      createdAt: '2026-01-05T10:00:00.000Z',
+      driverId: 'steam_ada',
+      points: 10,
+    }),
+    setFirestoreEmulatorDocument(`${eventRounds}/round_ada_2`, {
+      createdAt: '2026-02-05T10:00:00.000Z',
+      driverId: 'steam_ada',
+      points: 4,
+    }),
+    setFirestoreEmulatorDocument(`${eventRounds}/round_ben_1`, {
+      createdAt: '2026-03-05T10:00:00.000Z',
+      driverId: 'steam_ben',
+      points: 7,
+    }),
     setFirestoreEmulatorDocument(`${parent}/parent_1`, { name: 'Parent 1' }),
     setFirestoreEmulatorDocument(`${parent}/parent_1/orders/${nestedOrderId}`, {
       status: 'nested',
     }),
   ]);
 
-  return { drivers, eventDrivers, events, nestedOrderId, parent, rounds, teams };
+  return { drivers, eventDrivers, eventRounds, events, nestedOrderId, parent, rounds, teams };
 }
 
 async function runFdql(page: Page, source: string): Promise<void> {

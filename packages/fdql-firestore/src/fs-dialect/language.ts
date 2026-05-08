@@ -1,6 +1,33 @@
 import type { FdqlProviderLanguageMetadata } from '@firebase-desk/fdql-core';
 
 export const firestoreLanguage: FdqlProviderLanguageMetadata = {
+  aggregateFunctions: [
+    {
+      detail: 'Firestore count aggregate',
+      insertText: 'fs.count()',
+      name: 'fs.count',
+    },
+    {
+      detail: 'Firestore sum aggregate',
+      insertText: 'fs.sum(${1:field})',
+      name: 'fs.sum',
+    },
+    {
+      detail: 'Firestore average aggregate',
+      insertText: 'fs.avg(${1:field})',
+      name: 'fs.avg',
+    },
+    {
+      detail: 'Firestore minimum by ordered read',
+      insertText: 'fs.min(${1:field})',
+      name: 'fs.min',
+    },
+    {
+      detail: 'Firestore maximum by ordered read',
+      insertText: 'fs.max(${1:field})',
+      name: 'fs.max',
+    },
+  ],
   clauses: [
     {
       detail: 'Firestore provider filter',

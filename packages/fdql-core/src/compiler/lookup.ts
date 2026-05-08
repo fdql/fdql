@@ -15,6 +15,7 @@ import type {
 import type { ResolvedAliasValue } from './aliases.ts';
 import { compilerError, duplicateStage } from './diagnostics.ts';
 import { validateExpressionAliases, validateStageProvider } from './expression-validation.ts';
+import { compileProviderAggregateItems } from './provider-aggregate.ts';
 import { parseCacheTtlMs } from './settings.ts';
 
 export function compileLookupStage(
@@ -35,6 +36,16 @@ export function compileLookupStage(
     diagnostics,
   );
   if (!sourceAlias) return null;
+  if (stage.mode === 'aggregate') {
+    return compileAggregateLookupStage(
+      stage,
+      sourceAlias,
+      availableRowAliases,
+      scalarAliases,
+      providers,
+      diagnostics,
+    );
+  }
   if (stage.required && stage.mode !== 'one') {
     diagnostics.push(
       compilerError(
@@ -142,6 +153,101 @@ export function compileLookupStage(
     },
     range: stage.range,
     required: stage.required,
+    rowAlias: stage.rowAlias,
+    sourceAlias: stage.sourceAlias,
+  };
+}
+
+function compileAggregateLookupStage(
+  stage: FdqlLookupStage,
+  sourceAlias: FdqlProviderSourceAlias,
+  availableRowAliases: ReadonlySet<string>,
+  scalarAliases: Readonly<Record<string, FdqlValue>>,
+  providers: FdqlProviderDialectRegistry,
+  diagnostics: FdqlDiagnostic[],
+): FdqlLookupPlanStage | null {
+  const sourceProvider = sourceAlias.source.provider;
+  const sourceDialect = providers[sourceProvider];
+  const providerRowAlias = stage.providerRowAlias;
+  if (!providerRowAlias) {
+    diagnostics.push(
+      compilerError(
+        'FDQL_INVALID_LOOKUP_AGGREGATE',
+        '`lookup aggregate` needs `from rowAlias`.',
+        stage.line,
+      ),
+    );
+    return null;
+  }
+  const cacheTtlMs = resolveLookupCacheTtl(stage, diagnostics);
+  let providerPredicate: FdqlExpression | undefined;
+  const rowsForLookup = new Set([...availableRowAliases, providerRowAlias]);
+
+  for (const clause of stage.clauses) {
+    if (
+      !validateStageProvider(clause.provider, sourceProvider, providers, diagnostics, clause.line)
+    ) {
+      continue;
+    }
+    if (clause.kind !== 'providerWhere') {
+      diagnostics.push(
+        compilerError(
+          'FDQL_UNSUPPORTED_LOOKUP_AGGREGATE_CLAUSE',
+          '`lookup aggregate` supports provider `where` clauses only.',
+          clause.line,
+        ),
+      );
+      continue;
+    }
+    validateExpressionAliases(
+      clause.expression,
+      scalarAliases,
+      providers,
+      diagnostics,
+      clause.line,
+    );
+    sourceDialect?.validateWhere({
+      aliases: scalarAliases,
+      availableRowAliases: rowsForLookup,
+      diagnostics,
+      expression: clause.expression,
+      line: clause.line,
+      lookup: true,
+      rowAlias: providerRowAlias,
+    });
+    providerPredicate = providerPredicate
+      ? { kind: 'binary', left: providerPredicate, operator: 'and', right: clause.expression }
+      : clause.expression;
+  }
+
+  const aggregates = compileProviderAggregateItems({
+    diagnostics,
+    line: stage.line,
+    missingYieldCode: 'FDQL_MISSING_LOOKUP_AGGREGATE_YIELD',
+    providerRowAlias,
+    providers,
+    scalarAliases,
+    sourceProvider,
+    yieldItems: stage.yieldItems,
+  });
+  if (!aggregates.length) return null;
+
+  return {
+    aggregate: { items: aggregates, rowAlias: providerRowAlias },
+    ...(stage.cache ? { cache: stage.cache } : {}),
+    ...(cacheTtlMs === undefined ? {} : { cacheTtlMs }),
+    column: stage.column,
+    kind: 'lookup',
+    line: stage.line,
+    mode: 'aggregate',
+    provider: {
+      ...(sourceAlias.binding ? { binding: sourceAlias.binding } : {}),
+      ...(sourceAlias.fieldMask ? { fieldMask: sourceAlias.fieldMask } : {}),
+      ...(providerPredicate ? { predicate: providerPredicate } : {}),
+      source: sourceAlias.source,
+    },
+    range: stage.range,
+    required: false,
     rowAlias: stage.rowAlias,
     sourceAlias: stage.sourceAlias,
   };

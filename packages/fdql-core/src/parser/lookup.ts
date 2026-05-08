@@ -1,12 +1,20 @@
 import { findTopLevelAs, parseExpression } from '../expression.ts';
-import type { FdqlDiagnostic, FdqlExpression, FdqlLookupClause, FdqlStage } from '../types.ts';
+import type {
+  FdqlDiagnostic,
+  FdqlExpression,
+  FdqlLookupClause,
+  FdqlProjectionItem,
+  FdqlStage,
+} from '../types.ts';
 import { isProviderClauseStart, parserError, providerFromStatement } from './helpers.ts';
+import { collectProjection, parseProjectionItems } from './projection.ts';
 import { expressionSlice, type SourceLine, span } from './source-text.ts';
 
 interface LookupHeader {
   readonly cache?: 'off' | 'persistent' | 'run' | undefined;
   readonly cacheTtlRaw?: string | undefined;
-  readonly mode: 'many' | 'one';
+  readonly mode: 'aggregate' | 'many' | 'one';
+  readonly providerRowAlias?: string | undefined;
   readonly required: boolean;
   readonly rowAlias: string;
   readonly sourceColumn: number;
@@ -20,6 +28,7 @@ export function parseLookup(
 ): { readonly nextIndex: number; readonly stage?: FdqlStage | undefined; } {
   const start = lines[startIndex]!;
   const clauses: FdqlLookupClause[] = [];
+  let yieldItems: readonly FdqlProjectionItem[] | undefined;
   let nextIndex = startIndex;
   let endRange = start.range;
 
@@ -30,11 +39,37 @@ export function parseLookup(
       endRange = line.range;
       continue;
     }
-    if (!isProviderClauseStart(line.text)) break;
-    const clause = parseLookupClause(line, diagnostics);
-    if (clause) clauses.push(clause);
-    nextIndex = index;
-    endRange = line.range;
+    if (isProviderClauseStart(line.text)) {
+      const clause = parseLookupClause(line, diagnostics);
+      if (clause) clauses.push(clause);
+      nextIndex = index;
+      endRange = line.range;
+      continue;
+    }
+    if (line.text === 'yield' || line.text.startsWith('yield ')) {
+      if (yieldItems) {
+        diagnostics.push(
+          parserError(
+            'FDQL_DUPLICATE_STAGE',
+            '`lookup aggregate` supports one `yield`.',
+            line.line,
+            line.column,
+          ),
+        );
+      }
+      const block = collectProjection(lines, index, 'yield');
+      yieldItems = parseProjectionItems(
+        block.source,
+        block.sourceLine,
+        block.sourceColumn,
+        diagnostics,
+      );
+      index = block.nextIndex;
+      nextIndex = block.nextIndex;
+      endRange = block.range;
+      continue;
+    }
+    break;
   }
 
   const header = parseLookupHeader(start);
@@ -53,7 +88,7 @@ export function parseLookup(
     diagnostics.push(
       parserError(
         'FDQL_UNKNOWN_STAGE',
-        '`lookup` must use `then lookup one|many source as rowAlias` or `then lookup required one source as rowAlias`.',
+        '`lookup` must use `then lookup one|many source as rowAlias`, `then lookup required one source as rowAlias`, or `then lookup aggregate source as outputAlias from rowAlias`.',
         start.line,
         start.column,
       ),
@@ -78,11 +113,13 @@ export function parseLookup(
       line: start.line,
       mode: header.mode,
       ...(parsedSource.parent ? { parent: parsedSource.parent } : {}),
+      ...(header.providerRowAlias ? { providerRowAlias: header.providerRowAlias } : {}),
       range: span(start.range, endRange),
       required: header.required,
       rowAlias: header.rowAlias,
       sourceAlias: parsedSource.sourceAlias,
       ...(parsedSource.sourceExpression ? { sourceExpression: parsedSource.sourceExpression } : {}),
+      ...(yieldItems ? { yieldItems } : {}),
     },
   };
 }
@@ -96,9 +133,10 @@ function parseLookupHeader(line: SourceLine): LookupHeader | null {
     body = body.slice('required '.length).trimStart();
     bodyColumn = line.column + line.text.indexOf(body);
   }
-  const modeMatch = /^(one|many)\s+/i.exec(body);
+  const modeMatch = /^(aggregate|one|many)\s+/i.exec(body);
   if (!modeMatch || (required && modeMatch[1]?.toLowerCase() !== 'one')) return null;
-  const mode = modeMatch[1]!.toLowerCase() as 'many' | 'one';
+  const mode = modeMatch[1]!.toLowerCase() as 'aggregate' | 'many' | 'one';
+  if (required && mode === 'aggregate') return null;
   const remainder = body.slice(modeMatch[0].length);
   const remainderColumn = bodyColumn + modeMatch[0].length;
   const aliasIndex = findTopLevelAs(remainder);
@@ -107,16 +145,26 @@ function parseLookupHeader(line: SourceLine): LookupHeader | null {
   if (!sourceText) return null;
   const sourceColumn = remainderColumn + remainder.indexOf(sourceText);
   const suffix = remainder.slice(aliasIndex + 4).trim();
-  const suffixMatch =
-    /^([A-Za-z_][A-Za-z0-9_]*)(?:\s+cache\s+(off|run|persistent)(?:\s+(\d+[smhd]))?)?$/i
+  const suffixMatch = mode === 'aggregate'
+    ? /^([A-Za-z_][A-Za-z0-9_]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+cache\s+(off|run|persistent)(?:\s+(\d+[smhd]))?)?$/i
+      .exec(suffix)
+    : /^([A-Za-z_][A-Za-z0-9_]*)(?:\s+cache\s+(off|run|persistent)(?:\s+(\d+[smhd]))?)?$/i
       .exec(suffix);
   if (!suffixMatch) return null;
   return {
-    ...(suffixMatch[2]
-      ? { cache: suffixMatch[2].toLowerCase() as 'off' | 'persistent' | 'run' }
+    ...(suffixMatch[mode === 'aggregate' ? 3 : 2]
+      ? {
+        cache: suffixMatch[mode === 'aggregate' ? 3 : 2]!.toLowerCase() as
+          | 'off'
+          | 'persistent'
+          | 'run',
+      }
       : {}),
-    ...(suffixMatch[3] ? { cacheTtlRaw: suffixMatch[3] } : {}),
+    ...(suffixMatch[mode === 'aggregate' ? 4 : 3]
+      ? { cacheTtlRaw: suffixMatch[mode === 'aggregate' ? 4 : 3] }
+      : {}),
     mode,
+    ...(mode === 'aggregate' ? { providerRowAlias: suffixMatch[2]! } : {}),
     required,
     rowAlias: suffixMatch[1]!,
     sourceColumn,
@@ -125,7 +173,7 @@ function parseLookupHeader(line: SourceLine): LookupHeader | null {
 }
 
 function isMalformedLookupCache(text: string): boolean {
-  return /^then\s+lookup\s+(?:required\s+one|one|many)\s+.+?\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+cache(?:\s|=|$)/i
+  return /^then\s+lookup\s+(?:aggregate|required\s+one|one|many)\s+.+?\s+as\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+from\s+[A-Za-z_][A-Za-z0-9_]*)?\s+cache(?:\s|=|$)/i
     .test(text);
 }
 

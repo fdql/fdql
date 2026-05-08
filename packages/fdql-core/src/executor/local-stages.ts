@@ -192,6 +192,7 @@ function aggregateRows(
     if (group) group.rows.push(row);
     else groups.set(key, { keyValues, rows: [row] });
   }
+  if (!stage.groups.length && !groups.size) groups.set('', { keyValues: [], rows: [] });
 
   const nextRows: RowRecord[] = [];
   const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();

@@ -10,7 +10,8 @@ import {
   splitUnionAll,
 } from './parser/source-text.ts';
 import {
-  parseAggregate,
+  parseAggregateFrom,
+  parseAggregateStage,
   parseFrom,
   parseProviderClause,
   parseSortBy,
@@ -104,6 +105,12 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
         );
         continue;
       }
+      const aggregateFrom = parseAggregateFrom(lines, index, diagnostics);
+      if (aggregateFrom) {
+        from = aggregateFrom.from;
+        index = aggregateFrom.nextIndex;
+        continue;
+      }
       from = parseFrom(text, line, column, range, diagnostics);
       continue;
     }
@@ -137,18 +144,9 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
       continue;
     }
     if (text === 'then aggregate' || text.startsWith('then aggregate ')) {
-      const block = collectProjection(lines, index, 'then aggregate');
-      index = block.nextIndex;
-      const aggregate = parseAggregate(
-        block.source,
-        block.sourceLine,
-        block.sourceColumn,
-        column,
-        line,
-        block.range,
-        diagnostics,
-      );
-      stages.push(aggregate);
+      const aggregate = parseAggregateStage(lines, index, diagnostics);
+      index = aggregate.nextIndex;
+      stages.push(aggregate.stage);
       continue;
     }
     if (text.startsWith('then lookup ')) {

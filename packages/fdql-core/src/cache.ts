@@ -4,6 +4,7 @@ import type {
   EvalRows,
   FdqlExpression,
   FdqlPersistentCacheKey,
+  FdqlProviderAggregateRequest,
   FdqlProviderReadRequest,
   FdqlProviderRow,
   FdqlValue,
@@ -16,6 +17,12 @@ export interface FdqlProviderReadCacheKeyInput {
   readonly providers?: FdqlProviderDialectRegistry | undefined;
   readonly readLimit?: number | undefined;
   readonly request: FdqlProviderReadRequest;
+}
+
+export interface FdqlProviderAggregateCacheKeyInput {
+  readonly cacheContext?: Readonly<Record<string, unknown>> | undefined;
+  readonly providers?: FdqlProviderDialectRegistry | undefined;
+  readonly request: FdqlProviderAggregateRequest;
 }
 
 export function createFdqlProviderReadCacheKey(
@@ -48,6 +55,34 @@ export function createFdqlProviderReadCacheKey(
   };
 }
 
+export function createFdqlProviderAggregateCacheKey(
+  input: FdqlProviderAggregateCacheKeyInput,
+): FdqlPersistentCacheKey {
+  const { request } = input;
+  const key = {
+    aggregates: request.aggregates.map((aggregate) => ({
+      alias: aggregate.alias,
+      expression: aggregate.expression ? normalizedExpression(aggregate.expression, input) : null,
+      functionName: aggregate.functionName,
+    })),
+    cacheContext: stableValue(input.cacheContext ?? {}),
+    formatVersion: FDQL_CACHE_FORMAT_VERSION,
+    predicate: request.predicate ? normalizedExpression(request.predicate, input) : null,
+    provider: request.source.provider,
+    providerCacheVersion: input.providers?.[request.source.provider]?.cacheVersion ?? 1,
+    source: {
+      provider: request.source.provider,
+      sourceType: request.source.sourceType,
+      target: stableValue(request.source.target),
+    },
+    type: 'aggregate',
+  };
+  return {
+    canonicalJson: stableStringify(key),
+    key,
+  };
+}
+
 export function stableStringify(value: unknown): string {
   return JSON.stringify(stableValue(value)) ?? 'undefined';
 }
@@ -67,7 +102,7 @@ function normalizedFieldMask(
 
 function normalizedExpression(
   expression: FdqlExpression,
-  input: FdqlProviderReadCacheKeyInput,
+  input: FdqlProviderAggregateCacheKeyInput | FdqlProviderReadCacheKeyInput,
 ): unknown {
   if (
     expression.kind === 'binary' && (expression.operator === 'and' || expression.operator === 'or')
@@ -168,7 +203,7 @@ function flattenBinary(
 
 function containsCorrelatedReference(
   expression: FdqlExpression,
-  request: FdqlProviderReadRequest,
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
 ): boolean {
   if (!request.rows) return false;
   if (expression.kind === 'field') {
@@ -196,7 +231,7 @@ function containsCorrelatedReference(
 
 function evaluateCorrelatedExpression(
   expression: FdqlExpression,
-  input: FdqlProviderReadCacheKeyInput,
+  input: FdqlProviderAggregateCacheKeyInput | FdqlProviderReadCacheKeyInput,
 ): FdqlValue {
   return evaluateExpression(expression, {
     aliases: input.request.aliases,

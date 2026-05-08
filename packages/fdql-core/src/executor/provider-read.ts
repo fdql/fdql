@@ -2,6 +2,9 @@ import type { EvalContext } from '../evaluator.ts';
 import type { FdqlProviderDialectRegistry, FdqlProviderRuntimeRegistry } from '../provider.ts';
 import type {
   EvalRows,
+  FdqlProviderAggregatePlan,
+  FdqlProviderAggregateRequest,
+  FdqlProviderAggregateResult,
   FdqlProviderReadControls,
   FdqlProviderReadPlan,
   FdqlProviderReadRequest,
@@ -40,6 +43,43 @@ export function createReadRequest(
     source,
     stage,
   };
+}
+
+export function createAggregateRequest(
+  provider: FdqlProviderReadPlan,
+  aggregate: FdqlProviderAggregatePlan,
+  plan: FdqlSingleReadPlan,
+  stats: MutableStats,
+  rows?: EvalRows,
+  stage: FdqlProviderAggregateRequest['stage'] = 'lookupAggregate',
+): FdqlProviderAggregateRequest {
+  const remainingBudget = Math.max(0, plan.settings.readBudget - stats.reads);
+  return {
+    aggregates: aggregate.items,
+    aliases: plan.aliases,
+    maxDocuments: remainingBudget,
+    ...(provider.predicate ? { predicate: provider.predicate } : {}),
+    rowAlias: aggregate.rowAlias,
+    ...(rows ? { rows } : {}),
+    source: provider.source,
+    stage,
+  };
+}
+
+export async function aggregateProvider(
+  runtime: FdqlProviderRuntimeRegistry,
+  request: FdqlProviderAggregateRequest,
+  controls: FdqlProviderReadControls,
+): Promise<FdqlProviderAggregateResult> {
+  const provider = runtime.providers[request.source.provider];
+  if (!provider?.aggregate) {
+    throw new Error(`No aggregate runtime registered for provider ${request.source.provider}.`);
+  }
+  try {
+    return await provider.aggregate(request, controls);
+  } catch (error) {
+    throw errorWithDiagnosticContext(error, request);
+  }
 }
 
 export async function* readProvider(

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createFdqlProviderReadCacheKey } from './cache.ts';
+import { createFdqlProviderAggregateCacheKey, createFdqlProviderReadCacheKey } from './cache.ts';
 import type {
   FdqlExpression,
+  FdqlProviderAggregateRequest,
   FdqlProviderReadRequest,
   FdqlProviderRow,
   FdqlSourceRange,
@@ -95,6 +96,42 @@ describe('FDQL provider read cache key', () => {
   });
 });
 
+describe('FDQL provider aggregate cache key', () => {
+  it('includes aggregate yield functions and correlated values', () => {
+    const first = createFdqlProviderAggregateCacheKey({
+      request: aggregateRequest({
+        aggregates: [
+          { alias: 'total', functionName: 'mem.count' },
+          { alias: 'last', expression: field('team', 'createdAt'), functionName: 'mem.max' },
+        ],
+        predicate: eq(field('team', 'id'), field('assignment', 'teamId')),
+        rows: { assignment: providerRow('assignments/a1') },
+      }),
+    });
+    const second = createFdqlProviderAggregateCacheKey({
+      request: aggregateRequest({
+        aggregates: [
+          { alias: 'total', functionName: 'mem.count' },
+          { alias: 'last', expression: field('candidate', 'createdAt'), functionName: 'mem.max' },
+        ],
+        predicate: eq(field('candidate', 'id'), field('row', 'teamId')),
+        rowAlias: 'candidate',
+        rows: { row: providerRow('assignments/a1') },
+      }),
+    });
+    const differentYield = createFdqlProviderAggregateCacheKey({
+      request: aggregateRequest({
+        aggregates: [{ alias: 'total', functionName: 'mem.count' }],
+        predicate: eq(field('team', 'id'), field('assignment', 'teamId')),
+        rows: { assignment: providerRow('assignments/a1') },
+      }),
+    });
+
+    expect(second.canonicalJson).toBe(first.canonicalJson);
+    expect(differentYield.canonicalJson).not.toBe(first.canonicalJson);
+  });
+});
+
 function request(
   overrides: Partial<FdqlProviderReadRequest> & {
     readonly sourceAlias?: string | undefined;
@@ -116,6 +153,25 @@ function request(
     },
     stage: 'lookup',
     ...requestOverrides,
+  };
+}
+
+function aggregateRequest(
+  overrides: Partial<FdqlProviderAggregateRequest> = {},
+): FdqlProviderAggregateRequest {
+  return {
+    aggregates: [{ alias: 'total', functionName: 'mem.count' }],
+    aliases: {},
+    maxDocuments: 1,
+    rowAlias: overrides.rowAlias ?? 'team',
+    source: {
+      provider: 'mem',
+      sourceAlias: '$teams',
+      sourceType: 'collection',
+      target: { collection: 'teams', projectId: 'local' },
+    },
+    stage: 'lookupAggregate',
+    ...overrides,
   };
 }
 

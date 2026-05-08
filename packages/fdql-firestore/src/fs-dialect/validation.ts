@@ -1,6 +1,7 @@
 import type {
   FdqlDiagnostic,
   FdqlExpression,
+  FdqlProviderAggregateValidationInput,
   FdqlProviderOrderByValidationInput,
   FdqlProviderPredicateValidationInput,
 } from '@firebase-desk/fdql-core';
@@ -75,6 +76,31 @@ export function validateFirestoreOrderBy(input: FdqlProviderOrderByValidationInp
       input.line,
     ),
   );
+}
+
+export function validateFirestoreAggregate(input: FdqlProviderAggregateValidationInput): void {
+  if (input.functionName === 'fs.count') {
+    if (input.expression.kind === 'call' && input.expression.args.length === 0) return;
+    input.diagnostics.push(
+      firestoreError('FDQL_UNSUPPORTED_FS_AGGREGATE', '`fs.count` takes no arguments.', input.line),
+    );
+    return;
+  }
+  const call = input.expression.kind === 'call' ? input.expression : null;
+  const field = call?.args[0];
+  if (!call || call.args.length !== 1 || !isAggregateField(field, input.rowAlias)) {
+    input.diagnostics.push(
+      firestoreError(
+        'FDQL_UNSUPPORTED_FS_AGGREGATE',
+        `${input.functionName} needs one Firestore provider field.`,
+        input.line,
+      ),
+    );
+    return;
+  }
+  if (field?.kind === 'call' && field.name === 'fs.fieldPath') {
+    readFieldPathSegments(field, input.diagnostics, input.line);
+  }
 }
 
 export function hasBoundedIdPredicate(
@@ -177,6 +203,17 @@ function isProviderOperand(
   if (expression.kind === 'field') return expression.path[0] === rowAlias;
   if (expression.kind !== 'call') return false;
   return isIdCall(expression, rowAlias) || expression.name === 'fs.fieldPath';
+}
+
+function isAggregateField(
+  expression: FdqlExpression | undefined,
+  rowAlias: string,
+): expression is Extract<FdqlExpression, { readonly kind: 'call' | 'field'; }> {
+  if (!expression) return false;
+  if (expression.kind === 'field') {
+    return expression.path[0] === rowAlias && expression.path.length > 1;
+  }
+  return expression.kind === 'call' && expression.name === 'fs.fieldPath';
 }
 
 function isProviderValueExpression(expression: FdqlExpression | undefined): boolean {

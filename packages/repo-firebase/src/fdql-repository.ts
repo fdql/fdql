@@ -9,6 +9,8 @@ import {
   type FdqlExecutionEvent,
   type FdqlExpression,
   type FdqlPersistentCache,
+  type FdqlProviderAggregateRequest,
+  type FdqlProviderAggregateResult,
   type FdqlProviderReadControls,
   type FdqlProviderReadRequest,
   type FdqlProviderRow,
@@ -18,6 +20,8 @@ import {
   geoPointValue,
   isMissingValue,
   mapValue,
+  nullValue,
+  numberValue,
   providerValue,
   stringScalar,
   stringValue,
@@ -35,6 +39,7 @@ import type {
   FdqlStats,
 } from '@firebase-desk/repo-contracts';
 import {
+  AggregateField,
   DocumentReference,
   FieldPath,
   Filter,
@@ -177,6 +182,9 @@ function createAdminFdqlRuntime(provider: AdminFirestoreProvider): FdqlProviderR
     dialects: firestoreDialects,
     providers: {
       fs: {
+        async aggregate(request, controls) {
+          return aggregateFirestore(request, controls, provider);
+        },
         async *read(request, controls) {
           const projectId = stringTarget(request, 'projectId');
           const databaseId = optionalStringTarget(request, 'databaseId');
@@ -213,14 +221,123 @@ function createAdminFdqlRuntime(provider: AdminFirestoreProvider): FdqlProviderR
   };
 }
 
+async function aggregateFirestore(
+  request: FdqlProviderAggregateRequest,
+  controls: FdqlProviderReadControls,
+  provider: AdminFirestoreProvider,
+): Promise<FdqlProviderAggregateResult> {
+  const projectId = stringTarget(request, 'projectId');
+  const databaseId = optionalStringTarget(request, 'databaseId');
+  const { db } = await provider.getFirestoreConnection(projectId, databaseId);
+  const collectionPath = optionalStringTarget(request, 'collectionPath');
+  const collectionGroup = optionalStringTarget(request, 'collectionGroup');
+  const base = collectionPath
+    ? db.collection(collectionPath)
+    : db.collectionGroup(collectionGroup ?? '');
+  const query = applyProviderWhere(db, base, request);
+  const nativeItems = request.aggregates.filter((item) =>
+    ['fs.avg', 'fs.count', 'fs.sum'].includes(item.functionName)
+  );
+  const minMaxItems = request.aggregates.filter((item) =>
+    ['fs.max', 'fs.min'].includes(item.functionName)
+  );
+  const values: Record<string, FdqlValue> = {};
+  let aggregateReads = 0;
+  if (nativeItems.length) {
+    const snapshot = await raceWithReadControls(
+      aggregateQuery(query, nativeItems, request.rowAlias).get(),
+      controls,
+    );
+    const data = snapshot?.data() ?? {};
+    aggregateReads += snapshot ? 1 : 0;
+    for (const item of nativeItems) {
+      values[item.alias] = aggregateValueFromNative(item.functionName, data[item.alias]);
+    }
+  }
+  const documentReads: FdqlProviderRow[] = [];
+  // oxlint-disable no-await-in-loop -- Each min/max aggregate is a separate bounded Firestore read.
+  for (const item of minMaxItems) {
+    if (controlsStopped(controls)) break;
+    const field = item.expression
+      ? fieldPathFromExpression(item.expression, request.rowAlias)
+      : '__missing__';
+    const direction = item.functionName === 'fs.max' ? 'desc' : 'asc';
+    const snapshot = await raceWithReadControls(
+      query.orderBy(field, direction).limit(1).select(
+        typeof field === 'string' ? new FieldPath(field) : field,
+      ).get(),
+      controls,
+    );
+    const doc = snapshot?.docs[0];
+    if (!doc) {
+      values[item.alias] = nullValue;
+      continue;
+    }
+    const row = rowFromSnapshot(readRequestForAggregate(request), doc);
+    documentReads.push(row);
+    values[item.alias] = item.expression
+      ? evaluateExpression(item.expression, {
+        aliases: request.aliases,
+        providers: firestoreDialects,
+        rows: { ...request.rows, [request.rowAlias]: row },
+      })
+      : nullValue;
+  }
+  // oxlint-enable no-await-in-loop
+  return { aggregateReads, documentReads, values };
+}
+
+function aggregateQuery(
+  query: Query,
+  items: readonly FdqlProviderAggregateRequest['aggregates'][number][],
+  rowAlias: string,
+) {
+  return query.aggregate(Object.fromEntries(items.map((item) => [
+    item.alias,
+    aggregateField(item, rowAlias),
+  ])));
+}
+
+function aggregateField(
+  item: FdqlProviderAggregateRequest['aggregates'][number],
+  rowAlias: string,
+) {
+  if (item.functionName === 'fs.count') return AggregateField.count();
+  const field = item.expression
+    ? fieldPathFromExpression(item.expression, rowAlias)
+    : '__missing__';
+  if (item.functionName === 'fs.avg') return AggregateField.average(field);
+  return AggregateField.sum(field);
+}
+
+function aggregateValueFromNative(functionName: string, value: unknown): FdqlValue {
+  if (typeof value === 'number') return numberValue(value);
+  if (functionName === 'fs.count' || functionName === 'fs.sum') return numberValue(0);
+  return nullValue;
+}
+
+function readRequestForAggregate(
+  request: FdqlProviderAggregateRequest,
+): FdqlProviderReadRequest {
+  return {
+    aliases: request.aliases,
+    maxDocuments: request.maxDocuments,
+    pageSize: request.maxDocuments,
+    ...(request.predicate ? { predicate: request.predicate } : {}),
+    rowAlias: request.rowAlias,
+    ...(request.rows ? { rows: request.rows } : {}),
+    source: request.source,
+    stage: 'lookup',
+  };
+}
+
 function applyProviderQuery(
   db: Firestore,
   query: Query,
   request: FdqlProviderReadRequest,
 ): Query {
   let next = query;
-  const filter = request.predicate ? filterFromExpression(db, request.predicate, request) : null;
-  if (filter) next = next.where(filter);
+  next = applyProviderWhere(db, next, request);
   if (request.orderBy) {
     next = next.orderBy(
       fieldPathFromExpression(request.orderBy.expression, request.rowAlias),
@@ -233,10 +350,19 @@ function applyProviderQuery(
   return next;
 }
 
+function applyProviderWhere(
+  db: Firestore,
+  query: Query,
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
+): Query {
+  const filter = request.predicate ? filterFromExpression(db, request.predicate, request) : null;
+  return filter ? query.where(filter) : query;
+}
+
 function filterFromExpression(
   db: Firestore,
   expression: FdqlExpression,
-  request: FdqlProviderReadRequest,
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
 ): Filter | null {
   if (expression.kind === 'binary' && expression.operator === 'and') {
     return Filter.and(
@@ -319,13 +445,16 @@ function controlsStopped(controls: FdqlProviderReadControls): boolean {
   return Boolean(controls.signal?.aborted) || controls.now() >= controls.deadlineAtMs;
 }
 
-function stringTarget(request: FdqlProviderReadRequest, key: string): string {
+function stringTarget(
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
+  key: string,
+): string {
   const value = request.source.target[key];
   return typeof value === 'string' ? value : '';
 }
 
 function optionalStringTarget(
-  request: FdqlProviderReadRequest,
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
   key: string,
 ): string | undefined {
   const value = stringTarget(request, key);
@@ -347,7 +476,7 @@ function operatorFor(
 function valueFor(
   db: Firestore,
   expression: FdqlExpression,
-  request: FdqlProviderReadRequest,
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
 ): unknown {
   const value = evaluateExpression(expression, {
     aliases: request.aliases,
@@ -377,7 +506,7 @@ function valueFor(
 function errorForExpression(
   message: string,
   expression: FdqlExpression,
-  request: FdqlProviderReadRequest,
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
 ): Error {
   const error = new Error(message) as Error & {
     column?: number;
@@ -398,7 +527,9 @@ function errorForExpression(
   return error;
 }
 
-function correlatedRowPath(request: FdqlProviderReadRequest): string | undefined {
+function correlatedRowPath(
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
+): string | undefined {
   if (!request.rows) return undefined;
   for (const value of Object.values(request.rows)) {
     if (isProviderRow(value)) return value.path;

@@ -33,6 +33,49 @@ return mem.id(p) as id, p.name`,
     });
   });
 
+  it('plans provider aggregate source reads', () => {
+    const count = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate($people)
+  yield mem.count() as total
+return total`,
+      options,
+    );
+    const filtered = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate($people as p)
+  mem where p.active = true
+  yield mem.count() as total, mem.sum(p.score) as score
+return total, score`,
+      options,
+    );
+
+    expect(count).toMatchObject({
+      diagnostics: [],
+      ok: true,
+      plan: {
+        providerAggregate: {
+          items: [{ alias: 'total', functionName: 'mem.count' }],
+          rowAlias: '__aggregate',
+        },
+      },
+    });
+    expect(filtered).toMatchObject({
+      diagnostics: [],
+      ok: true,
+      plan: {
+        provider: { predicate: expect.objectContaining({ kind: 'binary' }) },
+        providerAggregate: {
+          items: [
+            { alias: 'total', functionName: 'mem.count' },
+            { alias: 'score', functionName: 'mem.sum' },
+          ],
+          rowAlias: 'p',
+        },
+      },
+    });
+  });
+
   it('requires declared provider source aliases and registered providers', () => {
     const undeclared = compileSingleFdqlRead(
       `from $people as p
@@ -128,6 +171,51 @@ return p.name`,
     );
     expect(invalidPredicate.diagnostics).toContainEqual(
       expect.objectContaining({ code: 'FDQL_UNSUPPORTED_PROVIDER_WHERE' }),
+    );
+  });
+
+  it('validates provider aggregate source clauses and yield', () => {
+    const missingYield = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate($people)
+return total`,
+      options,
+    );
+    const whereWithoutAlias = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate($people)
+  mem where p.active = true
+  yield mem.count() as total
+return total`,
+      options,
+    );
+    const unsupportedClause = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate($people as p)
+  mem order by p.name asc
+  yield mem.count() as total
+return total`,
+      options,
+    );
+    const fieldWithoutAlias = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate($people)
+  yield mem.sum(p.score) as score
+return score`,
+      options,
+    );
+
+    expect(missingYield.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_MISSING_PROVIDER_AGGREGATE_YIELD' }),
+    );
+    expect(whereWithoutAlias.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_PROVIDER_AGGREGATE' }),
+    );
+    expect(unsupportedClause.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNSUPPORTED_PROVIDER_AGGREGATE_CLAUSE' }),
+    );
+    expect(fieldWithoutAlias.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_PROVIDER_AGGREGATE' }),
     );
   });
 });

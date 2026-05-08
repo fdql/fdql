@@ -178,6 +178,68 @@ describe('FDQL compiler lookup stages', () => {
       expect.objectContaining({ code: 'FDQL_INVALID_LOOKUP_CACHE', line: 3 }),
     );
   });
+
+  it('plans aggregate lookups with provider yield functions', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    const stage = compileLookupStage(
+      lookupStage(`then lookup aggregate $teams as teamStats from team cache run
+  mem where team.id = p.teamId
+  yield mem.count() as total, mem.max(team.createdAt) as lastTeamAt`),
+      aliases,
+      new Set(['p']),
+      {},
+      {},
+      providers,
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(stage).toMatchObject({
+      aggregate: {
+        items: [
+          { alias: 'total', functionName: 'mem.count' },
+          { alias: 'lastTeamAt', functionName: 'mem.max' },
+        ],
+        rowAlias: 'team',
+      },
+      cache: 'run',
+      mode: 'aggregate',
+      rowAlias: 'teamStats',
+    });
+  });
+
+  it('rejects invalid aggregate lookup yield and clauses', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    compileLookupStage(
+      lookupStage(`then lookup aggregate $teams as stats from team
+  mem order by team.name asc
+  yield mem.count() as total, mem.sum(team.score) as total`),
+      aliases,
+      new Set(['p']),
+      {},
+      {},
+      providers,
+      diagnostics,
+    );
+    compileLookupStage(
+      lookupStage(`then lookup aggregate $teams as stats from team
+  mem where team.id = p.teamId`),
+      aliases,
+      new Set(['p']),
+      {},
+      {},
+      providers,
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'FDQL_UNSUPPORTED_LOOKUP_AGGREGATE_CLAUSE' }),
+        expect.objectContaining({ code: 'FDQL_DUPLICATE_YIELD_ALIAS' }),
+        expect.objectContaining({ code: 'FDQL_MISSING_LOOKUP_AGGREGATE_YIELD' }),
+      ]),
+    );
+  });
 });
 
 function lookupStage(source: string): FdqlLookupStage {

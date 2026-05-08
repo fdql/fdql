@@ -19,7 +19,8 @@ export function isProviderClauseStart(text: string): boolean {
 }
 
 export function isStatementStart(text: string): boolean {
-  return /^(set|alias|from|then |return|union all)\b/.test(text) || isProviderClauseStart(text);
+  return /^(set|alias|from|then |return|union all|yield)\b/.test(text)
+    || isProviderClauseStart(text);
 }
 
 export function isUnionAst(ast: FdqlAst): ast is FdqlUnionProgram {

@@ -289,6 +289,9 @@ function ResultsView(
         <div className='flex flex-wrap items-center gap-2 text-xs text-text-secondary'>
           <span>{rows.length} rows</span>
           <span>{stats?.reads ?? 0} reads</span>
+          {stats?.aggregateReads
+            ? <span>{pluralLabel(stats.aggregateReads, 'aggregate', 'aggregates')}</span>
+            : null}
           <span>{stats?.rowsScanned ?? 0} scanned</span>
           {cacheStatLabels(stats).map((label) => <span key={label}>{label}</span>)}
           <span title={`${durationMs}ms`}>{formatDuration(durationMs)} elapsed</span>

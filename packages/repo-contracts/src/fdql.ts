@@ -16,6 +16,7 @@ export interface FdqlDiagnosticContext {
 }
 
 export interface FdqlStats {
+  readonly aggregateReads: number;
   readonly aggregateSourceRows: number;
   readonly cacheBytes: number;
   readonly cacheEvictions: number;
@@ -23,6 +24,7 @@ export interface FdqlStats {
   readonly cacheMisses: number;
   readonly cacheWrites: number;
   readonly lookupReads: number;
+  readonly providerAggregateReads: Readonly<Record<string, number>>;
   readonly providerReads: Readonly<Record<string, number>>;
   readonly readBudget: number;
   readonly reads: number;

@@ -9,11 +9,13 @@ import {
 } from './fs-dialect/sources.ts';
 import {
   hasBoundedIdPredicate,
+  validateFirestoreAggregate,
   validateFirestoreOrderBy,
   validateFirestoreWhere,
 } from './fs-dialect/validation.ts';
 
 export const firestoreProviderDialect: FdqlProviderDialect = {
+  aggregateFunctions: new Set(['fs.avg', 'fs.count', 'fs.max', 'fs.min', 'fs.sum']),
   language: firestoreLanguage,
   namespace: 'fs',
   sourceFunctions: new Set(['collection', 'collectionGroup', 'db', 'project', 'subcollection']),
@@ -36,6 +38,9 @@ export const firestoreProviderDialect: FdqlProviderDialect = {
   },
   validateOrderBy(input) {
     validateFirestoreOrderBy(input);
+  },
+  validateAggregate(input) {
+    validateFirestoreAggregate(input);
   },
   validateWhere(input) {
     validateFirestoreWhere(input);

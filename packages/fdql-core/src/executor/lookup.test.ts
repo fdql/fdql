@@ -127,6 +127,50 @@ return item`);
 
     expect(rows(events)).toEqual([{ item: [{ status: 'packed' }] }]);
   });
+
+  it('attaches aggregate lookup defaults, values, and stats', async () => {
+    const events = await run(`alias $orders = mem.collection("orders")
+alias $teams = mem.collection("teams")
+from $orders as o
+mem limit 3
+then lookup aggregate $teams as stats from team
+  mem where team.id = o.teamId
+  yield mem.count() as total, mem.max(team.name) as lastName
+return mem.id(o) as id, stats.total, stats.lastName`);
+
+    expect(rows(events)).toEqual([
+      { id: 'ord_1', total: 1, lastName: 'Orange' },
+      { id: 'ord_2', total: 0, lastName: null },
+      { id: 'ord_3', total: 0, lastName: null },
+    ]);
+    expect(completed(events)).toMatchObject({
+      aggregateReads: 2,
+      lookupReads: 1,
+      reads: 4,
+      rowsOutput: 3,
+    });
+  });
+
+  it('caches aggregate lookup results', async () => {
+    const events = await run(`set fdql.cache = run
+alias $orders = mem.collection("orders")
+alias $teams = mem.collection("teams")
+from $orders as o
+mem limit 2
+then with o, "team_1" as teamId
+then lookup aggregate $teams as stats from team
+  mem where team.id = teamId
+  yield mem.count() as total
+return stats.total as total`);
+
+    expect(rows(events)).toEqual([{ total: 1 }, { total: 1 }]);
+    expect(completed(events)).toMatchObject({
+      aggregateReads: 1,
+      cacheHits: 1,
+      cacheMisses: 1,
+      reads: 2,
+    });
+  });
 });
 
 async function run(

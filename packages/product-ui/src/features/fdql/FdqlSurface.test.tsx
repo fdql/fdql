@@ -64,6 +64,7 @@ const result: FdqlRunResult = {
     version: 3166,
   }],
   stats: {
+    aggregateReads: 0,
     aggregateSourceRows: 0,
     cacheBytes: 0,
     cacheEvictions: 0,
@@ -71,6 +72,7 @@ const result: FdqlRunResult = {
     cacheMisses: 2,
     cacheWrites: 0,
     lookupReads: 0,
+    providerAggregateReads: {},
     providerReads: { 'fs:local': 1 },
     readBudget: 5000,
     reads: 1,

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { binary, call, field, literal } from '../test-helpers/ast.ts';
 import {
   hasBoundedIdPredicate,
+  validateFirestoreAggregate,
   validateFirestoreOrderBy,
   validateFirestoreWhere,
 } from './validation.ts';
@@ -40,6 +41,43 @@ describe('Firestore FDQL validation', () => {
     expect(
       hasBoundedIdPredicate(binary(call('fs.id', field('d')), '=', literal('drv_1')), 'd'),
     ).toBe(true);
+  });
+
+  it('accepts provider aggregate fields and rejects invalid aggregate expressions', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+
+    validateFirestoreAggregate({
+      diagnostics,
+      expression: call('fs.count'),
+      functionName: 'fs.count',
+      line: 7,
+      rowAlias: 'r',
+    });
+    validateFirestoreAggregate({
+      diagnostics,
+      expression: call('fs.sum', field('r', 'points')),
+      functionName: 'fs.sum',
+      line: 8,
+      rowAlias: 'r',
+    });
+    validateFirestoreAggregate({
+      diagnostics,
+      expression: call('fs.max', call('fs.fieldPath', literal('literal.with.dot'))),
+      functionName: 'fs.max',
+      line: 9,
+      rowAlias: 'r',
+    });
+    validateFirestoreAggregate({
+      diagnostics,
+      expression: call('fs.avg', call('lower', field('r', 'name'))),
+      functionName: 'fs.avg',
+      line: 10,
+      rowAlias: 'r',
+    });
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({ code: 'FDQL_UNSUPPORTED_FS_AGGREGATE', line: 10 }),
+    ]);
   });
 
   it('accepts correlated lookup where clauses', () => {

@@ -1,6 +1,7 @@
 import type {
   FdqlDiagnostic,
   FdqlDiagnosticContext,
+  FdqlProviderAggregateRequest,
   FdqlProviderReadRequest,
   FdqlProviderRow,
 } from '../types.ts';
@@ -24,7 +25,7 @@ export function diagnosticFromError(error: unknown): FdqlDiagnostic {
 
 export function errorWithDiagnosticContext(
   error: unknown,
-  request: FdqlProviderReadRequest,
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
 ): Error {
   const next = error instanceof Error ? error : new Error(String(error));
   const existing = (next as Error & { context?: FdqlDiagnosticContext; }).context;
@@ -39,7 +40,9 @@ export function errorWithDiagnosticContext(
   return next;
 }
 
-function correlatedRowPath(request: FdqlProviderReadRequest): string | undefined {
+function correlatedRowPath(
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
+): string | undefined {
   if (!request.rows) return undefined;
   for (const value of Object.values(request.rows)) {
     if (isDocument(value)) return value.path;

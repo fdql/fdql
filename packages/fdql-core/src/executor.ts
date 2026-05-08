@@ -1,11 +1,17 @@
 import { diagnosticFromError } from './executor/errors.ts';
 import { applyLocalStages } from './executor/local-stages.ts';
 import { projectItems } from './executor/projection.ts';
-import { createReadRequest, readProvider } from './executor/provider-read.ts';
+import {
+  aggregateProvider,
+  createAggregateRequest,
+  createReadRequest,
+  readProvider,
+} from './executor/provider-read.ts';
 import {
   createStats,
   freezeStats,
   providerReadControls,
+  recordAggregateRead,
   recordRead,
   stopEvents,
   stopReasonFor,
@@ -88,22 +94,50 @@ async function* executeReadBranch(
     return 'stopped';
   }
 
-  for await (
-    const document of readProvider(runtime, request, providerReadControls(plan, options, startedAt))
-  ) {
-    const beforeRowStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
-    if (beforeRowStop) {
-      stats.stoppedReason = beforeRowStop;
-      for (const event of stopEvents(stats, beforeRowStop)) yield event;
-      return 'stopped';
+  if (plan.providerAggregate) {
+    const aggregateRequest = createAggregateRequest(
+      plan.provider,
+      plan.providerAggregate,
+      plan,
+      stats,
+      undefined,
+      'sourceAggregate',
+    );
+    const aggregate = await aggregateProvider(
+      runtime,
+      aggregateRequest,
+      providerReadControls(plan, options, startedAt),
+    );
+    if (aggregate.aggregateReads > 0) {
+      recordAggregateRead(aggregateRequest, stats, aggregate.aggregateReads);
     }
-    yield recordRead(document, request, stats, false);
-    const row = { [plan.rowAlias]: document };
-    sourceRows.push(row);
-    sourceLineage.set(row, document);
-    if (stats.reads >= plan.settings.readBudget) {
-      readStopReason = 'budget';
-      break;
+    for (const document of aggregate.documentReads ?? []) {
+      yield recordRead(document, request, stats, false);
+      sourceLineage.set(aggregate.values, document);
+    }
+    sourceRows.push(aggregate.values);
+  } else {
+    for await (
+      const document of readProvider(
+        runtime,
+        request,
+        providerReadControls(plan, options, startedAt),
+      )
+    ) {
+      const beforeRowStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
+      if (beforeRowStop) {
+        stats.stoppedReason = beforeRowStop;
+        for (const event of stopEvents(stats, beforeRowStop)) yield event;
+        return 'stopped';
+      }
+      yield recordRead(document, request, stats, false);
+      const row = { [plan.rowAlias]: document };
+      sourceRows.push(row);
+      sourceLineage.set(row, document);
+      if (stats.reads >= plan.settings.readBudget) {
+        readStopReason = 'budget';
+        break;
+      }
     }
   }
 

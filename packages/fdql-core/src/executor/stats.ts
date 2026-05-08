@@ -2,6 +2,7 @@ import { providerKey } from '../provider.ts';
 import type {
   FdqlExecutionEvent,
   FdqlExecutionOptions,
+  FdqlProviderAggregateRequest,
   FdqlProviderReadControls,
   FdqlProviderReadRequest,
   FdqlProviderRow,
@@ -12,6 +13,7 @@ import type { MutableStats } from './types.ts';
 
 export function createStats(readBudget: number): MutableStats {
   return {
+    aggregateReads: 0,
     aggregateSourceRows: 0,
     cacheBytes: 0,
     cacheEvictions: 0,
@@ -19,6 +21,7 @@ export function createStats(readBudget: number): MutableStats {
     cacheMisses: 0,
     cacheWrites: 0,
     lookupReads: 0,
+    providerAggregateReads: {},
     providerReads: {},
     readBudget,
     reads: 0,
@@ -26,6 +29,19 @@ export function createStats(readBudget: number): MutableStats {
     rowsScanned: 0,
     unionBranches: 0,
   };
+}
+
+export function recordAggregateRead(
+  request: FdqlProviderAggregateRequest,
+  stats: MutableStats,
+  count: number,
+): void {
+  stats.aggregateReads += count;
+  const projectId = typeof request.source.target['projectId'] === 'string'
+    ? request.source.target['projectId']
+    : '';
+  const key = providerKey(request.source.provider, projectId);
+  stats.providerAggregateReads[key] = (stats.providerAggregateReads[key] ?? 0) + count;
 }
 
 export function recordRead(
@@ -88,6 +104,7 @@ export function stopEvents(
 
 export function freezeStats(stats: MutableStats): FdqlStats {
   return {
+    aggregateReads: stats.aggregateReads,
     aggregateSourceRows: stats.aggregateSourceRows,
     cacheBytes: stats.cacheBytes,
     cacheEvictions: stats.cacheEvictions,
@@ -95,6 +112,7 @@ export function freezeStats(stats: MutableStats): FdqlStats {
     cacheMisses: stats.cacheMisses,
     cacheWrites: stats.cacheWrites,
     lookupReads: stats.lookupReads,
+    providerAggregateReads: { ...stats.providerAggregateReads },
     providerReads: { ...stats.providerReads },
     readBudget: stats.readBudget,
     reads: stats.reads,

@@ -45,8 +45,8 @@ mem limit 10
 then sort by r.createdAt desc
 then aggregate
   by r.driverId as driverId
-  count() as total,
-  max(r.createdAt) as lastRoundAt
+  yield count() as total,
+        max(r.createdAt) as lastRoundAt
 return driverId, total, lastRoundAt`);
 
     expect(rows(events)).toEqual([
@@ -54,6 +54,28 @@ return driverId, total, lastRoundAt`);
       { driverId: 'p1', lastRoundAt: '2025-10-06T00:00:00.000Z', total: 2 },
     ]);
     expect(completed(events)).toMatchObject({ aggregateSourceRows: 3 });
+  });
+
+  it('aggregates local rows without groups', async () => {
+    const events = await run(`alias $rounds = mem.collection("rounds")
+from $rounds as r
+mem where r.status = "missing"
+mem limit 10
+then aggregate
+  yield count() as total,
+        sum(r.score) as score,
+        avg(r.score) as averageScore,
+        min(r.createdAt) as firstRoundAt,
+        max(r.createdAt) as lastRoundAt
+return total, score, averageScore, firstRoundAt, lastRoundAt`);
+
+    expect(rows(events)).toEqual([{
+      averageScore: null,
+      firstRoundAt: null,
+      lastRoundAt: null,
+      score: 0,
+      total: 0,
+    }]);
   });
 
   it('executes top-level union all branches', async () => {

@@ -18,20 +18,18 @@ Scope: read features only. Write operations are out of this tracker. This docume
 
 - Keep FDQL read-only for the next work. Writes stay out of this tracker.
 - Read correctness polish is complete for current read paths: deterministic app-level cancel/timeout stops, diagnostic context, exact Firestore field paths, and issue-click navigation.
-- Subcollection reads are implemented before Firestore aggregate reads.
+- Subcollection reads and Firestore aggregate reads are implemented.
 - Treat subcollection reads as dynamic provider source expressions, not only top-level aliases, because they depend on the current row.
 - Provider split is complete: `fdql-core` is provider-neutral, `fdql-firestore` owns Firestore dialect semantics, and `fdql` is the bundled facade.
-- Add provider-native Firestore aggregate reads after subcollections.
 - Add expression completeness after provider read shape is stronger.
 - Keep editor/language improvements incremental and driven by implemented syntax.
 
 Current priority order:
 
-1. Firestore native aggregate reads: `lookup aggregate` plus `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max`.
-2. Expression completeness: `is null`, `is missing`, `exists`, `not in`, `case`, math, and `fs.arrayContainsAny`.
-3. Firestore provider validation parity: operator/value/index-shape diagnostics before execution.
-4. Language/editor follow-up: context-aware completions, field hints, and diagnostics for masked-out fields.
-5. Lineage/source exploration for lookup, unwind, union, and aggregate output.
+1. Expression completeness: `is null`, `is missing`, `exists`, `not in`, `case`, math, and `fs.arrayContainsAny`.
+2. Firestore provider validation parity: operator/value/index-shape diagnostics before execution.
+3. Language/editor follow-up: context-aware completions, field hints, and diagnostics for masked-out fields.
+4. Lineage/source exploration for lookup, unwind, union, and aggregate output.
 
 ## Current Read Slice
 
@@ -58,7 +56,7 @@ Current parser/compiler accepts:
 - `set*`, then `alias*`, then one read pipeline.
 - Line-oriented `set`, `alias`, `from`, and provider clause statements. Source alias declarations must fit on one line today.
 - Top-level `union all` between read pipelines, with the first branch preamble shared into later branches.
-- Top-level `from` sources only through declared `$` aliases.
+- Top-level `from` sources through declared `$` aliases and provider aggregate sources.
 - Lookup sources through declared `$` aliases or provider source calls.
 - `from $source as rowAlias`.
 - Provider clauses: `namespace where`, `namespace order by`, `namespace limit`.
@@ -73,13 +71,13 @@ Current Firestore dialect accepts:
 - Settings: `set fs.projectId = "..."`, `set fs.databaseId = "..."`.
 - Value/metadata functions: `fs.id(row)`, `fs.path(row)`, `fs.projectId(row)`, `fs.ref(rowOrPath)`, `fs.fieldPath(...)`, `fs.arrayContains(field, value)`.
 - Provider predicates with provider field/id on the left. Lookup predicates may reference previous row bindings on the value side.
+- Firestore aggregate lookup: `lookup aggregate` with `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, and `fs.max`.
+- Firestore provider aggregate sources: `from fs.aggregate(...)` with `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, and `fs.max`.
 
 Current implementation does not parse or execute:
 
 - FDQL writes.
-- `lookup aggregate`.
 - `fs.subcollections(...)`.
-- Firestore aggregate helpers such as `fs.count()`.
 - Dynamic field masks.
 - Final global stages after `union all`.
 - `not in`, `is null`, `case`, or math expressions.
@@ -153,7 +151,7 @@ fs limit 100
 
 then aggregate
   by d.teamId as teamId
-  count() as total
+  yield count() as total
 
 then sort by total desc
 
@@ -207,20 +205,21 @@ These block the read implementation from being honest at production scale.
 
 ## P1 Spec Features Not Implemented
 
-| Feature                                   | Status  | Notes                                                                                                     |
-| ----------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------- |
-| `lookup one`                              | Done    | Optional; missing correlated values/no match attach `null`; supports lookup-local cache override.         |
-| `lookup required one`                     | Done    | Drops rows when correlated values are missing or no match exists.                                         |
-| `lookup many`                             | Done    | Optional; missing correlated values attach `[]`, counts lookup reads separately, supports cache override. |
-| `lookup aggregate`                        | Missing | Spec-only. Needs parser/compiler/runtime support and provider aggregate execution.                        |
-| `fs.subcollection(parent, name, fields?)` | Done    | Supports static paths, dynamic lookup sources, and reusable templates with `of parent`.                   |
-| `fs.subcollections(parent)`               | Missing | Deferred child-collection-name discovery.                                                                 |
-| `unwind array`                            | Done    | Expands arrays into one row per item.                                                                     |
-| `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.                                       |
-| `union all`                               | Done    | Executes top-level branches with shared preamble aliases/settings.                                        |
-| `sort by`                                 | Done    | Local row sort before later local stages or return.                                                       |
-| `aggregate`                               | Done    | Local grouping with count/sum/avg/min/max.                                                                |
-| Firestore aggregations                    | Missing | `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, `fs.max` are not implemented. Local `aggregate` is implemented. |
+| Feature                                   | Status  | Notes                                                                                                                                          |
+| ----------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lookup one`                              | Done    | Optional; missing correlated values/no match attach `null`; supports lookup-local cache override.                                              |
+| `lookup required one`                     | Done    | Drops rows when correlated values are missing or no match exists.                                                                              |
+| `lookup many`                             | Done    | Optional; missing correlated values attach `[]`, counts lookup reads separately, supports cache override.                                      |
+| `lookup aggregate`                        | Done    | Attaches one aggregate object; supports provider `where` only, cache overrides, and default empty values.                                      |
+| `from fs.aggregate(...)`                  | Done    | Native one-row provider aggregate source; `yield` aliases become output fields. Covers collection, group, and static subcollection aggregates. |
+| `fs.subcollection(parent, name, fields?)` | Done    | Supports static paths, dynamic lookup sources, and reusable templates with `of parent`.                                                        |
+| `fs.subcollections(parent)`               | Missing | Deferred child-collection-name discovery.                                                                                                      |
+| `unwind array`                            | Done    | Expands arrays into one row per item.                                                                                                          |
+| `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.                                                                            |
+| `union all`                               | Done    | Executes top-level branches with shared preamble aliases/settings.                                                                             |
+| `sort by`                                 | Done    | Local row sort before later local stages or return.                                                                                            |
+| `aggregate`                               | Done    | Local grouping with count/sum/avg/min/max.                                                                                                     |
+| Firestore aggregations                    | Done    | `fs.count`, `fs.sum`, `fs.avg` use native aggregation; `fs.min`, `fs.max` use bounded ordered reads.                                           |
 
 ## P2 Expression Gaps
 
@@ -261,8 +260,7 @@ These block the read implementation from being honest at production scale.
 
 ## Suggested Next Order
 
-1. Add Firestore native aggregate reads.
-2. Complete common read expressions.
-3. Tighten Firestore provider validation diagnostics.
-4. Improve context-aware editor assistance.
-5. Add lineage/source exploration for aggregate and expanded rows.
+1. Complete common read expressions.
+2. Tighten Firestore provider validation diagnostics.
+3. Improve context-aware editor assistance.
+4. Add lineage/source exploration for aggregate and expanded rows.

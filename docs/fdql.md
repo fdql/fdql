@@ -8,9 +8,9 @@ The query text is the execution plan. Provider-native commands are namespace-pre
 
 Initial provider namespace:
 
-- `fs`: Firestore-native reads, filters, ordering, limits, metadata predicates, planned Firestore aggregations, and explicit Firestore write syntax.
+- `fs`: Firestore-native reads, filters, ordering, limits, metadata predicates, aggregate lookups, and explicit Firestore write syntax.
 
-Implementation status is tracked separately in [FDQL Read Implementation](./fdql-read-implementation.md). The current product slice is read-only; write syntax and Firestore aggregate helpers remain spec work until implemented there.
+Implementation status is tracked separately in [FDQL Read Implementation](./fdql-read-implementation.md). The current product slice is read-only; write syntax remains spec work until implemented there.
 
 Reserved provider namespaces:
 
@@ -31,14 +31,13 @@ Reserved namespaces have no semantics until a provider dialect defines them. Usi
 
 ## Current Read Direction
 
-The implemented read surface already includes bounded Firestore reads, lookups, subcollections, local
-unwind, local aggregation, union all, cache, and execution stats. The next read work is ordered by
-product value and implementation risk:
+The implemented read surface already includes bounded Firestore reads, lookups, subcollections,
+Firestore aggregate lookups, local unwind, local aggregation, union all, cache, and execution stats.
+The next read work is ordered by product value and implementation risk:
 
-1. Add Firestore native aggregate reads.
-2. Complete common read expressions.
-3. Tighten Firestore provider query validation.
-4. Improve context-aware editor assistance from the implemented language surface.
+1. Complete common read expressions.
+2. Tighten Firestore provider query validation.
+3. Improve context-aware editor assistance from the implemented language surface.
 
 This is an implementation order, not separate language versions.
 
@@ -314,7 +313,7 @@ from $prodDrivers as d
 
 Rules:
 
-- `from` accepts a declared source alias.
+- `from` accepts a declared source alias or a provider aggregate source.
 - Collection ids outside normal identifier rules use `fs.collection("...")`.
 - `fs.collectionGroup("orders")` accepts a collection id, not a path.
 - Source rows must have a row alias in `from`.
@@ -585,6 +584,105 @@ Rules:
 - `lookup many` attaches an array and preserves the input row.
 - `lookup aggregate $source as outputAlias from rowAlias` attaches one object.
 - `yield` is the aggregate projection inside `lookup aggregate`; it is not the final query output.
+- `lookup aggregate` supports provider `where` clauses only.
+- Missing correlated values skip the provider read and attach aggregate defaults: `count` and `sum` are `0`; `avg`, `min`, and `max` are `null`.
+- No matching documents attach the same aggregate defaults.
+
+### Provider Aggregate Source
+
+Use a provider aggregate source when the aggregate is the first provider operation in a pipeline.
+This keeps native aggregate execution at the `from` boundary, before document rows are streamed.
+
+Count documents in a collection:
+
+```sql
+alias $orders = fs.collection("orders")
+
+from fs.aggregate($orders)
+  yield fs.count() as total
+
+return total
+```
+
+Aggregate a collection without a `where` clause:
+
+```sql
+alias $orders = fs.collection("orders")
+
+from fs.aggregate($orders as o)
+  yield fs.count() as total,
+        fs.sum(o.total) as revenue,
+        fs.avg(o.total) as averageOrder
+
+return total, revenue, averageOrder
+```
+
+Aggregate a filtered collection:
+
+```sql
+alias $orders = fs.collection("orders")
+
+from fs.aggregate($orders as o)
+  fs where o.status = "paid"
+  yield fs.count() as total, fs.sum(o.total) as revenue
+
+return total, revenue
+```
+
+Aggregate a static subcollection:
+
+```sql
+alias $items = fs.subcollection("orders/ord_1", "items", ["status", "total"])
+
+from fs.aggregate($items as item)
+  fs where item.status = "paid"
+  yield fs.count() as total, fs.sum(item.total) as value
+
+return total, value
+```
+
+Inline static subcollection aggregate:
+
+```sql
+from fs.aggregate(fs.subcollection("orders/ord_1", "items", ["status", "total"]))
+  yield fs.count() as total
+
+return total
+```
+
+Dynamic per-parent subcollection aggregates use `lookup aggregate`:
+
+```sql
+alias $orders = fs.collection("orders")
+alias $items = fs.subcollection("items", ["status", "total"])
+
+from $orders as o
+fs limit 100
+
+then lookup aggregate $items of o as itemStats from item
+  fs where item.status = "paid"
+  yield fs.count() as total, fs.sum(item.total) as value
+
+return fs.id(o), itemStats.total, itemStats.value
+```
+
+Rules:
+
+- `from fs.aggregate(source)` emits exactly one pipeline row.
+- Aggregate `yield` aliases become fields on that one output row.
+- `from fs.aggregate(source as providerRowAlias)` declares a provider row alias for provider clauses and aggregate field expressions.
+- The provider row alias is optional when no provider field is referenced, for example `fs.count()`.
+- A provider row alias is required when the aggregate block has `fs where`.
+- A provider row alias is required for `fs.sum`, `fs.avg`, `fs.min`, and `fs.max` when using normal field syntax.
+- `source` may be a declared source alias or a static provider source expression.
+- Static collection, collection group, explicit collection path, and static subcollection sources are valid.
+- Dynamic row-bound subcollection sources are invalid in top-level aggregate sources because no parent row exists yet.
+- Provider aggregate sources support provider `where` clauses only.
+- Provider `order by` and `limit` are invalid in provider aggregate source syntax.
+- Providers may still use ordered `limit(1)` internally to implement aggregate functions such as `fs.min` and `fs.max`.
+- `yield` is required exactly once and each yielded expression must use `as`.
+- Empty matches return defaults: `count` and `sum` are `0`; `avg`, `min`, and `max` are `null`.
+- Provider aggregate sources do not group. Use local `then aggregate` after a bounded document read for grouping.
 
 ## Firestore Aggregation
 
@@ -627,9 +725,9 @@ fs limit 5000
 then aggregate
   by r.driverId as driverId,
      r.category as category
-  count() as totalRounds,
-  min(r.createdAt) as firstRoundAt,
-  max(r.createdAt) as lastRoundAt
+  yield count() as totalRounds,
+        min(r.createdAt) as firstRoundAt,
+        max(r.createdAt) as lastRoundAt
 
 return driverId, category, totalRounds, firstRoundAt, lastRoundAt
 ```
@@ -637,8 +735,11 @@ return driverId, category, totalRounds, firstRoundAt, lastRoundAt
 Rules:
 
 - `aggregate` replaces the row shape.
+- `yield` is required exactly once and defines aggregate output fields.
 - `by` can have one or more expressions.
+- `by` is optional. Without `by`, local aggregate emits one output row.
 - Each `by` expression must use `as`.
+- Each `yield` expression must use `as`.
 - Multiple `by` fields form a composite group key tuple in written order.
 - `null` groups with `null`.
 - Missing and `null` are distinct group key values.

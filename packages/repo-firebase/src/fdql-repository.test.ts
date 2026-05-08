@@ -327,6 +327,150 @@ return fs.id(d) as id, team.name as teamName`,
     });
   });
 
+  it('runs aggregate lookup with native aggregate and bounded min max reads', async () => {
+    const driversQuery = fakeQuery([fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini' })]);
+    const roundsQuery = fakeQuery([]);
+    roundsQuery.aggregate = vi.fn((_spec: unknown) => ({
+      get: vi.fn(async () => ({ data: () => ({ points: 30, total: 2 }) })),
+    }));
+    roundsQuery.get = vi.fn(async () => ({
+      docs: [fakeSnapshot('rnd_2', 'rounds/rnd_2', { createdAt: '2026-02-01T00:00:00.000Z' })],
+    }));
+    const db = {
+      collection: vi.fn((path: string) => path === 'drivers' ? driversQuery : roundsQuery),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    const result = await repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source: `alias $drivers = fs.collection("drivers", ["firstName"])
+alias $rounds = fs.collection("rounds", ["driverId", "points", "createdAt"])
+from $drivers as d
+fs limit 1
+then lookup aggregate $rounds as roundStats from round
+  fs where round.driverId = fs.id(d)
+  yield fs.count() as total, fs.sum(round.points) as points, fs.max(round.createdAt) as lastRoundAt
+return fs.id(d) as id, roundStats.total, roundStats.points, roundStats.lastRoundAt`,
+    });
+
+    expect(roundsQuery.aggregate).toHaveBeenCalledTimes(1);
+    expect(roundsQuery.orderBy).toHaveBeenCalledWith(expectFieldPath(['createdAt']), 'desc');
+    expect(roundsQuery.limit).toHaveBeenCalledWith(1);
+    expect(result).toMatchObject({
+      diagnostics: [],
+      rows: [{
+        id: 'drv_1',
+        lastRoundAt: '2026-02-01T00:00:00.000Z',
+        points: 30,
+        total: 2,
+      }],
+      stats: { aggregateReads: 1, lookupReads: 1, reads: 2, rowsOutput: 1 },
+    });
+  });
+
+  it('runs top-level aggregate sources with native aggregate and bounded min max reads', async () => {
+    const roundsQuery = fakeQuery([
+      [fakeSnapshot('rnd_1', 'rounds/rnd_1', { createdAt: '2026-01-01T00:00:00.000Z' })],
+      [fakeSnapshot('rnd_2', 'rounds/rnd_2', { createdAt: '2026-02-01T00:00:00.000Z' })],
+    ]);
+    roundsQuery.aggregate = vi.fn((_spec: unknown) => ({
+      get: vi.fn(async () => ({ data: () => ({ avgPoints: 15, points: 30, total: 2 }) })),
+    }));
+    const db = {
+      collection: vi.fn(() => roundsQuery),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    const result = await repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source: `alias $rounds = fs.collection("rounds", ["points", "createdAt"])
+from fs.aggregate($rounds as round)
+  yield fs.count() as total, fs.sum(round.points) as points, fs.avg(round.points) as avgPoints, fs.min(round.createdAt) as firstRoundAt, fs.max(round.createdAt) as lastRoundAt
+return total, points, avgPoints, firstRoundAt, lastRoundAt`,
+    });
+
+    expect(db.collection).toHaveBeenCalledWith('rounds');
+    expect(roundsQuery.aggregate).toHaveBeenCalledTimes(1);
+    expect(roundsQuery.orderBy).toHaveBeenCalledWith(expectFieldPath(['createdAt']), 'asc');
+    expect(roundsQuery.orderBy).toHaveBeenCalledWith(expectFieldPath(['createdAt']), 'desc');
+    expect(roundsQuery.limit).toHaveBeenCalledWith(1);
+    expect(result).toMatchObject({
+      diagnostics: [],
+      rows: [{
+        avgPoints: 15,
+        firstRoundAt: '2026-01-01T00:00:00.000Z',
+        lastRoundAt: '2026-02-01T00:00:00.000Z',
+        points: 30,
+        total: 2,
+      }],
+      stats: { aggregateReads: 1, reads: 2, rowsOutput: 1, rowsScanned: 2 },
+    });
+  });
+
+  it('runs static subcollection aggregate sources', async () => {
+    const itemsQuery = fakeQuery([]);
+    itemsQuery.aggregate = vi.fn((_spec: unknown) => ({
+      get: vi.fn(async () => ({ data: () => ({ total: 2 }) })),
+    }));
+    const db = {
+      collection: vi.fn(() => itemsQuery),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    const result = await repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source: `from fs.aggregate(fs.subcollection("orders/ord_1", "items", ["status"]))
+  yield fs.count() as total
+return total`,
+    });
+
+    expect(db.collection).toHaveBeenCalledWith('orders/ord_1/items');
+    expect(itemsQuery.aggregate).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      diagnostics: [],
+      rows: [{ total: 2 }],
+      stats: { aggregateReads: 1, reads: 0, rowsOutput: 1 },
+    });
+  });
+
+  it('caches aggregate lookup results', async () => {
+    const driversQuery = fakeQuery([
+      fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' }),
+      fakeSnapshot('drv_2', 'drivers/drv_2', { firstName: 'Alex', teamId: 'team_1' }),
+    ]);
+    const teamsQuery = fakeQuery([]);
+    teamsQuery.aggregate = vi.fn((_spec: unknown) => ({
+      get: vi.fn(async () => ({ data: () => ({ total: 1 }) })),
+    }));
+    const db = {
+      collection: vi.fn((path: string) => path === 'drivers' ? driversQuery : teamsQuery),
+    };
+    const repository = createFirebaseFdqlRepository(providerFor(db));
+
+    const result = await repository.run({
+      connectionId: 'local',
+      runId: 'run_1',
+      source: `set fdql.cache = run
+alias $drivers = fs.collection("drivers", ["firstName", "teamId"])
+alias $teams = fs.collection("teams", ["name"])
+from $drivers as d
+fs limit 2
+then lookup aggregate $teams as teamStats from team
+  fs where fs.id(team) = d.teamId
+  yield fs.count() as total
+return fs.id(d) as id, teamStats.total as total`,
+    });
+
+    expect(teamsQuery.aggregate).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      rows: [{ id: 'drv_1', total: 1 }, { id: 'drv_2', total: 1 }],
+      stats: { aggregateReads: 1, cacheHits: 1, cacheMisses: 1, reads: 2, rowsOutput: 2 },
+    });
+  });
+
   it('runs cache clear commands through persistent cache', async () => {
     const clear = vi.fn(async () => ({ clearedEntries: 12 }));
     const repository = createFirebaseFdqlRepository(providerFor({ collection: vi.fn() }), {
@@ -390,6 +534,9 @@ function fakeQuery(docsOrPages: readonly unknown[] | readonly (readonly unknown[
     : [docsOrPages as readonly unknown[]];
   let pageIndex = 0;
   const query = {
+    aggregate: vi.fn((_spec: unknown) => ({
+      get: vi.fn(async () => ({ data: () => ({}) })),
+    })),
     get: vi.fn(async () => ({ docs: pages[pageIndex++] ?? [] })),
     limit: vi.fn((_limit: number) => query),
     orderBy: vi.fn((_field: FieldPath | string, _direction: 'asc' | 'desc') => query),
@@ -402,6 +549,9 @@ function fakeQuery(docsOrPages: readonly unknown[] | readonly (readonly unknown[
 
 function pendingQuery() {
   const query = {
+    aggregate: vi.fn((_spec: unknown) => ({
+      get: vi.fn(async () => ({ data: () => ({}) })),
+    })),
     get: vi.fn(async () => await new Promise<{ readonly docs: readonly unknown[]; }>(() => {})),
     limit: vi.fn((_limit: number) => query),
     orderBy: vi.fn((_field: FieldPath | string, _direction: 'asc' | 'desc') => query),

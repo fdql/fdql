@@ -14,6 +14,7 @@ import {
   type FdqlAbortSignal,
   type FdqlClearCacheCommandPlan,
   type FdqlExecutionEvent,
+  type FdqlProviderAggregateRequest,
   type FdqlProviderReadControls,
   type FdqlProviderReadRequest,
   type FdqlProviderRow,
@@ -24,6 +25,9 @@ import {
   isMissingValue,
   mapValue,
   missingValue,
+  nullValue,
+  numberValue,
+  numericValue,
   providerValue,
   stringValue,
   timestampValue,
@@ -200,6 +204,29 @@ function runtimeFor(connectionId: string): FdqlProviderRuntimeRegistry {
     dialects: firestoreDialects,
     providers: {
       fs: {
+        async aggregate(request) {
+          const projectId = stringTarget(request, 'projectId');
+          const selectedProject = {
+            emu: project,
+            prod: project,
+            stage: project,
+            [connectionId]: project,
+          }[projectId] ?? {};
+          const rows = filteredAggregateRows(selectedProject, request);
+          return {
+            aggregateReads:
+              request.aggregates.some((item) =>
+                  ['fs.avg', 'fs.count', 'fs.sum'].includes(item.functionName)
+                )
+                ? 1
+                : 0,
+            documentReads:
+              request.aggregates.some((item) => ['fs.max', 'fs.min'].includes(item.functionName))
+                ? rows.slice(0, 1)
+                : [],
+            values: aggregateValues(request, rows),
+          };
+        },
         async *read(request, controls) {
           const projectId = stringTarget(request, 'projectId');
           const selectedProject = {
@@ -225,6 +252,84 @@ function runtimeFor(connectionId: string): FdqlProviderRuntimeRegistry {
       },
     },
   };
+}
+
+function filteredAggregateRows(
+  project: MockFirestoreProject,
+  request: FdqlProviderAggregateRequest,
+): readonly FdqlProviderRow[] {
+  return readDocuments(project, readRequestForAggregate(request)).filter((document) =>
+    !request.predicate
+    || truthy(evaluateExpression(request.predicate, {
+      aliases: request.aliases,
+      providers: firestoreDialects,
+      rows: { ...request.rows, [request.rowAlias]: document },
+    }))
+  );
+}
+
+function readRequestForAggregate(
+  request: FdqlProviderAggregateRequest,
+): FdqlProviderReadRequest {
+  return {
+    aliases: request.aliases,
+    maxDocuments: request.maxDocuments,
+    pageSize: request.maxDocuments,
+    ...(request.predicate ? { predicate: request.predicate } : {}),
+    rowAlias: request.rowAlias,
+    ...(request.rows ? { rows: request.rows } : {}),
+    source: request.source,
+    stage: 'lookup',
+  };
+}
+
+function aggregateValues(
+  request: FdqlProviderAggregateRequest,
+  rows: readonly FdqlProviderRow[],
+): Record<string, FdqlValue> {
+  return Object.fromEntries(
+    request.aggregates.map((item) => [
+      item.alias,
+      aggregateValue(request, rows, item.functionName, item.expression),
+    ]),
+  );
+}
+
+function aggregateValue(
+  request: FdqlProviderAggregateRequest,
+  rows: readonly FdqlProviderRow[],
+  functionName: string,
+  expression: Parameters<typeof evaluateExpression>[0] | undefined,
+): FdqlValue {
+  if (functionName === 'fs.count') return numberValue(rows.length);
+  const values = rows.map((row) =>
+    expression
+      ? evaluateExpression(expression, {
+        aliases: request.aliases,
+        providers: firestoreDialects,
+        rows: { ...request.rows, [request.rowAlias]: row },
+      })
+      : missingValue
+  ).filter((value) => value.kind !== 'missing' && value.kind !== 'null');
+  if (functionName === 'fs.sum') {
+    return numberValue(values.reduce((total, value) => total + numericValue(value), 0));
+  }
+  if (functionName === 'fs.avg') {
+    return values.length
+      ? numberValue(values.reduce((total, value) => total + numericValue(value), 0) / values.length)
+      : nullValue;
+  }
+  if (functionName === 'fs.min' || functionName === 'fs.max') {
+    const direction = functionName === 'fs.max' ? 1 : -1;
+    let selected: FdqlValue = nullValue;
+    for (const value of values) {
+      if (selected.kind === 'null' || compareValues(value, selected) * direction > 0) {
+        selected = value;
+      }
+    }
+    return selected;
+  }
+  return nullValue;
 }
 
 type MockFirestoreProject = Readonly<
@@ -323,7 +428,10 @@ function controlsStopped(controls: FdqlProviderReadControls): boolean {
   return Boolean(controls.signal?.aborted) || controls.now() >= controls.deadlineAtMs;
 }
 
-function stringTarget(request: FdqlProviderReadRequest, key: string): string {
+function stringTarget(
+  request: FdqlProviderAggregateRequest | FdqlProviderReadRequest,
+  key: string,
+): string {
   const value = request.source.target[key];
   return typeof value === 'string' ? value : '';
 }

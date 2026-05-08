@@ -18,6 +18,7 @@ export const FdqlDiagnosticSchema = z.object({
 });
 
 export const FdqlStatsSchema = z.object({
+  aggregateReads: z.number(),
   aggregateSourceRows: z.number(),
   cacheBytes: z.number(),
   cacheEvictions: z.number(),
@@ -25,6 +26,7 @@ export const FdqlStatsSchema = z.object({
   cacheMisses: z.number(),
   cacheWrites: z.number(),
   lookupReads: z.number(),
+  providerAggregateReads: z.record(z.string(), z.number()),
   providerReads: z.record(z.string(), z.number()),
   readBudget: z.number(),
   reads: z.number(),

@@ -8,11 +8,22 @@ import type {
   FdqlDiagnostic,
   FdqlExpression,
   FdqlFieldMaskField,
+  FdqlProviderAggregateRequest,
   FdqlProviderRow,
+  FdqlValue,
 } from '../types.ts';
-import { missingValue, stringValue, toFdqlValue } from '../value.ts';
+import {
+  compareValues,
+  missingValue,
+  nullValue,
+  numberValue,
+  numericValue,
+  stringValue,
+  toFdqlValue,
+} from '../value.ts';
 
 export const testProviderDialect: FdqlProviderDialect = {
+  aggregateFunctions: new Set(['mem.avg', 'mem.count', 'mem.max', 'mem.min', 'mem.sum']),
   namespace: 'mem',
   sourceFunctions: new Set(['child', 'collection']),
   valueFunctions: new Set(['mem.id', 'mem.path']),
@@ -193,6 +204,14 @@ export function createTestProviderRuntime(
     dialects,
     providers: {
       mem: {
+        async aggregate(request) {
+          const rows = aggregateRows(collections, request, dialects);
+          return {
+            aggregateReads: aggregateReadCount(request),
+            documentReads: minMaxDocumentReads(request, rows),
+            values: aggregateValues(request, rows, dialects),
+          };
+        },
         async *read(request) {
           const collection = String(request.source.target.collection ?? '');
           const docs = Object.entries(collections[collection] ?? {}).map(([id, data]) => ({
@@ -218,6 +237,101 @@ export function createTestProviderRuntime(
       },
     },
   };
+}
+
+function aggregateRows(
+  collections: Readonly<Record<string, Readonly<Record<string, Record<string, unknown>>>>>,
+  request: FdqlProviderAggregateRequest,
+  dialects: ReturnType<typeof createProviderDialectRegistry>,
+): readonly FdqlProviderRow[] {
+  const collection = String(request.source.target.collection ?? '');
+  return Object.entries(collections[collection] ?? {})
+    .map(([id, data]) => ({
+      context: { collection },
+      data: Object.fromEntries(
+        Object.entries(data).map(([key, value]) => [key, toFdqlValue(value)]),
+      ),
+      id,
+      path: `${collection}/${id}`,
+      provider: 'mem',
+      source: request.source,
+    }))
+    .filter((row) =>
+      !request.predicate
+      || truthy(evaluateExpression(request.predicate, {
+        aliases: request.aliases,
+        providers: dialects,
+        rows: { ...request.rows, [request.rowAlias]: row },
+      }))
+    );
+}
+
+function aggregateReadCount(request: FdqlProviderAggregateRequest): number {
+  return request.aggregates.some((item) =>
+      ['mem.avg', 'mem.count', 'mem.sum'].includes(item.functionName)
+    )
+    ? 1
+    : 0;
+}
+
+function aggregateValues(
+  request: FdqlProviderAggregateRequest,
+  rows: readonly FdqlProviderRow[],
+  dialects: ReturnType<typeof createProviderDialectRegistry>,
+) {
+  return Object.fromEntries(
+    request.aggregates.map((item) => [
+      item.alias,
+      aggregateValue(item.functionName, item.expression, request, rows, dialects),
+    ]),
+  );
+}
+
+function aggregateValue(
+  functionName: string,
+  expression: FdqlExpression | undefined,
+  request: FdqlProviderAggregateRequest,
+  rows: readonly FdqlProviderRow[],
+  dialects: ReturnType<typeof createProviderDialectRegistry>,
+) {
+  if (functionName === 'mem.count') return numberValue(rows.length);
+  const values = rows.map((row) =>
+    expression
+      ? evaluateExpression(expression, {
+        aliases: request.aliases,
+        providers: dialects,
+        rows: { ...request.rows, [request.rowAlias]: row },
+      })
+      : missingValue
+  ).filter((value) => value.kind !== 'missing' && value.kind !== 'null');
+  if (functionName === 'mem.sum') {
+    return numberValue(values.reduce((total, value) => total + numericValue(value), 0));
+  }
+  if (functionName === 'mem.avg') {
+    return values.length
+      ? numberValue(values.reduce((total, value) => total + numericValue(value), 0) / values.length)
+      : nullValue;
+  }
+  if (functionName === 'mem.min' || functionName === 'mem.max') {
+    const direction = functionName === 'mem.max' ? 1 : -1;
+    let selected: FdqlValue = nullValue;
+    for (const value of values) {
+      if (selected.kind === 'null' || compareValues(value, selected) * direction > 0) {
+        selected = value;
+      }
+    }
+    return selected;
+  }
+  return nullValue;
+}
+
+function minMaxDocumentReads(
+  request: FdqlProviderAggregateRequest,
+  rows: readonly FdqlProviderRow[],
+): readonly FdqlProviderRow[] {
+  return request.aggregates.some((item) => ['mem.max', 'mem.min'].includes(item.functionName))
+    ? rows.slice(0, 1)
+    : [];
 }
 
 function validatePredicate(

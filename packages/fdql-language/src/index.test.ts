@@ -21,6 +21,9 @@ describe('FDQL language service', () => {
     expect(labels(service.metadata.expressionFunctions)).toEqual(
       expect.arrayContaining(['timestamp', 'fs.id', 'fs.fieldPath']),
     );
+    expect(labels(service.metadata.aggregateFunctions)).toEqual(
+      expect.arrayContaining(['fs.count', 'fs.sum', 'fs.avg', 'fs.min', 'fs.max']),
+    );
     expect(labels(service.metadata.snippets)).toEqual(
       expect.arrayContaining(['clear cache', 'clear cache provider project']),
     );
@@ -59,12 +62,30 @@ describe('FDQL language service', () => {
         'then lookup one of parent',
         'then lookup one cache',
         'then lookup required one',
+        'then lookup aggregate',
         'fs where',
       ]),
     );
     expect(completionLabels(service, 'return ', 1, 8)).toEqual(
       expect.arrayContaining(['timestamp', 'entries', 'fs.id', 'fs.fieldPath']),
     );
+    expect(completionLabels(service, 'from ', 1, 6)).toEqual(
+      expect.arrayContaining(['from provider aggregate']),
+    );
+    expect(completionLabels(service, 'from fs.', 1, 9)).toEqual(['fs.aggregate']);
+  });
+
+  it('suggests provider aggregate functions in lookup aggregate yield context', () => {
+    const service = createFdqlLanguageService();
+    const source = `alias $rounds = fs.collection("rounds")
+from $rounds as r
+then lookup aggregate $rounds as stats from round
+  yield fs.`;
+
+    expect(completionLabelsAtEnd(service, source)).toEqual(
+      expect.arrayContaining(['fs.count', 'fs.sum', 'fs.avg', 'fs.min', 'fs.max']),
+    );
+    expect(completionLabelsAtEnd(service, 'return fs.')).not.toContain('fs.count');
   });
 
   it('switches provider and local stage completions to expression context', () => {

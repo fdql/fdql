@@ -34,6 +34,59 @@ return mem.id(p) as id, p.name`,
     });
   });
 
+  it('executes provider aggregate source reads', async () => {
+    const events = await run(
+      `alias $people = mem.collection("people")
+from mem.aggregate($people as p)
+  mem where p.active = true
+  yield mem.count() as total,
+        mem.sum(p.score) as score,
+        mem.avg(p.score) as averageScore,
+        mem.min(p.createdAt) as firstCreatedAt,
+        mem.max(p.createdAt) as lastCreatedAt
+return total, score, averageScore, firstCreatedAt, lastCreatedAt`,
+      createTestProviderRuntime({
+        people: {
+          p1: { active: true, createdAt: '2026-01-01T00:00:00.000Z', score: 10 },
+          p2: { active: true, createdAt: '2026-02-01T00:00:00.000Z', score: 4 },
+          p3: { active: false, createdAt: '2026-03-01T00:00:00.000Z', score: 99 },
+        },
+      }),
+    );
+
+    expect(rows(events)).toEqual([{
+      averageScore: 7,
+      firstCreatedAt: '2026-01-01T00:00:00.000Z',
+      lastCreatedAt: '2026-02-01T00:00:00.000Z',
+      score: 14,
+      total: 2,
+    }]);
+    expect(completed(events)).toMatchObject({
+      aggregateReads: 1,
+      reads: 1,
+      rowsOutput: 1,
+      rowsScanned: 1,
+    });
+  });
+
+  it('executes provider aggregate count without row alias', async () => {
+    const events = await run(
+      `alias $people = mem.collection("people")
+from mem.aggregate($people)
+  yield mem.count() as total
+return total`,
+      createTestProviderRuntime({
+        people: {
+          p1: { active: true },
+          p2: { active: false },
+        },
+      }),
+    );
+
+    expect(rows(events)).toEqual([{ total: 2 }]);
+    expect(completed(events)).toMatchObject({ aggregateReads: 1, reads: 0, rowsOutput: 1 });
+  });
+
   it('emits provider-neutral row lineage', async () => {
     const events = await run(
       `alias $people = mem.collection("people")
