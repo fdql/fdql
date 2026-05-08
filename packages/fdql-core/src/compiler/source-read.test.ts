@@ -76,6 +76,28 @@ return total, score`,
     });
   });
 
+  it('requires explicit return stages', () => {
+    const read = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem limit 1`,
+      options,
+    );
+    const aggregate = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate($people)
+  yield mem.count() as total`,
+      options,
+    );
+
+    expect(read.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_MISSING_RETURN' }),
+    );
+    expect(aggregate.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_MISSING_RETURN' }),
+    );
+  });
+
   it('requires declared provider source aliases and registered providers', () => {
     const undeclared = compileSingleFdqlRead(
       `from $people as p
@@ -172,6 +194,83 @@ return p.name`,
     expect(invalidPredicate.diagnostics).toContainEqual(
       expect.objectContaining({ code: 'FDQL_UNSUPPORTED_PROVIDER_WHERE' }),
     );
+  });
+
+  it('validates row binding roots through return and row-shaping stages', () => {
+    const invalidLookupAggregateReturn = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+alias $teams = mem.collection("teams")
+from $orders as order
+mem limit 1
+then lookup aggregate $teams as stats from team
+  yield mem.count() as total
+return total`,
+      options,
+    );
+    const validLookupAggregateField = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+alias $teams = mem.collection("teams")
+from $orders as order
+mem limit 1
+then lookup aggregate $teams as stats from team
+  yield mem.count() as total
+return stats.total`,
+      options,
+    );
+    const validLookupAggregateBinding = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+alias $teams = mem.collection("teams")
+from $orders as order
+mem limit 1
+then lookup aggregate $teams as stats from team
+  yield mem.count() as total
+return stats`,
+      options,
+    );
+    const validLocalAggregate = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+from $orders as order
+mem limit 10
+then aggregate
+  yield count() as total
+return total`,
+      options,
+    );
+    const invalidWithReplacement = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+from $orders as order
+mem limit 1
+then with order.status as status
+return order`,
+      options,
+    );
+    const validWithWildcard = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+from $orders as order
+mem limit 1
+then with *, order.status as status
+return order`,
+      options,
+    );
+
+    expect(invalidLookupAggregateReturn.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_UNKNOWN_ROW_BINDING',
+        message:
+          'Unknown row binding total. Use a current row alias or projected binding such as stats.total.',
+      }),
+    );
+    expect(validLookupAggregateField.diagnostics).toEqual([]);
+    expect(validLookupAggregateField.ok).toBe(true);
+    expect(validLookupAggregateBinding.diagnostics).toEqual([]);
+    expect(validLookupAggregateBinding.ok).toBe(true);
+    expect(validLocalAggregate.diagnostics).toEqual([]);
+    expect(validLocalAggregate.ok).toBe(true);
+    expect(invalidWithReplacement.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNKNOWN_ROW_BINDING' }),
+    );
+    expect(validWithWildcard.diagnostics).toEqual([]);
+    expect(validWithWildcard.ok).toBe(true);
   });
 
   it('validates provider aggregate source clauses and yield', () => {

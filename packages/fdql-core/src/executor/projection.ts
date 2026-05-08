@@ -7,7 +7,14 @@ import type {
   FdqlSingleReadPlan,
   FdqlValue,
 } from '../types.ts';
-import { arrayValue, mapValue, outputValue, toFdqlValue } from '../value.ts';
+import {
+  arrayValue,
+  isFdqlValue,
+  isMissingValue,
+  mapValue,
+  outputValue,
+  toFdqlValue,
+} from '../value.ts';
 import { contextFor } from './provider-read.ts';
 import type { RowRecord } from './types.ts';
 
@@ -21,22 +28,67 @@ export function projectItems(
   const projected: RowRecord = {};
   for (const item of items) {
     if (item.expression.kind === 'wildcard') {
-      Object.assign(projected, expandWildcard(row, mode));
+      for (const [key, value] of Object.entries(expandWildcard(row, mode))) {
+        assignProjection(projected, key, value);
+      }
       continue;
     }
     const value = evaluateExpression(
       item.expression,
       contextFor(plan, row, runtime),
     );
+    if (item.spread) {
+      projectSpreadValue(projected, item, value, mode);
+      continue;
+    }
     const key = item.alias ?? labelFor(item.expression, item.label);
     if (mode === 'internal') {
-      projected[key] = value;
+      assignProjection(projected, key, value);
       continue;
     }
     const output = outputValue(value);
-    if (output !== undefined) projected[key] = output;
+    if (output !== undefined) assignProjection(projected, key, output);
   }
   return projected;
+}
+
+function projectSpreadValue(
+  projected: RowRecord,
+  item: FdqlProjectionItem,
+  value: FdqlValue,
+  mode: 'external' | 'internal',
+): void {
+  if (isMissingValue(value)) return;
+  if (value.kind === 'map') {
+    for (const [key, entry] of Object.entries(value.value)) {
+      if (mode === 'internal') {
+        if (!isMissingValue(entry)) assignProjection(projected, key, entry);
+        continue;
+      }
+      const output = outputValue(entry);
+      if (output !== undefined) assignProjection(projected, key, output);
+    }
+    return;
+  }
+  const key = item.alias ?? labelFor(item.expression, item.label);
+  if (mode === 'internal') {
+    assignProjection(projected, key, value);
+    return;
+  }
+  const output = outputValue(value);
+  if (output !== undefined) assignProjection(projected, key, output);
+}
+
+function assignProjection(projected: RowRecord, key: string, value: unknown): void {
+  projected[projectionKey(projected, key)] = value;
+}
+
+function projectionKey(projected: RowRecord, key: string): string {
+  if (!(key in projected)) return key;
+  for (let sequence = 2;; sequence += 1) {
+    const next = `${key}_${sequence}`;
+    if (!(next in projected)) return next;
+  }
 }
 
 function expandWildcard(
@@ -77,6 +129,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 
 function internalRowValue(value: unknown): unknown {
   if (isDocument(value)) return mapValue(value.data);
+  if (isFdqlValue(value)) return value;
   if (Array.isArray(value)) {
     return arrayValue(
       value.map((item) => isDocument(item) ? mapValue(item.data) : toFdqlValue(item)),
@@ -88,6 +141,7 @@ function internalRowValue(value: unknown): unknown {
 
 function externalRowValue(value: unknown): unknown {
   if (isDocument(value)) return outputValue(mapValue(value.data));
+  if (isFdqlValue(value)) return outputValue(value);
   if (Array.isArray(value)) {
     return outputValue(
       arrayValue(value.map((item) => isDocument(item) ? mapValue(item.data) : toFdqlValue(item))),
@@ -95,10 +149,5 @@ function externalRowValue(value: unknown): unknown {
   }
   if (isPlainRecord(value)) return outputValue(mapValue(value as Record<string, FdqlValue>));
   if (value === null) return null;
-  if (isFdqlValue(value)) return outputValue(value);
   return value;
-}
-
-function isFdqlValue(value: unknown): value is FdqlValue {
-  return value !== null && typeof value === 'object' && 'kind' in value;
 }

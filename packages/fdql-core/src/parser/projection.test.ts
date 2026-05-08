@@ -36,4 +36,31 @@ then take 1`),
       expect.objectContaining({ alias: 'nameKey' }),
     ]);
   });
+
+  it('parses spread projection items', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    const items = parseProjectionItems('...stats, *', 1, 8, diagnostics);
+
+    expect(diagnostics).toEqual([]);
+    expect(items).toEqual([
+      expect.objectContaining({
+        expression: expect.objectContaining({ kind: 'field', path: ['stats'] }),
+        label: 'stats',
+        spread: true,
+      }),
+      expect.objectContaining({
+        expression: expect.objectContaining({ kind: 'wildcard' }),
+        label: '*',
+      }),
+    ]);
+  });
+
+  it('rejects aliases on spread projection items', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    parseProjectionItems('...stats as stats', 1, 8, diagnostics);
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_SPREAD_PROJECTION' }),
+    );
+  });
 });

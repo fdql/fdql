@@ -299,6 +299,89 @@ return fs.id(p) as id, inlineOrders, templateOrders`,
       await expect(page.getByText('3 reads')).toBeVisible();
     });
 
+    await test.step('return wildcard keeps empty rows and aggregate maps', async () => {
+      await runFdql(
+        page,
+        `alias $orders = fs.collection("${data.parent}", [])
+alias $skiers = fs.subcollection("orders", [])
+
+from $orders as order
+fs where fs.id(order) = "parent_1"
+
+then lookup aggregate $skiers of order as stats from item
+  yield fs.count() as total
+
+return *`,
+      );
+
+      await expectFdqlTable(page, ['order', 'stats'], [['{}', '{"total":1}']]);
+      await page.getByRole('tab', { name: 'Tree' }).click();
+      await expect(page.getByRole('tree').filter({ hasText: 'stats' })).toBeVisible();
+      await page.getByRole('tab', { name: 'JSON' }).click();
+      await expect(page.getByLabel('FDQL JSON results')).toHaveValue(/"stats": \{\s+"total": 1/);
+      await page.getByRole('tab', { name: 'Table' }).click();
+    });
+
+    await test.step('return spread projects aggregate maps', async () => {
+      await runFdql(
+        page,
+        `alias $orders = fs.collection("${data.parent}", [])
+alias $skiers = fs.subcollection("orders", [])
+
+from $orders as order
+fs where fs.id(order) = "parent_1"
+
+then lookup aggregate $skiers of order as stats from item
+  yield fs.count() as total
+
+return fs.id(order) as orderId, ...stats`,
+      );
+
+      await expectFdqlTable(page, ['orderId', 'total'], [['parent_1', '1']]);
+    });
+
+    await test.step('missing return is an issue and clears stale rows', async () => {
+      await runFdql(
+        page,
+        `alias $orders = fs.collection("${data.parent}", [])
+alias $skiers = fs.subcollection("orders", [])
+
+from $orders as order
+fs where fs.id(order) = "parent_1"
+
+then lookup aggregate $skiers of order as stats from item
+  yield fs.count() as total`,
+      );
+
+      await page.getByRole('tab', { name: /Issues/ }).click();
+      await expect(page.getByText('FDQL_MISSING_RETURN')).toBeVisible();
+      await page.getByRole('tab', { name: /Results/ }).click();
+      await expect(page.getByText('No rows yet')).toBeVisible();
+      await expect(page.getByRole('table')).toHaveCount(0);
+    });
+
+    await test.step('unknown return binding is an issue and clears stale rows', async () => {
+      await runFdql(
+        page,
+        `alias $orders = fs.collection("${data.parent}", [])
+alias $skiers = fs.subcollection("orders", [])
+
+from $orders as order
+fs where fs.id(order) = "parent_1"
+
+then lookup aggregate $skiers of order as stats from item
+  yield fs.count() as total
+
+return total`,
+      );
+
+      await page.getByRole('tab', { name: /Issues/ }).click();
+      await expect(page.getByText('FDQL_UNKNOWN_ROW_BINDING')).toBeVisible();
+      await page.getByRole('tab', { name: /Results/ }).click();
+      await expect(page.getByText('No rows yet')).toBeVisible();
+      await expect(page.getByRole('table')).toHaveCount(0);
+    });
+
     await test.step('invalid subcollection lookup syntax clears stale rows', async () => {
       await runFdql(
         page,

@@ -259,6 +259,7 @@ export interface FdqlProjectionItem {
   readonly label: string;
   readonly line?: number | undefined;
   readonly range?: FdqlSourceRange | undefined;
+  readonly spread?: boolean | undefined;
 }
 
 export interface FdqlWithStage {

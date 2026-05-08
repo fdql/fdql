@@ -492,7 +492,7 @@ After `with`, only the listed fields exist.
 
 ## Return
 
-`return` is the final projection.
+`return` is the required final projection for read pipelines.
 
 ```sql
 return
@@ -504,11 +504,76 @@ return
 Rules:
 
 - `return` accepts local expressions.
-- `return *` returns the current row shape.
+- Read pipelines must have an explicit `return`; FDQL does not add an implicit projection.
+- `return *` returns the current row bindings by name, not flattened fields.
+- `return ...binding` spreads an FDQL map/object binding into the output row.
+- Provider row spread emits loaded document data only. Metadata stays explicit with functions such
+  as `fs.id(row)` and `fs.path(row)`.
+- Metadata-only rows can be empty objects in `return *`.
+- FDQL map bindings, such as aggregate lookup output, return their fields in `return *`.
+- Spreading `missing` emits no fields.
+- Spreading a runtime null, scalar, array, or other non-map value falls back to normal projection
+  without `...`.
+- Spread collisions append a sequence suffix to the later field: `total`, `total_2`, `total_3`.
+- Return expression roots must be current row bindings. After `lookup aggregate ... as stats`,
+  use `stats.total`; `total` alone is not in scope.
 - Firestore metadata functions such as `fs.id(d)`, `fs.path(d)`, `fs.ref(d)`, `fs.parentPath(d)`, and `fs.projectId(d)` are valid for Firestore document row bindings.
 - In `from $drivers as d`, `d` is the document row binding. `fs.id(d)` returns that document id.
 - In `lookup one $teams as team`, `team` is the joined document row binding or `null`. `fs.id(team)` returns the joined document id when present.
 - `fs.id(...)` is not called with a source alias such as `$drivers`; it is called with the row alias created by `as`.
+
+Example:
+
+```sql
+alias $orders = fs.collection("orders", [])
+alias $skiers = fs.subcollection("skiers")
+
+from $orders as order
+fs limit 25
+
+then lookup aggregate $skiers of order as stats from skier
+  yield fs.count() as total
+
+return *
+```
+
+Output rows have this shape:
+
+```json
+{ "order": {}, "stats": { "total": 3 } }
+```
+
+To return only the aggregate value:
+
+```sql
+return stats.total
+```
+
+To merge aggregate fields into the output row while keeping metadata explicit:
+
+```sql
+return
+  fs.id(order) as orderId,
+  ...stats
+```
+
+Output rows have this shape:
+
+```json
+{ "orderId": "order_1", "total": 3 }
+```
+
+If a spread field collides with an earlier output field, FDQL keeps both:
+
+```sql
+return
+  0 as total,
+  ...stats
+```
+
+```json
+{ "total": 0, "total_2": 3 }
+```
 
 ## Lookup
 

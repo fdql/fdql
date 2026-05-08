@@ -22,8 +22,8 @@ import { resolveAliases, type ResolvedAliasValue, scalarAliases } from './aliase
 import { isReservedCommand } from './command.ts';
 import { compilerError, duplicateStage } from './diagnostics.ts';
 import {
-  validateAliases,
   validateExpressionAliases,
+  validateProjectionReferences,
   validateStageProvider,
 } from './expression-validation.ts';
 import { compileLocalStage } from './local-stages.ts';
@@ -235,7 +235,13 @@ export function compileSingleFdqlRead(
           diagnostics.push(duplicateStage('return', returnLine, stage.line));
           break;
         }
-        validateAliases(stage, scalarAliasValues, providers, diagnostics);
+        validateProjectionReferences(
+          stage.items,
+          scalarAliasValues,
+          availableRowAliases,
+          providers,
+          diagnostics,
+        );
         returnStage = stage;
         returnLine = stage.line;
         break;
@@ -248,13 +254,13 @@ export function compileSingleFdqlRead(
   }
 
   if (!returnStage) {
-    returnStage = {
-      column: program.from.column,
-      items: [{ expression: { kind: 'wildcard' }, label: '*' }],
-      kind: 'return',
-      line: program.from.line,
-      range: program.from.range,
-    };
+    diagnostics.push(
+      compilerError(
+        'FDQL_MISSING_RETURN',
+        'Read pipelines need an explicit `return`.',
+        program.from.line,
+      ),
+    );
   }
 
   if (
@@ -278,7 +284,10 @@ export function compileSingleFdqlRead(
       ),
     );
   }
-  if (diagnostics.some((diagnostic) => diagnostic.severity === 'error') || !sourceValue) {
+  if (
+    diagnostics.some((diagnostic) => diagnostic.severity === 'error') || !sourceValue
+    || !returnStage
+  ) {
     return { ast, diagnostics, ok: false };
   }
 
@@ -326,7 +335,7 @@ function compileAggregateSourceRead(input: {
   const sourceProvider = sourceAlias?.source.provider;
   const sourceDialect = sourceProvider ? input.providers[sourceProvider] : undefined;
   const providerRowAlias = from.providerRowAlias;
-  const availableRowAliases = new Set(providerRowAlias ? [providerRowAlias] : []);
+  const providerClauseRowAliases = new Set(providerRowAlias ? [providerRowAlias] : []);
   let providerPredicate: FdqlExpression | undefined;
   const localStages: FdqlLocalPlanStage[] = [];
   let returnStage: FdqlReturnStage | undefined;
@@ -373,7 +382,7 @@ function compileAggregateSourceRead(input: {
     );
     sourceDialect?.validateWhere({
       aliases: input.scalarAliasValues,
-      availableRowAliases,
+      availableRowAliases: providerClauseRowAliases,
       diagnostics: input.diagnostics,
       expression: clause.expression,
       line: clause.line,
@@ -394,6 +403,7 @@ function compileAggregateSourceRead(input: {
     sourceProvider: from.provider,
     yieldItems: from.yieldItems,
   });
+  const availableRowAliases = new Set(aggregateItems.map((item) => item.alias));
 
   for (const stage of input.program.stages) {
     switch (stage.kind) {
@@ -445,7 +455,13 @@ function compileAggregateSourceRead(input: {
           input.diagnostics.push(duplicateStage('return', returnLine, stage.line));
           break;
         }
-        validateAliases(stage, input.scalarAliasValues, input.providers, input.diagnostics);
+        validateProjectionReferences(
+          stage.items,
+          input.scalarAliasValues,
+          availableRowAliases,
+          input.providers,
+          input.diagnostics,
+        );
         returnStage = stage;
         returnLine = stage.line;
         break;
@@ -458,16 +474,19 @@ function compileAggregateSourceRead(input: {
   }
 
   if (!returnStage) {
-    returnStage = {
-      column: from.column,
-      items: [{ expression: { kind: 'wildcard' }, label: '*' }],
-      kind: 'return',
-      line: from.line,
-      range: from.range,
-    };
+    input.diagnostics.push(
+      compilerError(
+        'FDQL_MISSING_RETURN',
+        'Read pipelines need an explicit `return`.',
+        from.line,
+      ),
+    );
   }
 
-  if (input.diagnostics.some((diagnostic) => diagnostic.severity === 'error') || !sourceAlias) {
+  if (
+    input.diagnostics.some((diagnostic) => diagnostic.severity === 'error') || !sourceAlias
+    || !returnStage
+  ) {
     return { ast: input.ast, diagnostics: input.diagnostics, ok: false };
   }
 

@@ -1,6 +1,6 @@
 import { findTopLevelAs, parseExpression, splitTopLevel } from '../expression.ts';
 import type { FdqlDiagnostic, FdqlProjectionItem, FdqlSourceRange } from '../types.ts';
-import { isStatementStart } from './helpers.ts';
+import { isStatementStart, parserError } from './helpers.ts';
 import { expressionSlice, type SourceLine, span } from './source-text.ts';
 
 export function collectProjection(
@@ -51,15 +51,27 @@ export function parseProjectionItems(
 ): readonly FdqlProjectionItem[] {
   return splitTopLevel(source.replace(/\n/g, ',')).map((item) => {
     const aliasIndex = findTopLevelAs(item);
-    const expressionText = aliasIndex < 0 ? item.trim() : item.slice(0, aliasIndex).trim();
-    const alias = aliasIndex < 0 ? undefined : item.slice(aliasIndex + 4).trim();
+    const rawExpressionText = aliasIndex < 0 ? item.trim() : item.slice(0, aliasIndex).trim();
+    const spread = rawExpressionText.startsWith('...');
+    const expressionText = spread ? rawExpressionText.slice(3).trim() : rawExpressionText;
+    const alias = aliasIndex < 0 || spread ? undefined : item.slice(aliasIndex + 4).trim();
+    if (spread && aliasIndex >= 0) {
+      diagnostics.push(
+        parserError(
+          'FDQL_INVALID_SPREAD_PROJECTION',
+          'Spread return projections cannot use `as alias`.',
+          line,
+          column,
+        ),
+      );
+    }
     const parsed = parseExpression(expressionText, line, column);
     diagnostics.push(...parsed.diagnostics);
     return {
       ...(alias ? { alias } : {}),
       column,
       expression: parsed.expression ?? { kind: 'literal', value: null },
-      label: item,
+      label: expressionText || item,
       line,
       range: {
         endColumn: column + item.length,
@@ -67,6 +79,7 @@ export function parseProjectionItems(
         startColumn: column,
         startLine: line,
       },
+      ...(spread ? { spread: true } : {}),
     };
   });
 }

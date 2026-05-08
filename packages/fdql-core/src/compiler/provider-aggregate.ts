@@ -32,6 +32,17 @@ export function compileProviderAggregateItems(input: {
   const aliases = new Set<string>();
   const aggregates: FdqlProviderAggregateItem[] = [];
   for (const item of input.yieldItems) {
+    if (item.spread) {
+      input.diagnostics.push(
+        compilerError(
+          'FDQL_INVALID_SPREAD_PROJECTION',
+          'Spread projections are only supported in `return`.',
+          item.line ?? input.line,
+          item.column,
+        ),
+      );
+      continue;
+    }
     const alias = item.alias;
     if (!alias) {
       input.diagnostics.push(

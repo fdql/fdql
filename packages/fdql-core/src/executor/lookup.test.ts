@@ -151,6 +151,24 @@ return mem.id(o) as id, stats.total, stats.lastName`);
     });
   });
 
+  it('returns aggregate lookup maps through wildcard projection', async () => {
+    const events = await run(
+      `alias $orders = mem.collection("orders", [])
+alias $teams = mem.collection("teams")
+from $orders as order
+mem limit 1
+then lookup aggregate $teams as stats from team
+  yield mem.count() as total
+return *`,
+      createTestProviderRuntime({
+        orders: { ord_1: {} },
+        teams: { team_1: { name: 'Orange' } },
+      }),
+    );
+
+    expect(rows(events)).toEqual([{ order: {}, stats: { total: 1 } }]);
+  });
+
   it('caches aggregate lookup results', async () => {
     const events = await run(`set fdql.cache = run
 alias $orders = mem.collection("orders")

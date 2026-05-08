@@ -18,6 +18,8 @@ describe('FDQL compiler local stages', () => {
       providers,
       diagnostics,
     );
+    expect(availableRowAliases.has('entry')).toBe(true);
+
     const aggregate = compileLocalStage(
       stageFor(`then aggregate
   by r.driverId as driverId
@@ -31,7 +33,7 @@ describe('FDQL compiler local stages', () => {
     expect(diagnostics).toEqual([]);
     expect(unwind).toMatchObject({ kind: 'unwind', rowAlias: 'entry' });
     expect(aggregate).toMatchObject({ kind: 'aggregate' });
-    expect(availableRowAliases.has('entry')).toBe(true);
+    expect([...availableRowAliases]).toEqual(['driverId', 'total']);
   });
 
   it('reports unknown function namespaces in local expressions', () => {
@@ -47,6 +49,49 @@ describe('FDQL compiler local stages', () => {
     expect(diagnostics).toContainEqual(
       expect.objectContaining({ code: 'FDQL_UNKNOWN_NAMESPACE', line: 3 }),
     );
+  });
+
+  it('validates and updates row bindings for local shape changes', () => {
+    const replaced = new Set(['order']);
+    const replacedDiagnostics: FdqlDiagnostic[] = [];
+    compileLocalStage(
+      stageFor('then with order.status as status'),
+      replaced,
+      {},
+      providers,
+      replacedDiagnostics,
+    );
+    compileLocalStage(
+      stageFor('then filter order.status = "paid"'),
+      replaced,
+      {},
+      providers,
+      replacedDiagnostics,
+    );
+
+    const preserved = new Set(['order']);
+    const preservedDiagnostics: FdqlDiagnostic[] = [];
+    compileLocalStage(
+      stageFor('then with *, order.status as status'),
+      preserved,
+      {},
+      providers,
+      preservedDiagnostics,
+    );
+    compileLocalStage(
+      stageFor('then filter order.status = "paid"'),
+      preserved,
+      {},
+      providers,
+      preservedDiagnostics,
+    );
+
+    expect([...replaced]).toEqual(['status']);
+    expect(replacedDiagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNKNOWN_ROW_BINDING' }),
+    );
+    expect([...preserved]).toEqual(['order', 'status']);
+    expect(preservedDiagnostics).toEqual([]);
   });
 });
 

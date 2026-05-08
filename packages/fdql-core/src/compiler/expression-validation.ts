@@ -1,6 +1,12 @@
 import type { FdqlProviderDialectRegistry } from '../provider.ts';
 import { providerNamespaceFromCall } from '../provider.ts';
-import type { FdqlDiagnostic, FdqlExpression, FdqlStage, FdqlValue } from '../types.ts';
+import type {
+  FdqlDiagnostic,
+  FdqlExpression,
+  FdqlProjectionItem,
+  FdqlStage,
+  FdqlValue,
+} from '../types.ts';
 import { compilerError } from './diagnostics.ts';
 
 const supportedExpressionCalls = new Set([
@@ -62,16 +68,77 @@ export function validateAliases(
   }
 }
 
+export function validateLocalStageExpressions(
+  stage: FdqlStage,
+  aliases: Readonly<Record<string, FdqlValue>>,
+  rowBindings: ReadonlySet<string>,
+  providers: FdqlProviderDialectRegistry,
+  diagnostics: FdqlDiagnostic[],
+): void {
+  if (stage.kind === 'filter') {
+    validateExpressionReferences(
+      stage.expression,
+      aliases,
+      rowBindings,
+      providers,
+      diagnostics,
+      stage.line,
+      stage.column,
+    );
+  }
+  if (stage.kind === 'sortBy') {
+    validateExpressionReferences(
+      stage.expression,
+      aliases,
+      rowBindings,
+      providers,
+      diagnostics,
+      stage.line,
+      stage.column,
+    );
+  }
+  if (stage.kind === 'unwind') {
+    validateExpressionReferences(
+      stage.expression,
+      aliases,
+      rowBindings,
+      providers,
+      diagnostics,
+      stage.line,
+      stage.column,
+    );
+  }
+  if (stage.kind === 'with') {
+    validateProjectionReferences(stage.items, aliases, rowBindings, providers, diagnostics, {
+      allowSpread: false,
+    });
+  }
+  if (stage.kind === 'return') {
+    validateProjectionReferences(stage.items, aliases, rowBindings, providers, diagnostics);
+  }
+}
+
 export function validateAggregateStage(
   stage: Extract<FdqlStage, { readonly kind: 'aggregate'; }>,
   aliases: Readonly<Record<string, FdqlValue>>,
+  rowBindings: ReadonlySet<string>,
   providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
 ): void {
   for (const group of stage.groups) {
-    validateExpressionAliases(group.expression, aliases, providers, diagnostics, stage.line);
+    validateProjectionSpread(group, false, diagnostics);
+    validateExpressionReferences(
+      group.expression,
+      aliases,
+      rowBindings,
+      providers,
+      diagnostics,
+      group.line ?? stage.line,
+      group.column ?? stage.column,
+    );
   }
   for (const item of stage.items) {
+    validateProjectionSpread(item, false, diagnostics);
     if (item.expression.kind !== 'call' || !localAggregateCalls.has(item.expression.name)) {
       diagnostics.push(
         compilerError(
@@ -83,9 +150,52 @@ export function validateAggregateStage(
       continue;
     }
     for (const arg of item.expression.args) {
-      validateExpressionAliases(arg, aliases, providers, diagnostics, stage.line);
+      validateExpressionReferences(
+        arg,
+        aliases,
+        rowBindings,
+        providers,
+        diagnostics,
+        item.line ?? stage.line,
+        item.column ?? stage.column,
+      );
     }
   }
+}
+
+export function validateProjectionReferences(
+  items: readonly FdqlProjectionItem[],
+  aliases: Readonly<Record<string, FdqlValue>>,
+  rowBindings: ReadonlySet<string>,
+  providers: FdqlProviderDialectRegistry,
+  diagnostics: FdqlDiagnostic[],
+  options: { readonly allowSpread?: boolean | undefined; } = {},
+): void {
+  for (const item of items) {
+    validateProjectionSpread(item, options.allowSpread !== false, diagnostics);
+    validateExpressionReferences(
+      item.expression,
+      aliases,
+      rowBindings,
+      providers,
+      diagnostics,
+      item.line,
+      item.column,
+    );
+  }
+}
+
+export function validateExpressionReferences(
+  expression: FdqlExpression,
+  aliases: Readonly<Record<string, unknown>>,
+  rowBindings: ReadonlySet<string>,
+  providers: FdqlProviderDialectRegistry,
+  diagnostics: FdqlDiagnostic[],
+  line?: number,
+  column?: number,
+): void {
+  validateExpressionAliases(expression, aliases, providers, diagnostics, line ?? 0);
+  validateExpressionRowBindings(expression, rowBindings, diagnostics, line, column);
 }
 
 export function validateExpressionAliases(
@@ -107,6 +217,19 @@ export function validateExpressionAliases(
   });
 }
 
+export function projectionBindingNames(
+  items: readonly FdqlProjectionItem[],
+): readonly string[] {
+  return items.flatMap((item) => {
+    if (item.spread || item.expression.kind === 'wildcard') return [];
+    return [item.alias ?? labelFor(item.expression, item.label)];
+  });
+}
+
+export function hasWildcardProjection(items: readonly FdqlProjectionItem[]): boolean {
+  return items.some((item) => item.expression.kind === 'wildcard');
+}
+
 export function walkExpression(
   expression: FdqlExpression,
   visit: (expression: FdqlExpression, parent?: FdqlExpression | undefined) => void,
@@ -125,6 +248,64 @@ export function walkExpression(
     walkExpression(expression.left, visit, expression);
     walkExpression(expression.right, visit, expression);
   }
+}
+
+function validateExpressionRowBindings(
+  expression: FdqlExpression,
+  rowBindings: ReadonlySet<string>,
+  diagnostics: FdqlDiagnostic[],
+  line?: number,
+  column?: number,
+): void {
+  const seen = new Set<string>();
+  walkExpression(expression, (node) => {
+    if (node.kind !== 'field') return;
+    const root = node.path[0];
+    if (!root || rowBindings.has(root) || seen.has(root)) return;
+    seen.add(root);
+    diagnostics.push(
+      compilerError(
+        'FDQL_UNKNOWN_ROW_BINDING',
+        `Unknown row binding ${root}. Use a current row alias or projected binding such as stats.total.`,
+        line,
+        column,
+      ),
+    );
+  });
+}
+
+function validateProjectionSpread(
+  item: FdqlProjectionItem,
+  allowSpread: boolean,
+  diagnostics: FdqlDiagnostic[],
+): void {
+  if (!item.spread) return;
+  if (!allowSpread) {
+    diagnostics.push(
+      compilerError(
+        'FDQL_INVALID_SPREAD_PROJECTION',
+        'Spread projections are only supported in `return`.',
+        item.line,
+        item.column,
+      ),
+    );
+  }
+  if (item.alias) {
+    diagnostics.push(
+      compilerError(
+        'FDQL_INVALID_SPREAD_PROJECTION',
+        'Spread return projections cannot use `as alias`.',
+        item.line,
+        item.column,
+      ),
+    );
+  }
+}
+
+function labelFor(expression: FdqlExpression, fallback: string): string {
+  if (expression.kind === 'field') return expression.path.at(-1) ?? fallback;
+  if (expression.kind === 'call') return expression.name.split('.').at(-1) ?? fallback;
+  return fallback;
 }
 
 function validateExpressionCall(

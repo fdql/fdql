@@ -184,7 +184,7 @@ Implemented expression/runtime basics:
 - `entries(map)`
 - `mapGet(map, key)`
 - `count()`, `sum(...)`, `avg(...)`, `min(...)`, `max(...)` inside local aggregate stages
-- `return *`
+- explicit `return`, including binding-level `return *` and `return ...binding`
 - field masks, including `[]` metadata-only reads
 - collection paths, collection groups, explicit project, named database
 
@@ -205,21 +205,22 @@ These block the read implementation from being honest at production scale.
 
 ## P1 Spec Features Not Implemented
 
-| Feature                                   | Status  | Notes                                                                                                                                          |
-| ----------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lookup one`                              | Done    | Optional; missing correlated values/no match attach `null`; supports lookup-local cache override.                                              |
-| `lookup required one`                     | Done    | Drops rows when correlated values are missing or no match exists.                                                                              |
-| `lookup many`                             | Done    | Optional; missing correlated values attach `[]`, counts lookup reads separately, supports cache override.                                      |
-| `lookup aggregate`                        | Done    | Attaches one aggregate object; supports provider `where` only, cache overrides, and default empty values.                                      |
-| `from fs.aggregate(...)`                  | Done    | Native one-row provider aggregate source; `yield` aliases become output fields. Covers collection, group, and static subcollection aggregates. |
-| `fs.subcollection(parent, name, fields?)` | Done    | Supports static paths, dynamic lookup sources, and reusable templates with `of parent`.                                                        |
-| `fs.subcollections(parent)`               | Missing | Deferred child-collection-name discovery.                                                                                                      |
-| `unwind array`                            | Done    | Expands arrays into one row per item.                                                                                                          |
-| `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.                                                                            |
-| `union all`                               | Done    | Executes top-level branches with shared preamble aliases/settings.                                                                             |
-| `sort by`                                 | Done    | Local row sort before later local stages or return.                                                                                            |
-| `aggregate`                               | Done    | Local grouping with count/sum/avg/min/max.                                                                                                     |
-| Firestore aggregations                    | Done    | `fs.count`, `fs.sum`, `fs.avg` use native aggregation; `fs.min`, `fs.max` use bounded ordered reads.                                           |
+| Feature                                   | Status  | Notes                                                                                                                                           |
+| ----------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lookup one`                              | Done    | Optional; missing correlated values/no match attach `null`; supports lookup-local cache override.                                               |
+| `lookup required one`                     | Done    | Drops rows when correlated values are missing or no match exists.                                                                               |
+| `lookup many`                             | Done    | Optional; missing correlated values attach `[]`, counts lookup reads separately, supports cache override.                                       |
+| `lookup aggregate`                        | Done    | Attaches one aggregate object; supports provider `where` only, cache overrides, and default empty values.                                       |
+| `from fs.aggregate(...)`                  | Done    | Native one-row provider aggregate source; `yield` aliases become output fields. Covers collection, group, and static subcollection aggregates.  |
+| `fs.subcollection(parent, name, fields?)` | Done    | Supports static paths, dynamic lookup sources, and reusable templates with `of parent`.                                                         |
+| `fs.subcollections(parent)`               | Missing | Deferred child-collection-name discovery.                                                                                                       |
+| `unwind array`                            | Done    | Expands arrays into one row per item.                                                                                                           |
+| `unwind entries(map)`                     | Done    | `entries(map)` emits `{ key, value }` rows for keyed-map workflows.                                                                             |
+| `union all`                               | Done    | Executes top-level branches with shared preamble aliases/settings.                                                                              |
+| `sort by`                                 | Done    | Local row sort before later local stages or return.                                                                                             |
+| `return ...binding`                       | Done    | Spreads map/object bindings and provider loaded data; missing emits no field, non-map values fall back to normal projection, collisions suffix. |
+| `aggregate`                               | Done    | Local grouping with count/sum/avg/min/max.                                                                                                      |
+| Firestore aggregations                    | Done    | `fs.count`, `fs.sum`, `fs.avg` use native aggregation; `fs.min`, `fs.max` use bounded ordered reads.                                            |
 
 ## P2 Expression Gaps
 
@@ -253,7 +254,7 @@ These block the read implementation from being honest at production scale.
 | FDQL type model     | Done                       | Core/runtime values are tagged internally and encoded at output.                                                                           |
 | Provider adapters   | Done                       | Firestore values normalize/encode in provider repos; core FDQL has no Firestore-shaped runtime API.                                        |
 | Type inference      | Missing                    | Compiler does not infer expression, stage, or result column types.                                                                         |
-| Row-shape analysis  | Missing                    | Unknown fields are runtime missing values; compiler does not prove row shape.                                                              |
+| Row-shape analysis  | Partial                    | Compiler validates root row bindings; nested unknown fields are runtime missing values and compiler does not prove row shape.              |
 | Lineage UI          | Partial                    | Events carry provider-neutral row lineage, but UI does not expose source exploration.                                                      |
 | More E2E            | Partial                    | Covers main read paths plus nested map/array lookup cache, field-path fidelity, and issue-click navigation. Still needs named DB coverage. |
 | Generated scripts   | Not planned for current UI | Spec mentions generated scripts, but current product slice intentionally has no JS snippet panel. Revisit before implementing.             |

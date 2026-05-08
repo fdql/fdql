@@ -4,8 +4,15 @@ export function compilerError(
   code: string,
   message: string,
   line?: number,
+  column?: number,
 ): FdqlDiagnostic {
-  return { code, ...(line ? { line } : {}), message, severity: 'error' };
+  return {
+    code,
+    ...(column ? { column } : {}),
+    ...(line ? { line } : {}),
+    message,
+    severity: 'error',
+  };
 }
 
 export function duplicateStage(

@@ -31,6 +31,27 @@ return mem.id(p) as id, p.name`,
     });
   });
 
+  it('rejects union branches without explicit returns', () => {
+    const result = compileFdqlRead(
+      `alias $people = mem.collection("people")
+alias $teams = mem.collection("teams")
+
+from $people as p
+mem limit 1
+
+union all
+
+from $teams as t
+mem limit 1
+return mem.id(t) as id`,
+      options,
+    );
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_MISSING_RETURN' }),
+    );
+  });
+
   it('compiles top-level union branches with shared preamble', () => {
     const result = compileFdqlRead(
       `alias $people = mem.collection("people")
