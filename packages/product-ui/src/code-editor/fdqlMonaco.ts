@@ -58,7 +58,7 @@ export function registerFdqlLanguage(monaco: MonacoEditorApiModule): void {
     },
   });
   monaco.languages.registerCompletionItemProvider?.(FDQL_LANGUAGE_ID, {
-    triggerCharacters: ['.', '$', ' ', '\n'],
+    triggerCharacters: ['.', '$'],
     provideCompletionItems(model, position) {
       const word = model.getWordUntilPosition(position);
       const range = {
@@ -131,7 +131,7 @@ function monacoCompletion(
   };
   if (item.detail) completion.detail = item.detail;
   if (item.documentation) completion.documentation = item.documentation;
-  if (item.insertText.includes('$')) {
+  if (item.kind === 'snippet') {
     completion.insertTextRules = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet;
   }
   return completion;

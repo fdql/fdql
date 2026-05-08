@@ -10,6 +10,7 @@ import {
   tabClosed,
   tabConnectionUpdated,
   tabCounterFor,
+  tabDuplicated,
   tabHistoryMovedBack,
   tabHistoryMovedForward,
   tabHistoryPushed,
@@ -67,6 +68,13 @@ export const tabActions = {
     const result = existing
       ? { state: tabSelected(tabsStore.state, existing.id), tabId: existing.id }
       : tabOpened(tabsStore.state, input, nextTabId(input.kind));
+    tabsStore.setState(() => result.state);
+    return result.tabId;
+  },
+  duplicateTab(tabId: string): string | null {
+    const source = tabsStore.state.tabs.find((tab) => tab.id === tabId);
+    if (!source) return null;
+    const result = tabDuplicated(tabsStore.state, tabId, nextTabId(source.kind));
     tabsStore.setState(() => result.state);
     return result.tabId;
   },

@@ -18,6 +18,8 @@ import {
   fdqlRunStarted,
   fdqlSourceChanged,
   fdqlTabCleared,
+  fdqlTabDuplicated,
+  fdqlTabRuntimeCleared,
 } from './fdqlTransitions.ts';
 
 export interface FdqlCommandEnvironment {
@@ -138,4 +140,22 @@ export function clearFdqlTabCommand(
   const run = store.get().activeRuns[tabId];
   if (run) void env.cancel(run.runId).catch(() => undefined);
   store.update((state) => fdqlTabCleared(state, tabId));
+}
+
+export function duplicateFdqlTabCommand(
+  store: AppCoreStore<FdqlState>,
+  sourceTabId: string,
+  targetTabId: string,
+): void {
+  store.update((state) => fdqlTabDuplicated(state, sourceTabId, targetTabId));
+}
+
+export function clearFdqlTabRuntimeCommand(
+  store: AppCoreStore<FdqlState>,
+  env: Pick<FdqlCommandEnvironment, 'cancel'>,
+  tabId: string,
+): void {
+  const run = store.get().activeRuns[tabId];
+  if (run) void env.cancel(run.runId).catch(() => undefined);
+  store.update((state) => fdqlTabRuntimeCleared(state, tabId));
 }

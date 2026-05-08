@@ -215,6 +215,7 @@ export interface AppShellController {
     readonly onCloseTab: (tabId: string) => void;
     readonly onCloseTabsToLeft: (tabId: string) => void;
     readonly onCloseTabsToRight: (tabId: string) => void;
+    readonly onDuplicateTab: (tabId: string) => void;
     readonly onConnectionChange: (connectionId: string) => void;
     readonly onRefreshActiveTab: () => void;
     readonly onReorderTabs: (activeId: string, overId: string) => void;
@@ -379,6 +380,7 @@ export interface AppShellTabsFacade {
   } | null;
   readonly openOrSelectTab: (input: OpenTabInput) => string;
   readonly openTab: (input: OpenTabInput) => string;
+  readonly duplicateTab: (tabId: string) => string | null;
   readonly reorderTabs: (activeId: string, overId: string) => void;
   readonly selectTab: (tabId: string) => void;
   readonly sortByProject: () => void;
@@ -472,6 +474,7 @@ export interface AppShellJsFacade {
   readonly cancelScript: () => boolean;
   readonly clearTab: (tabId: string) => void;
   readonly clearTabRuntime: (tabId: string) => void;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
   readonly isRunning: boolean;
   readonly isTabRunning: (tabId: string) => boolean;
   readonly runScript: () => boolean;
@@ -488,6 +491,7 @@ export interface AppShellSqlFacade {
   readonly compile: () => boolean;
   readonly compileResult: FirestoreSqlCompileResult | undefined;
   readonly context: FirestoreSqlContext;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
   readonly isRunning: boolean;
   readonly isTabRunning: (tabId: string) => boolean;
   readonly result: FirestoreSqlRunResult | undefined;
@@ -502,7 +506,9 @@ export interface AppShellSqlFacade {
 export interface AppShellFdqlFacade {
   readonly cancel: () => boolean;
   readonly clearTab: (tabId: string) => void;
+  readonly clearTabRuntime: (tabId: string) => void;
   readonly compileResult: FdqlCompileResult | undefined;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
   readonly isRunning: boolean;
   readonly isTabRunning: (tabId: string) => boolean;
   readonly result: FdqlRunResult | undefined;
@@ -519,6 +525,7 @@ const emptySqlFacade: AppShellSqlFacade = {
   compile: () => false,
   compileResult: undefined,
   context: {},
+  duplicateTab: () => undefined,
   isRunning: false,
   isTabRunning: () => false,
   result: undefined,
@@ -533,7 +540,9 @@ const emptySqlFacade: AppShellSqlFacade = {
 const emptyFdqlFacade: AppShellFdqlFacade = {
   cancel: () => false,
   clearTab: () => undefined,
+  clearTabRuntime: () => undefined,
   compileResult: undefined,
+  duplicateTab: () => undefined,
   isRunning: false,
   isTabRunning: () => false,
   result: undefined,
@@ -547,6 +556,7 @@ const emptyFdqlFacade: AppShellFdqlFacade = {
 export interface AppShellFirestoreTabFacade {
   readonly activeDraft: FirestoreQueryDraft;
   readonly clearTab: (tabId: string) => void;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
   readonly drafts: Readonly<Record<string, FirestoreQueryDraft>>;
   readonly errorMessage: string | null;
   readonly hasMore: boolean;
@@ -652,6 +662,22 @@ export function createAppShellController(
       },
       title: 'Close tab',
     });
+  }
+
+  function duplicateTab(tabId: string) {
+    const tab = input.tabsState.tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+    const nextTabId = input.tabs.duplicateTab(tab.id);
+    if (!nextTabId) return;
+    duplicateTabState(tab, nextTabId);
+    const selectedTreeItemId = treeItemIdForTab({ ...tab, id: nextTabId });
+    input.ui.selectTreeItem(selectedTreeItemId);
+    input.ui.recordInteraction({
+      activeTabId: nextTabId,
+      path: activePath(tab),
+      selectedTreeItemId,
+    });
+    input.ui.setLastAction(`Duplicated ${tab.title}`);
   }
 
   function requestCloseOtherTabs(tabId: string) {
@@ -911,10 +937,22 @@ export function createAppShellController(
     clearTabRuntimeState(tab);
     if (tab.kind === 'js-query') input.jsTab.clearTabRuntime(tab.id);
     else if (tab.kind === 'firestore-sql') sqlTab.clearTab(tab.id);
-    else if (tab.kind === 'fdql') fdqlTab.clearTab(tab.id);
+    else if (tab.kind === 'fdql') fdqlTab.clearTabRuntime(tab.id);
     else input.jsTab.clearTab(tab.id);
     input.ui.clearAuthSelection();
     input.authTab.clear();
+  }
+
+  function duplicateTabState(sourceTab: WorkspaceTab, targetTabId: string) {
+    if (sourceTab.kind === 'firestore-query') {
+      input.firestoreTab.duplicateTab(sourceTab.id, targetTabId);
+    } else if (sourceTab.kind === 'js-query') {
+      input.jsTab.duplicateTab(sourceTab.id, targetTabId);
+    } else if (sourceTab.kind === 'firestore-sql') {
+      sqlTab.duplicateTab(sourceTab.id, targetTabId);
+    } else if (sourceTab.kind === 'fdql') {
+      fdqlTab.duplicateTab(sourceTab.id, targetTabId);
+    }
   }
 
   function closeTabsWithCleanup(tabsToClose: ReadonlyArray<WorkspaceTab>, successLabel: string) {
@@ -1299,6 +1337,7 @@ export function createAppShellController(
       onCloseTab: requestCloseTab,
       onCloseTabsToLeft: requestCloseTabsToLeft,
       onCloseTabsToRight: requestCloseTabsToRight,
+      onDuplicateTab: duplicateTab,
       onConnectionChange: handleActiveProjectChange,
       onRefreshActiveTab: handleRefreshActiveTab,
       onReorderTabs: input.tabs.reorderTabs,

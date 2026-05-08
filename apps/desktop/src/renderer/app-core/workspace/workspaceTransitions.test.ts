@@ -8,6 +8,7 @@ import {
   interactionRecorded,
   otherTabsClosed,
   tabClosed,
+  tabDuplicated,
   tabHistoryMovedBack,
   tabHistoryMovedForward,
   tabHistoryPushed,
@@ -64,6 +65,29 @@ describe('workspace transitions', () => {
 
     expect(result.tabId).toBe('tab-firestore');
     expect(result.state.tabs).toHaveLength(4);
+  });
+
+  it('duplicates a tab beside the source and preserves tab state', () => {
+    const state = tabHistoryPushed(createInitialTabsState('emu'), 'tab-firestore', 'customers');
+
+    const result = tabDuplicated(state, 'tab-firestore', 'tab-firestore-copy');
+
+    expect(result.tabId).toBe('tab-firestore-copy');
+    expect(result.state.activeTabId).toBe('tab-firestore-copy');
+    expect(result.state.tabs.map((tab) => tab.id)).toEqual([
+      'tab-firestore',
+      'tab-firestore-copy',
+      'tab-auth',
+      'tab-js',
+      'tab-sql',
+    ]);
+    expect(result.state.tabs[1]).toMatchObject({
+      connectionId: 'emu',
+      history: ['orders', 'customers'],
+      historyIndex: 1,
+      kind: 'firestore-query',
+      title: 'customers',
+    });
   });
 
   it('closes active and bulk tabs predictably', () => {

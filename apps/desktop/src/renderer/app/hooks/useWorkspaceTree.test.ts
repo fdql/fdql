@@ -57,7 +57,6 @@ describe('useWorkspaceTree', () => {
         activeTab,
         openFirestoreTab,
         openFirestoreTabInNewTab: vi.fn(),
-        openJsTabInNewTab: vi.fn(),
         openToolTab,
         projects,
         selectedTreeItemId: null,
@@ -87,7 +86,6 @@ describe('useWorkspaceTree', () => {
         activeTab,
         openFirestoreTab: vi.fn(),
         openFirestoreTabInNewTab: vi.fn(),
-        openJsTabInNewTab: vi.fn(),
         openToolTab: vi.fn(),
         projects,
         selectedTreeItemId: null,
@@ -122,7 +120,6 @@ describe('useWorkspaceTree', () => {
         activeTab,
         openFirestoreTab: vi.fn(),
         openFirestoreTabInNewTab: vi.fn(),
-        openJsTabInNewTab: vi.fn(),
         openToolTab: vi.fn(),
         projects,
         selectedTreeItemId: null,
@@ -163,7 +160,6 @@ describe('useWorkspaceTree', () => {
         activeTab,
         openFirestoreTab: vi.fn(),
         openFirestoreTabInNewTab: vi.fn(),
-        openJsTabInNewTab: vi.fn(),
         openToolTab: vi.fn(),
         projects,
         selectedTreeItemId: null,
@@ -201,8 +197,11 @@ describe('useWorkspaceTree', () => {
   });
 
   it('keeps script click reusing a tab and script double click opening a new tab', () => {
-    const openToolTab = vi.fn(() => 'tab-js-reused');
-    const openJsTabInNewTab = vi.fn(() => 'tab-js-new');
+    const openToolTab = vi.fn((
+      _kind: string,
+      _connectionId: string,
+      options?: { readonly newTab?: boolean; },
+    ) => options?.newTab ? 'tab-js-new' : 'tab-js-reused');
     const recordInteraction = vi.spyOn(tabActions, 'recordInteraction').mockImplementation(
       () => {},
     );
@@ -211,7 +210,6 @@ describe('useWorkspaceTree', () => {
         activeTab,
         openFirestoreTab: vi.fn(),
         openFirestoreTabInNewTab: vi.fn(),
-        openJsTabInNewTab,
         openToolTab,
         projects,
         selectedTreeItemId: null,
@@ -221,8 +219,7 @@ describe('useWorkspaceTree', () => {
 
     act(() => result.current.handleSelectItem('script:emu'));
 
-    expect(openToolTab).toHaveBeenCalledWith('js-query', 'emu');
-    expect(openJsTabInNewTab).not.toHaveBeenCalled();
+    expect(openToolTab).toHaveBeenCalledWith('js-query', 'emu', { newTab: false });
     expect(recordInteraction).toHaveBeenCalledWith({
       activeTabId: 'tab-js-reused',
       path: 'scripts/default',
@@ -231,11 +228,44 @@ describe('useWorkspaceTree', () => {
 
     act(() => result.current.handleOpenItem('script:emu'));
 
-    expect(openJsTabInNewTab).toHaveBeenCalledWith('emu');
+    expect(openToolTab).toHaveBeenCalledWith('js-query', 'emu', { newTab: true });
     expect(recordInteraction).toHaveBeenCalledWith({
       activeTabId: 'tab-js-new',
       path: 'scripts/default',
       selectedTreeItemId: 'script:emu',
+    });
+  });
+
+  it('opens fdql double clicks in a new tab', () => {
+    const openToolTab = vi.fn((
+      _kind: string,
+      _connectionId: string,
+      options?: { readonly newTab?: boolean; },
+    ) => options?.newTab ? 'tab-fdql-new' : 'tab-fdql-reused');
+    const recordInteraction = vi.spyOn(tabActions, 'recordInteraction').mockImplementation(
+      () => {},
+    );
+    const { result } = renderHook(() =>
+      useWorkspaceTree({
+        activeTab,
+        openFirestoreTab: vi.fn(),
+        openFirestoreTabInNewTab: vi.fn(),
+        openToolTab,
+        projects,
+        selectedTreeItemId: null,
+        setLastAction: vi.fn(),
+      })
+    );
+
+    act(() => result.current.handleSelectItem('fdql:emu'));
+    act(() => result.current.handleOpenItem('fdql:emu'));
+
+    expect(openToolTab).toHaveBeenCalledWith('fdql', 'emu', { newTab: false });
+    expect(openToolTab).toHaveBeenCalledWith('fdql', 'emu', { newTab: true });
+    expect(recordInteraction).toHaveBeenCalledWith({
+      activeTabId: 'tab-fdql-new',
+      path: 'fdql/default',
+      selectedTreeItemId: 'fdql:emu',
     });
   });
 
@@ -250,7 +280,6 @@ describe('useWorkspaceTree', () => {
         activeTab,
         openFirestoreTab,
         openFirestoreTabInNewTab,
-        openJsTabInNewTab: vi.fn(),
         openToolTab: vi.fn(),
         projects,
         selectedTreeItemId: null,

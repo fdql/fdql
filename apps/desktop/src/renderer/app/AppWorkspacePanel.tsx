@@ -73,6 +73,7 @@ interface AppWorkspacePanelProps {
   readonly onCloseTab: (tabId: string) => void;
   readonly onCloseTabsToLeft: (tabId: string) => void;
   readonly onCloseTabsToRight: (tabId: string) => void;
+  readonly onDuplicateTab: (tabId: string) => void;
   readonly onConnectionChange: (connectionId: string) => void;
   readonly onRefreshActiveTab: () => void;
   readonly onReorderTabs: (activeId: string, overId: string) => void;
@@ -117,6 +118,7 @@ export function AppWorkspacePanel(
     onCloseTab,
     onCloseTabsToLeft,
     onCloseTabsToRight,
+    onDuplicateTab,
     onConnectionChange,
     onRefreshActiveTab,
     onReorderTabs,
@@ -142,6 +144,7 @@ export function AppWorkspacePanel(
             onCloseOtherTabs={onCloseOtherTabs}
             onCloseTabsToLeft={onCloseTabsToLeft}
             onCloseTabsToRight={onCloseTabsToRight}
+            onDuplicateTab={onDuplicateTab}
             onReorderTabs={onReorderTabs}
             onSelectTab={onSelectTab}
             onSortByProject={onSortByProject}

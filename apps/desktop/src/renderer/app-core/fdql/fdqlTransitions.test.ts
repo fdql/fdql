@@ -6,6 +6,8 @@ import {
   fdqlRunFinished,
   fdqlRunRequested,
   fdqlRunStarted,
+  fdqlTabDuplicated,
+  fdqlTabRuntimeCleared,
 } from './fdqlTransitions.ts';
 
 describe('fdqlTransitions', () => {
@@ -40,6 +42,47 @@ describe('fdqlTransitions', () => {
     const state = fdqlRunFinished(streamed, 'tab-1', result([{ id: 'final' }]));
 
     expect(state.results['tab-1']?.rows).toEqual([{ id: 'final' }]);
+  });
+
+  it('clears runtime state without removing tab source', () => {
+    const running = fdqlRunStarted(
+      {
+        ...createInitialFdqlState(),
+        compileResults: { 'tab-1': { diagnostics: [], ok: true } },
+        results: { 'tab-1': result([{ id: 'stale' }]) },
+        sources: { 'tab-1': 'from $orders as o\nreturn o' },
+      },
+      {
+        connectionId: 'emu',
+        runId: 'run-1',
+        source: 'from $orders as o',
+        startedAt: 100,
+        tabId: 'tab-1',
+      },
+    );
+
+    const state = fdqlTabRuntimeCleared(running, 'tab-1');
+
+    expect(state.sources['tab-1']).toBe('from $orders as o\nreturn o');
+    expect(state.activeRuns['tab-1']).toBeUndefined();
+    expect(state.compileResults['tab-1']).toBeUndefined();
+    expect(state.results['tab-1']).toBeUndefined();
+    expect(state.runIds['tab-1']).toBeUndefined();
+  });
+
+  it('duplicates tab source without copying runtime state', () => {
+    const state = fdqlTabDuplicated(
+      {
+        ...createInitialFdqlState(),
+        results: { 'tab-1': result([{ id: 'stale' }]) },
+        sources: { 'tab-1': 'from $orders as o\nreturn o' },
+      },
+      'tab-1',
+      'tab-2',
+    );
+
+    expect(state.sources['tab-2']).toBe('from $orders as o\nreturn o');
+    expect(state.results['tab-2']).toBeUndefined();
   });
 });
 

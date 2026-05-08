@@ -51,6 +51,32 @@ export function tabOpened(
   };
 }
 
+export function tabDuplicated(
+  state: TabsState,
+  sourceTabId: string,
+  tabId: string,
+): { readonly state: TabsState; readonly tabId: string | null; } {
+  const sourceIndex = state.tabs.findIndex((tab) => tab.id === sourceTabId);
+  const source = state.tabs[sourceIndex];
+  if (!source) return { state, tabId: null };
+  const nextTab = {
+    ...source,
+    id: uniqueTabId(tabId, tabIdsFor(state.tabs)),
+  };
+  return {
+    state: {
+      ...state,
+      activeTabId: nextTab.id,
+      tabs: [
+        ...state.tabs.slice(0, sourceIndex + 1),
+        nextTab,
+        ...state.tabs.slice(sourceIndex + 1),
+      ],
+    },
+    tabId: nextTab.id,
+  };
+}
+
 export function tabOpenedOrSelected(
   state: TabsState,
   input: OpenTabInput,

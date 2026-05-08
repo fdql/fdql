@@ -10,6 +10,7 @@ const monacoMock = vi.hoisted(() => ({
   diffContentListener: null as (() => void) | null,
   editorContentListener: null as (() => void) | null,
   editorLanguage: 'json',
+  editorOptions: null as unknown,
   editorValue: '',
   focusEditor: vi.fn(),
   javascriptContribution: vi.fn(),
@@ -37,6 +38,8 @@ const monacoApiMock = vi.hoisted(() => ({
       Keyword: 2,
       Property: 3,
       Snippet: 4,
+      Variable: 5,
+      Field: 6,
     },
     register: monacoMock.registerLanguage,
     registerCompletionItemProvider: monacoMock.registerCompletionItemProvider,
@@ -82,13 +85,18 @@ vi.mock('@monaco-editor/react', async () => {
           editor: MonacoEditorTypes.IStandaloneCodeEditor,
           monaco: typeof monacoApiMock,
         ) => void;
-        readonly options?: { readonly ariaLabel?: string; };
+        readonly options?: {
+          readonly acceptSuggestionOnEnter?: string;
+          readonly ariaLabel?: string;
+          readonly quickSuggestions?: boolean;
+        };
         readonly theme: string;
         readonly value: string;
       },
     ) => {
       React.useEffect(() => {
         monacoMock.editorLanguage = language;
+        monacoMock.editorOptions = options ?? null;
         monacoMock.editorValue = value;
         beforeMount?.(monacoApiMock);
         onMount?.({
@@ -233,7 +241,75 @@ describe('CodeEditor', () => {
       FDQL_LANGUAGE_ID,
       expect.objectContaining({
         provideCompletionItems: expect.any(Function),
+        triggerCharacters: ['.', '$'],
       }),
+    );
+  });
+
+  it('keeps FDQL autocomplete manual-friendly', async () => {
+    render(
+      <AppearanceProvider settings={new MockSettingsRepository()}>
+        <CodeEditor language={FDQL_LANGUAGE_ID} value='then ' />
+      </AppearanceProvider>,
+    );
+    await screen.findByTestId('monaco');
+
+    expect(monacoMock.editorOptions).toEqual(
+      expect.objectContaining({
+        acceptSuggestionOnEnter: 'on',
+        quickSuggestions: false,
+      }),
+    );
+    expect(monacoMock.registerCompletionItemProvider).toHaveBeenCalledWith(
+      FDQL_LANGUAGE_ID,
+      expect.objectContaining({
+        triggerCharacters: ['.', '$'],
+      }),
+    );
+  });
+
+  it('uses plain FDQL completions by default', async () => {
+    render(
+      <AppearanceProvider settings={new MockSettingsRepository()}>
+        <CodeEditor language={FDQL_LANGUAGE_ID} value='then ' />
+      </AppearanceProvider>,
+    );
+    await screen.findByTestId('monaco');
+    type CompletionProvider = {
+      provideCompletionItems: (
+        model: unknown,
+        position: { lineNumber: number; column: number; },
+      ) => {
+        suggestions: ReadonlyArray<
+          { readonly insertText: string; readonly insertTextRules?: number; }
+        >;
+      };
+    };
+    const calls = monacoMock.registerCompletionItemProvider.mock.calls as unknown as Array<
+      [string, CompletionProvider]
+    >;
+    const fdqlProviderCalls = calls.filter((call) => call[0] === FDQL_LANGUAGE_ID);
+    const provider = fdqlProviderCalls.at(-1)![1];
+
+    const result = provider.provideCompletionItems(
+      {
+        getValue: () => 'then ',
+        getWordUntilPosition: () => ({ endColumn: 6, startColumn: 6, word: '' }),
+      },
+      { column: 6, lineNumber: 1 },
+    );
+
+    expect(result.suggestions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ insertText: 'filter ' }),
+        expect.objectContaining({ insertText: 'lookup one ' }),
+      ]),
+    );
+    expect(result.suggestions).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ insertText: 'then filter' }),
+        expect.objectContaining({ insertTextRules: 4 }),
+      ]),
     );
   });
 

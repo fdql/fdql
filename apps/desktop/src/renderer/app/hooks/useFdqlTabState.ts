@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import {
   cancelFdqlCommand,
   clearFdqlTabCommand,
+  clearFdqlTabRuntimeCommand,
+  duplicateFdqlTabCommand,
   type FdqlCommandEnvironment,
   receiveFdqlEventCommand,
   runFdqlCommand,
@@ -42,6 +44,8 @@ export interface FdqlTabState {
   readonly sources: Readonly<Record<string, string>>;
   readonly cancel: () => boolean;
   readonly clearTab: (tabId: string) => void;
+  readonly clearTabRuntime: (tabId: string) => void;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
   readonly isTabRunning: (tabId: string) => boolean;
   readonly run: () => boolean;
   readonly setSource: (source: string) => void;
@@ -100,6 +104,14 @@ export function useFdqlTabState(
     clearFdqlTabCommand(store, env, tabId);
   }
 
+  function clearTabRuntime(tabId: string) {
+    clearFdqlTabRuntimeCommand(store, env, tabId);
+  }
+
+  function duplicateTab(sourceTabId: string, targetTabId: string) {
+    duplicateFdqlTabCommand(store, sourceTabId, targetTabId);
+  }
+
   return {
     compileResult: model.compileResult,
     isRunning: model.isRunning,
@@ -110,6 +122,8 @@ export function useFdqlTabState(
     sources: state.sources,
     cancel,
     clearTab,
+    clearTabRuntime,
+    duplicateTab,
     isTabRunning,
     run,
     setSource,

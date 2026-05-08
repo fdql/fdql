@@ -19,6 +19,7 @@ import {
   jsQueryRunSucceeded,
   jsQuerySourceChanged,
   jsQueryTabCleared,
+  jsQueryTabDuplicated,
   jsQueryTabRuntimeCleared,
   tabForRun,
 } from './jsQueryTransitions.ts';
@@ -139,6 +140,14 @@ export function clearJsQueryTabCommand(
   const run = store.get().activeRuns[tabId];
   if (run) void env.cancelScript(run.runId).catch(() => undefined);
   store.update((state) => jsQueryTabCleared(state, tabId));
+}
+
+export function duplicateJsQueryTabCommand(
+  store: AppCoreStore<JsQueryState>,
+  sourceTabId: string,
+  targetTabId: string,
+): void {
+  store.update((state) => jsQueryTabDuplicated(state, sourceTabId, targetTabId));
 }
 
 export function clearJsQueryTabRuntimeCommand(

@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Code2,
+  CopyPlus,
   Database,
   Folder,
   ListFilter,
@@ -51,6 +52,7 @@ export interface WorkspaceTabStripProps {
   readonly onCloseTab: (id: string) => void;
   readonly onCloseTabsToLeft: (id: string) => void;
   readonly onCloseTabsToRight: (id: string) => void;
+  readonly onDuplicateTab: (id: string) => void;
   readonly onCloseOtherTabs: (id: string) => void;
   readonly onReorderTabs: (activeId: string, overId: string) => void;
   readonly onSelectTab: (id: string) => void;
@@ -67,6 +69,7 @@ export function WorkspaceTabStrip(
     onCloseOtherTabs,
     onCloseTabsToLeft,
     onCloseTabsToRight,
+    onDuplicateTab,
     onReorderTabs,
     onSelectTab,
     onSortByProject,
@@ -159,6 +162,7 @@ export function WorkspaceTabStrip(
                 onCloseOtherTabs={onCloseOtherTabs}
                 onCloseTabsToLeft={onCloseTabsToLeft}
                 onCloseTabsToRight={onCloseTabsToRight}
+                onDuplicateTab={onDuplicateTab}
                 onSelectTab={onSelectTab}
                 onSortByProject={onSortByProject}
               />
@@ -191,6 +195,7 @@ interface SortableTabProps {
   readonly onCloseTab: (id: string) => void;
   readonly onCloseTabsToLeft: (id: string) => void;
   readonly onCloseTabsToRight: (id: string) => void;
+  readonly onDuplicateTab: (id: string) => void;
   readonly onCloseOtherTabs: (id: string) => void;
   readonly onSelectTab: (id: string) => void;
   readonly onSortByProject: () => void;
@@ -206,6 +211,7 @@ function SortableTab(
     onCloseTab,
     onCloseTabsToLeft,
     onCloseTabsToRight,
+    onDuplicateTab,
     onSelectTab,
     onSortByProject,
   }: SortableTabProps,
@@ -258,6 +264,13 @@ function SortableTab(
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className='min-w-52 p-1.5'>
+        <TabContextMenuItem
+          icon={<CopyPlus size={13} aria-hidden='true' />}
+          onSelect={() => onDuplicateTab(tab.id)}
+        >
+          Duplicate tab
+        </TabContextMenuItem>
+        <ContextMenuSeparator />
         <TabContextMenuItem
           icon={<X size={13} aria-hidden='true' />}
           onSelect={() => onCloseTab(tab.id)}

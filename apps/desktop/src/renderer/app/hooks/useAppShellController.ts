@@ -167,7 +167,6 @@ export function useAppShellController(
     activeTab,
     openFirestoreTab,
     openFirestoreTabInNewTab,
-    openJsTabInNewTab,
     openToolTab,
     projects,
     selectedTreeItemId: selection.treeItemId,
@@ -355,6 +354,7 @@ export function useAppShellController(
     settings,
     sidebarCollapsed,
     tabs: {
+      duplicateTab: tabActions.duplicateTab,
       goBackInteraction: tabActions.goBackInteraction,
       goForwardInteraction: tabActions.goForwardInteraction,
       openOrSelectTab: tabActions.openOrSelectTab,
@@ -397,12 +397,14 @@ export function useAppShellController(
 
   return controller;
 
-  function openToolTab(kind: Exclude<WorkspaceTabKind, 'firestore-query'>, connectionId: string) {
-    return tabActions.openOrSelectTab({ kind, connectionId });
-  }
-
-  function openJsTabInNewTab(connectionId: string) {
-    return tabActions.openTab({ kind: 'js-query', connectionId });
+  function openToolTab(
+    kind: Exclude<WorkspaceTabKind, 'firestore-query'>,
+    connectionId: string,
+    options?: { readonly newTab?: boolean; } | undefined,
+  ) {
+    return options?.newTab
+      ? tabActions.openTab({ kind, connectionId })
+      : tabActions.openOrSelectTab({ kind, connectionId });
   }
 
   function openFirestoreTab(connectionId: string, path: string) {

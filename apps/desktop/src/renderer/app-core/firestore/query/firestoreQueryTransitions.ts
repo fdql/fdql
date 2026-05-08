@@ -17,6 +17,29 @@ export function firestoreDraftChanged(
   return { ...state, drafts: { ...state.drafts, [tabId]: draft } };
 }
 
+export function firestoreTabDuplicated(
+  state: FirestoreQueryRuntimeState,
+  sourceTabId: string,
+  targetTabId: string,
+): FirestoreQueryRuntimeState {
+  const sourceDraft = state.drafts[sourceTabId];
+  const sourceResult = state.resultsByTab[sourceTabId];
+  return {
+    ...state,
+    ...(sourceDraft === undefined
+      ? {}
+      : { drafts: { ...state.drafts, [targetTabId]: sourceDraft } }),
+    ...(sourceResult === undefined
+      ? {}
+      : {
+        resultsByTab: {
+          ...state.resultsByTab,
+          [targetTabId]: emptyFirestoreQueryResultStateWithView(sourceResult.resultView),
+        },
+      }),
+  };
+}
+
 export function firestoreQueryStarted(
   state: FirestoreQueryRuntimeState,
   input: {
@@ -309,6 +332,12 @@ function updateTabResult(
     ...state,
     resultsByTab: { ...state.resultsByTab, [tabId]: nextResult },
   };
+}
+
+function emptyFirestoreQueryResultStateWithView(
+  resultView: FirestoreQueryResultState['resultView'],
+): FirestoreQueryResultState {
+  return { ...emptyFirestoreQueryResultState(), resultView };
 }
 
 function updateAllTabResults(

@@ -28,10 +28,10 @@ interface UseWorkspaceTreeInput {
   readonly activeTab: WorkspaceTab | undefined;
   readonly openFirestoreTab: (connectionId: string, path: string) => string;
   readonly openFirestoreTabInNewTab: (connectionId: string, path: string) => string;
-  readonly openJsTabInNewTab: (connectionId: string) => string;
   readonly openToolTab: (
     kind: Exclude<WorkspaceTabKind, 'firestore-query'>,
     connectionId: string,
+    options?: { readonly newTab?: boolean; } | undefined,
   ) => string;
   readonly projects: ReadonlyArray<ProjectSummary>;
   readonly selectedTreeItemId: string | null;
@@ -43,7 +43,6 @@ export function useWorkspaceTree(
     activeTab,
     openFirestoreTab,
     openFirestoreTabInNewTab,
-    openJsTabInNewTab,
     openToolTab,
     projects,
     selectedTreeItemId,
@@ -179,10 +178,10 @@ export function useWorkspaceTree(
           : openFirestoreTab(target.connectionId, target.path),
       };
     }
-    if (target.kind === 'js-query' && target.newTab) {
-      return { path: target.path, tabId: openJsTabInNewTab(target.connectionId) };
-    }
-    return { path: target.path, tabId: openToolTab(target.kind, target.connectionId) };
+    return {
+      path: target.path,
+      tabId: openToolTab(target.kind, target.connectionId, { newTab: target.newTab }),
+    };
   }
 
   return {

@@ -539,6 +539,7 @@ describe('feature surfaces', () => {
           onCloseTab={onCloseTab}
           onCloseTabsToLeft={() => {}}
           onCloseTabsToRight={() => {}}
+          onDuplicateTab={() => {}}
           onReorderTabs={() => {}}
           onSelectTab={onSelectTab}
           onSortByProject={() => {}}
@@ -590,6 +591,7 @@ describe('feature surfaces', () => {
           onCloseTab={() => {}}
           onCloseTabsToLeft={() => {}}
           onCloseTabsToRight={() => {}}
+          onDuplicateTab={() => {}}
           onReorderTabs={() => {}}
           onSelectTab={() => {}}
           onSortByProject={() => {}}

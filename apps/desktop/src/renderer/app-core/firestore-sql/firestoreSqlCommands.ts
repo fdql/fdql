@@ -19,6 +19,7 @@ import {
   firestoreSqlRunStarted,
   firestoreSqlSourceChanged,
   firestoreSqlTabCleared,
+  firestoreSqlTabDuplicated,
 } from './firestoreSqlTransitions.ts';
 
 export interface FirestoreSqlCommandEnvironment {
@@ -173,4 +174,12 @@ export function clearFirestoreSqlTabCommand(
   const run = store.get().activeRuns[tabId];
   if (run) void env.cancel(run.runId).catch(() => undefined);
   store.update((state) => firestoreSqlTabCleared(state, tabId));
+}
+
+export function duplicateFirestoreSqlTabCommand(
+  store: AppCoreStore<FirestoreSqlState>,
+  sourceTabId: string,
+  targetTabId: string,
+): void {
+  store.update((state) => firestoreSqlTabDuplicated(state, sourceTabId, targetTabId));
 }

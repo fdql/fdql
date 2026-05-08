@@ -23,6 +23,22 @@ export function firestoreSqlContextChanged(
   return { ...state, contexts: { ...state.contexts, [tabId]: context } };
 }
 
+export function firestoreSqlTabDuplicated(
+  state: FirestoreSqlState,
+  sourceTabId: string,
+  targetTabId: string,
+): FirestoreSqlState {
+  const source = state.sources[sourceTabId];
+  const context = state.contexts[sourceTabId];
+  return {
+    ...state,
+    ...(source === undefined ? {} : { sources: { ...state.sources, [targetTabId]: source } }),
+    ...(context === undefined
+      ? {}
+      : { contexts: { ...state.contexts, [targetTabId]: context } }),
+  };
+}
+
 export function firestoreSqlCompiled(
   state: FirestoreSqlState,
   tabId: string,

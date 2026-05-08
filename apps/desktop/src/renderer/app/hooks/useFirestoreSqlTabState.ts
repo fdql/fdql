@@ -10,6 +10,7 @@ import {
   cancelFirestoreSqlCommand,
   clearFirestoreSqlTabCommand,
   compileFirestoreSqlCommand,
+  duplicateFirestoreSqlTabCommand,
   type FirestoreSqlCommandEnvironment,
   receiveFirestoreSqlEventCommand,
   runFirestoreSqlCommand,
@@ -49,6 +50,7 @@ export interface FirestoreSqlTabState {
   readonly cancel: () => boolean;
   readonly clearTab: (tabId: string) => void;
   readonly compile: () => boolean;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
   readonly isTabRunning: (tabId: string) => boolean;
   readonly run: () => boolean;
   readonly setContext: (context: FirestoreSqlContext) => void;
@@ -123,6 +125,10 @@ export function useFirestoreSqlTabState(
     clearFirestoreSqlTabCommand(store, env, tabId);
   }
 
+  function duplicateTab(sourceTabId: string, targetTabId: string) {
+    duplicateFirestoreSqlTabCommand(store, sourceTabId, targetTabId);
+  }
+
   return {
     compileResult: model.compileResult,
     context: model.context,
@@ -136,6 +142,7 @@ export function useFirestoreSqlTabState(
     cancel,
     clearTab,
     compile,
+    duplicateTab,
     isTabRunning,
     run,
     setContext,

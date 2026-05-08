@@ -38,6 +38,7 @@ export interface FdqlCompletionItem {
 
 export interface FdqlCompletionInput {
   readonly column: number;
+  readonly includeSnippets?: boolean | undefined;
   readonly line: number;
   readonly source: string;
 }
@@ -137,17 +138,18 @@ function completionsForInput(
   const trimmed = line.trimStart();
   const lower = trimmed.toLowerCase();
   const dot = dotContext(line);
+  const includeSnippets = input.includeSnippets === true;
   if (dot) return dotCompletions(metadata, model, dot, lower);
-  if (lower.startsWith('set ')) return metadata.settings;
-  if (lower.startsWith('clear ')) return clearCacheCompletions(metadata);
+  if (lower.startsWith('set ')) return settingCompletions(metadata);
+  if (lower.startsWith('clear ')) return clearCacheCompletions(lower);
   if (lower === 'from $' || lower.startsWith('from $')) return sourceAliasCompletions(model);
-  if (lower.startsWith('from ')) return fromCompletions(metadata, model);
+  if (lower.startsWith('from ')) return fromCompletions(metadata, model, includeSnippets);
   const provider = providerClauseNamespace(metadata, lower);
   if (lower.startsWith('alias ') && lower.includes('=')) {
     return sortCompletions([...metadata.sourceFunctions, ...metadata.expressionFunctions]);
   }
   if (lower.startsWith('then ')) {
-    return thenCompletions(metadata, model, lower);
+    return thenCompletions(metadata, model, lower, includeSnippets);
   }
   if (provider) {
     return providerCompletions(metadata, model, lower, provider);
@@ -156,10 +158,10 @@ function completionsForInput(
     return expressionCompletions(metadata, model);
   }
   return sortCompletions([
-    ...metadata.settings,
+    ...keywordCompletions(metadata),
     ...metadata.sourceFunctions,
     ...metadata.providerClauses,
-    ...metadata.snippets,
+    ...(includeSnippets ? metadata.snippets : []),
     ...metadata.expressionFunctions,
   ]);
 }
@@ -170,9 +172,25 @@ function lineBeforeCursor(input: FdqlCompletionInput): string {
 }
 
 function clearCacheCompletions(
+  line: string,
+): readonly FdqlCompletionItem[] {
+  if (line === 'clear ') {
+    return [
+      stageCompletion('cache', 'cache'),
+      stageCompletion('cache provider fs', 'cache provider fs'),
+      stageCompletion('cache provider fs project', 'cache provider fs project "project-id"'),
+    ];
+  }
+  return [];
+}
+
+function settingCompletions(
   metadata: FdqlLanguageMetadata,
 ): readonly FdqlCompletionItem[] {
-  return metadata.snippets.filter((item) => item.label.startsWith('clear cache'));
+  return metadata.settings.map((item) => ({
+    ...item,
+    insertText: `${item.label} = `,
+  }));
 }
 
 function expressionCompletions(
@@ -189,10 +207,16 @@ function expressionCompletions(
 function fromCompletions(
   metadata: FdqlLanguageMetadata,
   model: QueryModel,
+  includeSnippets: boolean,
 ): readonly FdqlCompletionItem[] {
   return sortCompletions([
     ...sourceAliasCompletions(model),
-    ...metadata.snippets.filter((item) => item.label === 'from provider aggregate'),
+    ...providerNamespaces(metadata).flatMap((namespace) =>
+      providerAggregateSourceCompletions(metadata, namespace)
+    ),
+    ...(includeSnippets
+      ? metadata.snippets.filter((item) => item.label === 'from provider aggregate')
+      : []),
   ]);
 }
 
@@ -200,6 +224,7 @@ function thenCompletions(
   metadata: FdqlLanguageMetadata,
   model: QueryModel,
   line: string,
+  includeSnippets: boolean,
 ): readonly FdqlCompletionItem[] {
   if (
     /^then\s+lookup\s+(?:aggregate\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+from\s+[A-Za-z_][A-Za-z0-9_]*|required\s+one\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*|one\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*|many\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*)\s+cache\s*$/i
@@ -225,7 +250,13 @@ function thenCompletions(
     return expressionCompletions(metadata, model);
   }
   if (/^then\s+take\s+/i.test(line)) return [];
-  return sortCompletions([...metadata.snippets, ...metadata.providerClauses]);
+  return sortCompletions([
+    ...localStageCompletions(),
+    ...providerNamespaces(metadata).flatMap((namespace) =>
+      providerClauseSuffixCompletions(metadata, namespace)
+    ),
+    ...(includeSnippets ? metadata.snippets.filter((item) => item.label.startsWith('then ')) : []),
+  ]);
 }
 
 function aggregateExpressionCompletions(
@@ -292,12 +323,51 @@ function providerCompletions(
   provider: string,
 ): readonly FdqlCompletionItem[] {
   const clauses = metadata.providerClauses.filter((item) => item.label.startsWith(`${provider} `));
+  if (line === `${provider} `) return providerClauseSuffixCompletions(metadata, provider);
   const activeClause = clauses.find((item) =>
     line === item.label || line.startsWith(`${item.label} `)
   );
   if (!activeClause) return clauses;
   if (activeClause.label.endsWith(' limit')) return [];
   return expressionCompletions(metadata, model);
+}
+
+function localStageCompletions(): readonly FdqlCompletionItem[] {
+  return [
+    stageCompletion('aggregate', 'aggregate\n  by '),
+    stageCompletion('filter', 'filter '),
+    stageCompletion('lookup aggregate', 'lookup aggregate '),
+    stageCompletion('lookup many', 'lookup many '),
+    stageCompletion('lookup one', 'lookup one '),
+    stageCompletion('lookup required one', 'lookup required one '),
+    stageCompletion('sort by', 'sort by '),
+    stageCompletion('take', 'take '),
+    stageCompletion('unwind', 'unwind '),
+    stageCompletion('with', 'with '),
+  ];
+}
+
+function providerClauseSuffixCompletions(
+  metadata: FdqlLanguageMetadata,
+  provider: string,
+): readonly FdqlCompletionItem[] {
+  return metadata.providerClauses
+    .filter((item) => item.label.startsWith(`${provider} `))
+    .map((item) => {
+      const label = item.label.slice(provider.length + 1);
+      const insertText = item.insertText.startsWith(`${provider} `)
+        ? item.insertText.slice(provider.length + 1)
+        : label;
+      return { ...item, insertText, label };
+    });
+}
+
+function keywordCompletions(metadata: FdqlLanguageMetadata): readonly FdqlCompletionItem[] {
+  return metadata.keywords.map((keyword) => ({
+    insertText: keyword,
+    kind: 'keyword',
+    label: keyword,
+  }));
 }
 
 interface QueryModel {
@@ -455,8 +525,7 @@ function providerAggregateSourceCompletions(
   return metadata.aggregateFunctions.some((item) => item.label === `${provider}.count`)
     ? [{
       detail: 'Provider aggregate source',
-      insertText:
-        `${provider}.aggregate($\${1:source} as \${2:row})\n  yield ${provider}.count() as total`,
+      insertText: `${provider}.aggregate($source as row)\n  yield ${provider}.count() as total`,
       kind: 'function',
       label: `${provider}.aggregate`,
     }]
@@ -477,6 +546,15 @@ function providerClauseNamespace(metadata: FdqlLanguageMetadata, line: string): 
   return metadata.providerClauses.some((item) => item.label.startsWith(`${namespace} `))
     ? namespace
     : null;
+}
+
+function providerNamespaces(metadata: FdqlLanguageMetadata): readonly string[] {
+  return uniqueByName(
+    metadata.providerClauses.flatMap((item) => {
+      const namespace = /^([a-z][a-z0-9_]*)\s/i.exec(item.label)?.[1];
+      return namespace ? [{ name: namespace }] : [];
+    }),
+  ).map((item) => item.name);
 }
 
 function isProviderNamespace(metadata: FdqlLanguageMetadata, name: string): boolean {
@@ -550,7 +628,7 @@ function clauseCompletion(
   return {
     ...(clause.detail ? { detail: clause.detail } : {}),
     ...(clause.documentation ? { documentation: clause.documentation } : {}),
-    insertText: clause.insertText ?? `${provider.namespace} ${clause.keyword} `,
+    insertText: plainInsertText(clause.insertText ?? `${provider.namespace} ${clause.keyword} `),
     kind: 'stage',
     label: clause.label ?? `${provider.namespace} ${clause.keyword}`,
   };
@@ -563,14 +641,27 @@ function itemCompletion(
   return {
     ...(item.detail ? { detail: item.detail } : {}),
     ...(item.documentation ? { documentation: item.documentation } : {}),
-    insertText: item.insertText ?? item.name,
+    insertText: kind === 'snippet'
+      ? item.insertText ?? item.name
+      : plainInsertText(item.insertText ?? item.name),
     kind,
     label: item.label ?? item.name,
   };
 }
 
 function functionCompletion(label: string, insertText: string): FdqlCompletionItem {
-  return { insertText, kind: 'function', label };
+  return { insertText: plainInsertText(insertText), kind: 'function', label };
+}
+
+function stageCompletion(label: string, insertText = label): FdqlCompletionItem {
+  return { insertText, kind: 'stage', label };
+}
+
+function plainInsertText(insertText: string): string {
+  return insertText
+    .replace(/\$\{\d+\|([^}]+)\|\}/g, (_match, options: string) => options.split(',')[0] ?? '')
+    .replace(/\$\{\d+:([^}]+)\}/g, (_match, value: string) => value)
+    .replace(/\$\{\d+\}/g, '');
 }
 
 function sortCompletions(items: readonly FdqlCompletionItem[]): readonly FdqlCompletionItem[] {

@@ -67,6 +67,10 @@ export function CodeEditor(
     minimap: { enabled: false },
     readOnly,
   };
+  if (language === FDQL_LANGUAGE_ID) {
+    options.acceptSuggestionOnEnter = 'on';
+    options.quickSuggestions = false;
+  }
   if (ariaLabel) options.ariaLabel = ariaLabel;
 
   useEffect(() => () => diagnosticsSubscription.current?.dispose(), []);

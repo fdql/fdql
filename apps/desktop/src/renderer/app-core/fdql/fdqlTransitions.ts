@@ -10,6 +10,15 @@ export function fdqlSourceChanged(state: FdqlState, tabId: string, source: strin
   return { ...state, sources: { ...state.sources, [tabId]: source } };
 }
 
+export function fdqlTabDuplicated(
+  state: FdqlState,
+  sourceTabId: string,
+  targetTabId: string,
+): FdqlState {
+  const source = state.sources[sourceTabId];
+  return source === undefined ? state : fdqlSourceChanged(state, targetTabId, source);
+}
+
 export function fdqlCompiled(
   state: FdqlState,
   tabId: string,
@@ -163,6 +172,16 @@ export function fdqlTabCleared(state: FdqlState, tabId: string): FdqlState {
     results: omitKey(state.results, tabId),
     runIds: omitKey(state.runIds, tabId),
     sources: omitKey(state.sources, tabId),
+  };
+}
+
+export function fdqlTabRuntimeCleared(state: FdqlState, tabId: string): FdqlState {
+  return {
+    ...state,
+    activeRuns: omitKey(state.activeRuns, tabId),
+    compileResults: omitKey(state.compileResults, tabId),
+    results: omitKey(state.results, tabId),
+    runIds: omitKey(state.runIds, tabId),
   };
 }
 

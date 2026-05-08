@@ -241,6 +241,7 @@ export const WorkspaceTabStripDefault: Story = {
       onCloseOtherTabs={() => {}}
       onCloseTabsToLeft={() => {}}
       onCloseTabsToRight={() => {}}
+      onDuplicateTab={() => {}}
       onReorderTabs={() => {}}
       onSelectTab={() => {}}
       onSortByProject={() => {}}

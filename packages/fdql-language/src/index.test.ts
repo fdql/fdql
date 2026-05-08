@@ -57,20 +57,18 @@ describe('FDQL language service', () => {
     );
     expect(completionLabels(service, 'then ', 1, 6)).toEqual(
       expect.arrayContaining([
-        'then filter',
-        'then lookup one',
-        'then lookup one of parent',
-        'then lookup one cache',
-        'then lookup required one',
-        'then lookup aggregate',
-        'fs where',
+        'filter',
+        'lookup one',
+        'lookup required one',
+        'lookup aggregate',
+        'where',
       ]),
     );
     expect(completionLabels(service, 'return ', 1, 8)).toEqual(
       expect.arrayContaining(['timestamp', 'entries', 'fs.id', 'fs.fieldPath']),
     );
     expect(completionLabels(service, 'from ', 1, 6)).toEqual(
-      expect.arrayContaining(['from provider aggregate']),
+      expect.arrayContaining(['fs.aggregate']),
     );
     expect(completionLabels(service, 'from fs.', 1, 9)).toEqual(['fs.aggregate']);
   });
@@ -98,7 +96,7 @@ from $events as o
 then filter `;
 
     expect(completionLabelsAtEnd(service, 'fs ')).toEqual(
-      expect.arrayContaining(['fs where', 'fs order by', 'fs limit']),
+      expect.arrayContaining(['where', 'order by', 'limit']),
     );
     expect(completionLabelsAtEnd(service, source)).toEqual(
       expect.arrayContaining(['o', 'timestamp', 'fs.id']),
@@ -137,10 +135,25 @@ then lookup required one $teams as team `;
     const service = createFdqlLanguageService();
 
     expect(completionLabelsAtEnd(service, 'clear ')).toEqual([
-      'clear cache',
-      'clear cache provider',
-      'clear cache provider project',
+      'cache',
+      'cache provider fs',
+      'cache provider fs project',
     ]);
+  });
+
+  it('uses plain context-aware insert text by default', () => {
+    const service = createFdqlLanguageService();
+
+    expect(completionInsertTextsAtEnd(service, 'then ')).toEqual(
+      expect.arrayContaining(['filter ', 'lookup one ']),
+    );
+    expect(completionInsertTextsAtEnd(service, 'then ')).not.toContain('then filter');
+    expect(completionInsertTextsAtEnd(service, 'alias $orders = fs.')).toEqual(
+      expect.arrayContaining(['fs.collection("collection")']),
+    );
+    expect(completionInsertTextsAtEnd(service, 'set ')).toEqual(
+      expect.arrayContaining(['fdql.readBudget = ']),
+    );
   });
 
   it('suggests source aliases and masked row fields from the current query', () => {
@@ -251,6 +264,16 @@ function completionLabelsAtEnd(
   const line = lines.length;
   const column = (lines.at(-1)?.length ?? 0) + 1;
   return completionLabels(service, source, line, column);
+}
+
+function completionInsertTextsAtEnd(
+  service: ReturnType<typeof createFdqlLanguageService>,
+  source: string,
+): readonly string[] {
+  const lines = source.split(/\r?\n/);
+  const line = lines.length;
+  const column = (lines.at(-1)?.length ?? 0) + 1;
+  return service.getCompletions({ column, line, source }).map((item) => item.insertText);
 }
 
 function labels(items: readonly { readonly label: string; }[]): string[] {

@@ -27,6 +27,7 @@ function renderStrip(overrides: Partial<Parameters<typeof WorkspaceTabStrip>[0]>
     onCloseTab: vi.fn(),
     onCloseTabsToLeft: vi.fn(),
     onCloseTabsToRight: vi.fn(),
+    onDuplicateTab: vi.fn(),
     onReorderTabs: vi.fn(),
     onSelectTab: vi.fn(),
     onSortByProject: vi.fn(),
@@ -45,7 +46,7 @@ describe('WorkspaceTabStrip', () => {
     const menu = await screen.findByRole('menu');
     expect(menu.className).toContain('min-w-52');
     expect(screen.queryByRole('menuitem', { name: /switch/i })).toBeNull();
-    expect(within(menu).queryByRole('separator')).toBeTruthy();
+    expect(within(menu).queryAllByRole('separator').length).toBeGreaterThan(0);
 
     const labels = [
       'Close tab',
@@ -54,6 +55,7 @@ describe('WorkspaceTabStrip', () => {
       'Close tabs to right',
       'Sort by connection',
       'Close all',
+      'Duplicate tab',
     ];
     for (const label of labels) {
       const item = screen.getByRole('menuitem', { name: label });
@@ -62,5 +64,14 @@ describe('WorkspaceTabStrip', () => {
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Close tab' }));
     expect(props.onCloseTab).toHaveBeenCalledWith('tab-firestore');
+  });
+
+  it('duplicates a tab from the context menu', async () => {
+    const props = renderStrip();
+
+    fireEvent.contextMenu(screen.getByText('orders'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Duplicate tab' }));
+
+    expect(props.onDuplicateTab).toHaveBeenCalledWith('tab-firestore');
   });
 });

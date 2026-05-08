@@ -16,6 +16,15 @@ export function jsQuerySourceChanged(
   return { ...state, scripts: { ...state.scripts, [tabId]: source } };
 }
 
+export function jsQueryTabDuplicated(
+  state: JsQueryState,
+  sourceTabId: string,
+  targetTabId: string,
+): JsQueryState {
+  const source = state.scripts[sourceTabId];
+  return source === undefined ? state : jsQuerySourceChanged(state, targetTabId, source);
+}
+
 export function jsQueryRunStarted(
   state: JsQueryState,
   input: {

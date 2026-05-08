@@ -134,6 +134,90 @@ describe('createAppShellController', () => {
     expect(mocks.ui.selectTreeItem).toHaveBeenCalledWith(scriptNodeId('prod'));
   });
 
+  it('keeps FDQL source when changing the active tab connection', () => {
+    const tab: WorkspaceTab = {
+      connectionId: 'emu',
+      history: ['fdql/default'],
+      historyIndex: 0,
+      id: 'tab-fdql',
+      inspectorWidth: 360,
+      kind: 'fdql',
+      title: 'FDQL',
+    };
+    const fdqlTab = {
+      cancel: vi.fn(() => false),
+      clearTab: vi.fn(),
+      clearTabRuntime: vi.fn(),
+      compileResult: undefined,
+      duplicateTab: vi.fn(),
+      isRunning: false,
+      isTabRunning: vi.fn(() => false),
+      result: undefined,
+      run: vi.fn(() => false),
+      runId: null,
+      runStartedAt: null,
+      setSource: vi.fn(),
+      source: 'from $orders as o\nreturn o',
+    };
+    const { input, mocks } = createInput({
+      activeTab: tab,
+      fdqlTab,
+      tabsState: tabsState([tab], tab.id),
+    });
+    const controller = createAppShellController(input);
+
+    controller.workspace.onConnectionChange('prod');
+
+    expect(mocks.ui.updateActiveTabConnection).toHaveBeenCalledWith(tab.id, 'prod');
+    expect(fdqlTab.clearTabRuntime).toHaveBeenCalledWith(tab.id);
+    expect(fdqlTab.clearTab).not.toHaveBeenCalled();
+    expect(mocks.ui.selectTreeItem).toHaveBeenCalledWith('fdql:prod');
+  });
+
+  it('duplicates a FDQL tab with its source state', () => {
+    const tab: WorkspaceTab = {
+      connectionId: 'emu',
+      history: ['fdql/default'],
+      historyIndex: 0,
+      id: 'tab-fdql',
+      inspectorWidth: 360,
+      kind: 'fdql',
+      title: 'FDQL',
+    };
+    const fdqlTab = {
+      cancel: vi.fn(() => false),
+      clearTab: vi.fn(),
+      clearTabRuntime: vi.fn(),
+      compileResult: undefined,
+      duplicateTab: vi.fn(),
+      isRunning: false,
+      isTabRunning: vi.fn(() => false),
+      result: undefined,
+      run: vi.fn(() => false),
+      runId: null,
+      runStartedAt: null,
+      setSource: vi.fn(),
+      source: 'from $orders as o\nreturn o',
+    };
+    const { input, mocks } = createInput({
+      activeTab: tab,
+      fdqlTab,
+      tabsState: tabsState([tab], tab.id),
+    });
+    const controller = createAppShellController(input);
+
+    controller.workspace.onDuplicateTab(tab.id);
+
+    expect(mocks.tabs.duplicateTab).toHaveBeenCalledWith(tab.id);
+    expect(fdqlTab.duplicateTab).toHaveBeenCalledWith(tab.id, 'tab-duplicate');
+    expect(mocks.ui.selectTreeItem).toHaveBeenCalledWith('fdql:emu');
+    expect(mocks.ui.recordInteraction).toHaveBeenCalledWith({
+      activeTabId: 'tab-duplicate',
+      path: 'fdql/default',
+      selectedTreeItemId: 'fdql:emu',
+    });
+  });
+
   it('opens Firestore targets from Activity', () => {
     const entry = activityEntry();
     const { input, mocks } = createInput({
@@ -327,6 +411,7 @@ function createInput(
   const firestoreTabFacade = {
     activeDraft: draft('orders'),
     clearTab: vi.fn(),
+    duplicateTab: vi.fn(),
     drafts: {},
     errorMessage: null,
     hasMore: false,
@@ -363,6 +448,7 @@ function createInput(
     cancelScript: vi.fn(() => true),
     clearTab: vi.fn(),
     clearTabRuntime: vi.fn(),
+    duplicateTab: vi.fn(),
     isRunning: false,
     isTabRunning: vi.fn(() => false),
     runScript: vi.fn(() => true),
@@ -373,6 +459,7 @@ function createInput(
     setScriptSource: vi.fn(),
   };
   const tabsFacade = {
+    duplicateTab: vi.fn(() => 'tab-duplicate'),
     goBackInteraction: vi.fn(() => null),
     goForwardInteraction: vi.fn(() => null),
     openOrSelectTab: vi.fn(() => 'tab-tool'),

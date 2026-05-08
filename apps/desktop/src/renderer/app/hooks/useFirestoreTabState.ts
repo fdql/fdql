@@ -35,6 +35,7 @@ import {
   firestoreResultsRefreshed,
   firestoreResultViewChanged,
   firestoreTabCleared,
+  firestoreTabDuplicated,
 } from '../../app-core/firestore/query/firestoreQueryTransitions.ts';
 import { useRepositories } from '../RepositoryProvider.tsx';
 import { activePath, tabActions, type WorkspaceTab } from '../stores/tabsStore.ts';
@@ -66,6 +67,7 @@ export interface FirestoreTabState {
   readonly selectedDocument: FirestoreDocumentResult | null;
   readonly selectedDocumentPath: string | null;
   readonly clearTab: (tabId: string) => void;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
   readonly loadMore: () => void;
   readonly openTab: (connectionId: string, path: string) => string;
   readonly openTabInNewTab: (connectionId: string, path: string) => string;
@@ -251,6 +253,10 @@ export function useFirestoreTabState(
     selectDocument(tabId, null);
   }
 
+  function duplicateTab(sourceTabId: string, targetTabId: string) {
+    updateQueryState((current) => firestoreTabDuplicated(current, sourceTabId, targetTabId));
+  }
+
   function selectDocument(tabId: string, path: string | null) {
     updateQueryState((current) => firestoreDocumentSelected(current, tabId, path));
   }
@@ -299,6 +305,7 @@ export function useFirestoreTabState(
     selectedDocument,
     selectedDocumentPath,
     clearTab,
+    duplicateTab,
     loadMore,
     openTab,
     openTabInNewTab,

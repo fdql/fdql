@@ -76,6 +76,16 @@ describe('tabsStore', () => {
     expect(tabsStore.state.tabs.filter((tab) => activePath(tab) === 'orders')).toHaveLength(1);
   });
 
+  it('duplicates a tab explicitly', () => {
+    tabActions.pushHistory('tab-firestore', 'customers');
+
+    const id = tabActions.duplicateTab('tab-firestore');
+
+    expect(id).toBe('tab-firestore-query-1');
+    expect(tabsStore.state.activeTabId).toBe(id);
+    expect(activePath(tabsStore.state.tabs[1]!)).toBe('customers');
+  });
+
   it('supports tab context bulk operations', () => {
     const extraId = tabActions.openTab({
       kind: 'firestore-query',
