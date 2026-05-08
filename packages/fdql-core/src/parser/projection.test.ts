@@ -23,6 +23,10 @@ then take 1`),
       source: 'd.firstName as firstName,\nd.lastName as lastName',
       sourceLine: 2,
     });
+    expect(block.sourceLocations).toEqual([
+      { column: 3, line: 2 },
+      { column: 3, line: 3 },
+    ]);
   });
 
   it('splits projection items without splitting strings', () => {
@@ -38,6 +42,68 @@ then take 1`),
     expect(items).toEqual([
       expect.objectContaining({ alias: 'statusLabel' }),
       expect.objectContaining({ alias: 'nameKey' }),
+    ]);
+  });
+
+  it('tracks source columns for each projection item', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    const items = parseProjectionItems(
+      'event.total, event.schedule.endsAt',
+      1,
+      8,
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(items).toEqual([
+      expect.objectContaining({
+        column: 8,
+        expression: expect.objectContaining({
+          range: expect.objectContaining({ startColumn: 8 }),
+        }),
+      }),
+      expect.objectContaining({
+        column: 21,
+        expression: expect.objectContaining({
+          range: expect.objectContaining({ startColumn: 21 }),
+        }),
+      }),
+    ]);
+  });
+
+  it('tracks real source lines and columns for multiline projection items', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    const block = collectProjection(
+      createSourceLines(`return
+  event.total,
+  event.schedule.endsAt`),
+      0,
+      'return',
+    );
+    const items = parseProjectionItems(
+      block.source,
+      block.sourceLine,
+      block.sourceColumn,
+      diagnostics,
+      block.sourceLocations,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(items).toEqual([
+      expect.objectContaining({
+        column: 3,
+        line: 2,
+        expression: expect.objectContaining({
+          range: expect.objectContaining({ startColumn: 3, startLine: 2 }),
+        }),
+      }),
+      expect.objectContaining({
+        column: 3,
+        line: 3,
+        expression: expect.objectContaining({
+          range: expect.objectContaining({ startColumn: 3, startLine: 3 }),
+        }),
+      }),
     ]);
   });
 

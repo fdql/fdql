@@ -41,6 +41,60 @@ describe('FDQL compiler expression validation', () => {
     );
   });
 
+  it('locates unknown row bindings on the field root', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+
+    validateProjectionReferences(
+      [{
+        column: 8,
+        expression: parse('evednt.total', 3, 8),
+        label: 'evednt.total',
+        line: 3,
+      }],
+      {},
+      new Set(['event']),
+      providers,
+      diagnostics,
+    );
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_UNKNOWN_ROW_BINDING',
+        column: 8,
+        endColumn: 14,
+        endLine: 3,
+        line: 3,
+      }),
+    );
+  });
+
+  it('locates unknown row bindings on multiline projection item roots', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+
+    validateProjectionReferences(
+      [{
+        column: 3,
+        expression: parse('evednt.total', 23, 3),
+        label: 'evednt.total',
+        line: 23,
+      }],
+      {},
+      new Set(['event']),
+      providers,
+      diagnostics,
+    );
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_UNKNOWN_ROW_BINDING',
+        column: 3,
+        endColumn: 9,
+        endLine: 23,
+        line: 23,
+      }),
+    );
+  });
+
   it('rejects spread projections in local with stages', () => {
     const diagnostics: FdqlDiagnostic[] = [];
 
@@ -100,8 +154,8 @@ function sourceRange(): FdqlStage['range'] {
   return { endColumn: 1, endLine: 1, startColumn: 1, startLine: 1 };
 }
 
-function parse(source: string) {
-  const result = parseExpression(source, 1);
+function parse(source: string, line = 1, column = 1) {
+  const result = parseExpression(source, line, column);
   if (!result.expression) {
     throw new Error(result.diagnostics.map((item) => item.message).join('\n'));
   }

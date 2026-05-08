@@ -184,6 +184,55 @@ return o.`;
     ]);
   });
 
+  it('suggests nested masked fields and scopes fields to the current branch', () => {
+    const service = createFdqlLanguageService();
+    const nestedSource =
+      `alias $events = fs.collection("admin-events", ["name", "schedule.startsAt", fs.fieldPath("literal.with.dot")])
+from $events as event
+return event.schedule.`;
+    const unionSource = `alias $drivers = fs.collection("drivers", ["firstName"])
+alias $teams = fs.collection("teams", ["name"])
+
+from $drivers as d
+return d.firstName
+
+union all
+
+from $teams as t
+return t.`;
+
+    expect(completionLabelsAtEnd(service, nestedSource)).toEqual(['startsAt']);
+    expect(completionLabelsAtEnd(service, unionSource)).toEqual(['name']);
+  });
+
+  it('uses current row shape after lookup, unwind, with, and aggregate stages', () => {
+    const service = createFdqlLanguageService();
+    const source = `alias $events = fs.collection("events", ["entriesById"])
+alias $drivers = fs.collection("drivers", ["firstName"])
+
+from $events as event
+then lookup one $drivers as driver
+  fs where fs.id(driver) = "driver_1"
+then unwind entries(event.entriesById) as entry
+then with *, driver.firstName as driverName
+return `;
+    const aggregateSource = `alias $rounds = fs.collection("rounds", ["driverId"])
+
+from $rounds as round
+then aggregate
+  by round.driverId as driverId
+  yield count() as total
+return `;
+
+    expect(completionLabelsAtEnd(service, source)).toEqual(
+      expect.arrayContaining(['event', 'driver', 'entry', 'driverName']),
+    );
+    expect(completionLabelsAtEnd(service, aggregateSource)).toEqual(
+      expect.arrayContaining(['driverId', 'total']),
+    );
+    expect(completionLabelsAtEnd(service, aggregateSource)).not.toContain('round');
+  });
+
   it('does not show generic function completions after an expression dot', () => {
     const service = createFdqlLanguageService();
     const source = `alias $events = fs.collection("admin-events", ["entriesById"])
@@ -234,6 +283,79 @@ return fs.id(o) as id`);
         severity: 'error',
       }),
     ]);
+  });
+
+  it('returns editor warnings for fields outside explicit masks without blocking valid reads', () => {
+    const service = createFdqlLanguageService();
+
+    const diagnostics = service.getDiagnostics(`set fs.projectId = "local"
+alias $orders = fs.collection("orders", ["status"])
+from $orders as o
+fs limit 1
+return o.total`);
+
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'FDQL_FIELD_NOT_IN_MASK',
+        column: 10,
+        endColumn: 15,
+        endLine: 5,
+        line: 5,
+        severity: 'warning',
+      }),
+    ]);
+  });
+
+  it('returns source-located diagnostics for multiline returns', () => {
+    const service = createFdqlLanguageService();
+
+    const diagnostics = service.getDiagnostics(`set fs.projectId = "local"
+alias $events = fs.collection("events", ["schedule.startsAt", "total"])
+from $events as event
+fs limit 20
+return
+  evednt.total,
+  event.schedule.endsAt`);
+
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'FDQL_UNKNOWN_ROW_BINDING',
+          column: 3,
+          endColumn: 9,
+          endLine: 6,
+          line: 6,
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          code: 'FDQL_FIELD_NOT_IN_MASK',
+          column: 18,
+          endColumn: 24,
+          endLine: 7,
+          line: 7,
+          severity: 'warning',
+        }),
+      ]),
+    );
+  });
+
+  it('does not warn for unmasked sources, metadata-only sources, metadata functions, or mapGet', () => {
+    const service = createFdqlLanguageService();
+
+    const diagnostics = service.getDiagnostics(`set fs.projectId = "local"
+alias $orders = fs.collection("orders")
+alias $metadataOnly = fs.collection("metadata", [])
+alias $masked = fs.collection("masked", ["metadata"])
+
+from $orders as o
+fs limit 1
+then lookup one $metadataOnly as m
+  fs where fs.id(m) = "m1"
+then lookup one $masked as masked
+  fs where fs.id(masked) = "m1"
+return o.total, fs.id(m) as metadataId, m.total, mapGet(masked.metadata, "dynamic")`);
+
+    expect(diagnostics).toEqual([]);
   });
 
   it('accepts a valid FDQL read sample without diagnostics', () => {

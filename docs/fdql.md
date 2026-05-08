@@ -35,9 +35,7 @@ The implemented read surface already includes bounded Firestore reads, lookups, 
 Firestore provider aggregates, local unwind, local aggregation, union all, cache, and execution stats.
 The next read work is ordered by product value and implementation risk:
 
-1. Complete common read expressions.
-2. Tighten Firestore provider query validation.
-3. Improve context-aware editor assistance from the implemented language surface.
+1. Add lineage/source exploration for lookup, unwind, union, and aggregate output.
 
 This is an implementation order, not separate language versions.
 
@@ -194,6 +192,7 @@ Rules:
 - `fs.project("project-1").db("db2").collection("drivers")` uses the named project and named database.
 - `fs.db("db2").collection("drivers")` uses the selected Firestore project from engine context and named database.
 - Source functions accept an optional field mask array as their final argument.
+- The editor uses literal field masks for completions and warnings. A masked-out field warning is authoring guidance only; it is not runtime schema/type inference.
 - If database is omitted, Firestore uses `(default)`.
 - If a Firestore source omits `fs.project(...)` and no selected Firestore project exists, the query is invalid.
 

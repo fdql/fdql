@@ -175,6 +175,7 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
         block.sourceLine,
         block.sourceColumn,
         diagnostics,
+        block.sourceLocations,
       );
       stages.push(
         { column, items: parsed, kind: 'with', line, range: block.range } satisfies FdqlWithStage,
@@ -189,6 +190,7 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
         block.sourceLine,
         block.sourceColumn,
         diagnostics,
+        block.sourceLocations,
       );
       stages.push(
         {

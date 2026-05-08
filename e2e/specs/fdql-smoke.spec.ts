@@ -1,5 +1,9 @@
 import { expect, type Page, test } from '@playwright/test';
-import { replaceMonacoEditorValue } from '../fixtures/editor.ts';
+import {
+  monacoModelMarkers,
+  replaceMonacoEditorValue,
+  typeMonacoEditorValue,
+} from '../fixtures/editor.ts';
 import { setFirestoreEmulatorDocument } from '../fixtures/firestore-rest.ts';
 import {
   addLocalEmulatorAccount,
@@ -16,6 +20,44 @@ test('FDQL runs bounded read workflows and clears invalid output', async () => {
     const data = await seedFdqlReadData();
     await addLocalEmulatorAccount(page);
     await openFdql(page);
+
+    await test.step('editor suggests nested masked fields', async () => {
+      await typeMonacoEditorValue(
+        page,
+        page.locator('body'),
+        `alias $events = fs.collection("${data.events}", ["schedule.startsAt"])
+
+from $events as event
+return event.schedule.`,
+      );
+      await page.keyboard.press('Control+Space');
+
+      await expect(page.locator('.suggest-widget')).toContainText('startsAt');
+    });
+
+    await test.step('field mask warnings do not block execution', async () => {
+      await replaceMonacoEditorValue(
+        page,
+        page.locator('body'),
+        `alias $orders = fs.collection("orders", ["status"])
+
+from $orders as o
+fs limit 1
+then filter o.total is missing
+
+return o.status`,
+      );
+
+      await expect.poll(async () => monacoModelMarkers(page)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ source: 'FDQL_FIELD_NOT_IN_MASK' }),
+        ]),
+      );
+      await page.getByRole('button', { name: 'Run' }).click();
+
+      await expect(page.getByRole('tab', { name: /Results completed/ })).toBeVisible();
+      await expect(page.getByText('1 rows')).toBeVisible();
+    });
 
     await test.step('bounded read shows only returned fields', async () => {
       await runFdql(

@@ -3,6 +3,11 @@ import { expect, type Locator, type Page } from '@playwright/test';
 type MonacoModelGlobal = {
   readonly monaco?: {
     readonly editor?: {
+      getModelMarkers?: (input: Record<string, never>) => Array<{
+        readonly message: string;
+        readonly severity: number;
+        readonly source?: string;
+      }>;
       readonly getModels?: () => Array<{
         getValue: () => string;
         setValue: (value: string) => void;
@@ -28,6 +33,35 @@ export async function replaceMonacoEditorValue(
   await page.keyboard.insertText(value);
   const visibleProbe = firstVisibleProbe(value);
   if (visibleProbe) await expect(editor).toContainText(visibleProbe);
+}
+
+export async function typeMonacoEditorValue(
+  page: Page,
+  scope: Locator,
+  value: string,
+): Promise<void> {
+  const editor = scope.locator('.monaco-editor').last();
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press(SELECT_ALL_SHORTCUT);
+  await page.keyboard.insertText(value);
+  const visibleProbe = firstVisibleProbe(value);
+  if (visibleProbe) await expect(editor).toContainText(visibleProbe);
+}
+
+export async function monacoModelMarkers(
+  page: Page,
+): Promise<
+  readonly { readonly message: string; readonly severity: number; readonly source: string; }[]
+> {
+  return await page.evaluate(() => {
+    const monaco = (globalThis as MonacoModelGlobal).monaco;
+    return monaco?.editor?.getModelMarkers?.({})?.map((marker) => ({
+      message: marker.message,
+      severity: marker.severity,
+      source: marker.source ?? '',
+    })) ?? [];
+  });
 }
 
 async function setMonacoModelValue(page: Page, value: string): Promise<boolean> {

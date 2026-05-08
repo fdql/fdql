@@ -6,6 +6,8 @@ export interface FdqlDiagnostic {
   readonly code: string;
   readonly column?: number | undefined;
   readonly context?: FdqlDiagnosticContext | undefined;
+  readonly endColumn?: number | undefined;
+  readonly endLine?: number | undefined;
   readonly line?: number | undefined;
   readonly message: string;
   readonly severity: 'error' | 'warning';

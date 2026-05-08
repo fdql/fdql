@@ -1,22 +1,19 @@
 import { builtinProviderDialects } from '@firebase-desk/fdql';
-import {
-  compileFdql as compileFdqlCore,
-  fdqlCoreLanguageMetadata,
-  parseFdql,
-} from '@firebase-desk/fdql-core';
+import { compileFdql as compileFdqlCore, fdqlCoreLanguageMetadata } from '@firebase-desk/fdql-core';
 import type {
-  FdqlAst,
   FdqlCompileOptions,
   FdqlDefaultProviderContext,
   FdqlDiagnostic,
-  FdqlExpression,
-  FdqlProgram,
-  FdqlProviderAggregateYieldItem,
   FdqlProviderDialect,
   FdqlProviderLanguageClause,
   FdqlProviderLanguageItem,
-  FdqlUnionProgram,
 } from '@firebase-desk/fdql-core';
+import {
+  createFdqlFieldMaskDiagnostics,
+  createFdqlQueryModel,
+  type FdqlQueryModel,
+  fieldNamesAtPath,
+} from './query-model.ts';
 
 export const FDQL_LANGUAGE_ID = 'fdql';
 
@@ -79,6 +76,11 @@ export interface FdqlLanguageDiagnosticOptions {
   readonly defaultProviderContext?: FdqlDefaultProviderContext | undefined;
 }
 
+interface FdqlDiagnosticWithRange extends FdqlDiagnostic {
+  readonly endColumn?: number | undefined;
+  readonly endLine?: number | undefined;
+}
+
 export function createFdqlLanguageService(
   options: FdqlLanguageServiceOptions = {},
 ): FdqlLanguageService {
@@ -97,7 +99,10 @@ export function createFdqlLanguageService(
         providers,
         ...(defaultProviderContext ? { defaultProviderContext } : {}),
       };
-      return compileFdqlCore(source, compileOptions).diagnostics.map(toLanguageDiagnostic);
+      return [
+        ...compileFdqlCore(source, compileOptions).diagnostics,
+        ...createFdqlFieldMaskDiagnostics(source),
+      ].map(toLanguageDiagnostic);
     },
   };
 }
@@ -134,7 +139,7 @@ function completionsForInput(
   metadata: FdqlLanguageMetadata,
   input: FdqlCompletionInput,
 ): readonly FdqlCompletionItem[] {
-  const model = queryModel(input.source);
+  const model = createFdqlQueryModel(input.source, { line: input.line });
   const line = lineBeforeCursor(input);
   const trimmed = line.trimStart();
   const lower = trimmed.toLowerCase();
@@ -393,123 +398,14 @@ function keywordCompletions(metadata: FdqlLanguageMetadata): readonly FdqlComple
 }
 
 interface QueryModel {
-  readonly aliases: readonly QueryAlias[];
-  readonly rows: readonly QueryRow[];
-}
-
-interface QueryAlias {
-  readonly fields: readonly string[];
-  readonly isSource: boolean;
-  readonly name: string;
-}
-
-interface QueryRow {
-  readonly fields: readonly string[];
-  readonly name: string;
+  readonly aliases: FdqlQueryModel['aliases'];
+  readonly rows: FdqlQueryModel['rows'];
 }
 
 interface DotContext {
-  readonly name: string;
+  readonly path: readonly string[];
+  readonly root: string;
   readonly namespace: boolean;
-}
-
-function queryModel(source: string): QueryModel {
-  const parsed = parseFdql(source);
-  const programs = parsed.ast
-    ? isUnionAst(parsed.ast) ? parsed.ast.branches : [parsed.ast]
-    : [];
-  const aliases = programs.flatMap((program) => aliasesForProgram(program));
-  const aliasByName = new Map(aliases.map((alias) => [alias.name, alias]));
-  const rows = programs.flatMap((program) => rowsForProgram(program, aliasByName));
-  return { aliases: uniqueByName(aliases), rows: uniqueByName(rows) };
-}
-
-function isUnionAst(ast: FdqlAst): ast is FdqlUnionProgram {
-  return 'kind' in ast && ast.kind === 'union';
-}
-
-function aliasesForProgram(program: FdqlProgram): readonly QueryAlias[] {
-  return program.aliases.map((alias) => ({
-    fields: fieldMask(alias.value),
-    isSource: isSourceExpression(alias.value),
-    name: alias.name,
-  }));
-}
-
-function rowsForProgram(
-  program: FdqlProgram,
-  aliases: ReadonlyMap<string, QueryAlias>,
-): readonly QueryRow[] {
-  const rows: QueryRow[] = [];
-  if (program.from) {
-    if (program.from.mode === 'aggregate') {
-      if (program.from.providerRowAlias) {
-        rows.push({
-          fields: aliases.get(program.from.sourceAlias)?.fields ?? [],
-          name: program.from.providerRowAlias,
-        });
-      }
-      for (const name of providerAggregateYieldAliases(program.from.yieldItems ?? [])) {
-        rows.push({ fields: [], name });
-      }
-    } else {
-      rows.push({
-        fields: aliases.get(program.from.sourceAlias)?.fields ?? [],
-        name: program.from.rowAlias,
-      });
-    }
-  }
-  for (const stage of program.stages) {
-    if (stage.kind === 'lookup') {
-      rows.push({
-        fields: aliases.get(stage.sourceAlias)?.fields ?? [],
-        name: stage.rowAlias,
-      });
-    }
-    if (stage.kind === 'providerAggregate') {
-      if (stage.providerRowAlias) {
-        rows.push({
-          fields: aliases.get(stage.sourceAlias)?.fields ?? [],
-          name: stage.providerRowAlias,
-        });
-      }
-      for (const name of providerAggregateYieldAliases(stage.yieldItems ?? [])) {
-        rows.push({ fields: [], name });
-      }
-    }
-    if (stage.kind === 'unwind') {
-      rows.push({
-        fields: unwindFields(stage.expression),
-        name: stage.rowAlias,
-      });
-    }
-  }
-  return rows;
-}
-
-function fieldMask(expression: FdqlExpression): readonly string[] {
-  if (expression.kind !== 'call') return [];
-  const maybeMask = expression.args.find((arg) => arg.kind === 'array');
-  if (maybeMask?.kind !== 'array') return [];
-  return maybeMask.items.flatMap((item) => {
-    if (item.kind === 'literal' && typeof item.value === 'string') return [item.value];
-    if (item.kind === 'call' && item.name.endsWith('.fieldPath')) {
-      const segments = item.args.flatMap((arg) =>
-        arg.kind === 'literal' && typeof arg.value === 'string' ? [arg.value] : []
-      );
-      return segments.length ? [segments.join('.')] : [];
-    }
-    return [];
-  });
-}
-
-function isSourceExpression(expression: FdqlExpression): boolean {
-  return expression.kind === 'call'
-    && /\.(?:collection|collectionGroup|subcollection)$/.test(expression.name);
-}
-
-function unwindFields(expression: FdqlExpression): readonly string[] {
-  return expression.kind === 'call' && expression.name === 'entries' ? ['key', 'value'] : [];
 }
 
 function uniqueByName<const Item extends { readonly name: string; }>(
@@ -526,10 +422,17 @@ function uniqueByName<const Item extends { readonly name: string; }>(
 }
 
 function dotContext(line: string): DotContext | null {
-  const match = /([A-Za-z_][A-Za-z0-9_]*|\$[A-Za-z_][A-Za-z0-9_]*)\.$/.exec(line);
-  if (!match) return line.endsWith('.') ? { name: '', namespace: false } : null;
-  const name = match[1]!;
-  return { name, namespace: !name.startsWith('$') && /^[a-z][a-z0-9_]*$/i.test(name) };
+  const match =
+    /((?:[A-Za-z_][A-Za-z0-9_]*|\$[A-Za-z_][A-Za-z0-9_]*)(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.$/.exec(
+      line,
+    );
+  if (!match) return line.endsWith('.') ? { namespace: false, path: [], root: '' } : null;
+  const [root = '', ...path] = match[1]!.split('.');
+  return {
+    namespace: !root.startsWith('$') && !path.length && /^[a-z][a-z0-9_]*$/i.test(root),
+    path,
+    root,
+  };
 }
 
 function dotCompletions(
@@ -538,20 +441,20 @@ function dotCompletions(
   dot: DotContext,
   lowerLine: string,
 ): readonly FdqlCompletionItem[] {
-  if (!dot.name) return [];
-  if (isProviderNamespace(metadata, dot.name)) {
+  if (!dot.root) return [];
+  if (dot.namespace && isProviderNamespace(metadata, dot.root)) {
     return lowerLine.startsWith('alias ')
-      ? metadata.sourceFunctions.filter((item) => item.label.startsWith(`${dot.name}.`))
+      ? metadata.sourceFunctions.filter((item) => item.label.startsWith(`${dot.root}.`))
       : lowerLine.startsWith('from ')
-      ? providerAggregateSourceCompletions(metadata, dot.name)
-      : lowerLine.startsWith(`then ${dot.name}.aggregate`)
-      ? providerAggregateSourceCompletions(metadata, dot.name)
+      ? providerAggregateSourceCompletions(metadata, dot.root)
+      : lowerLine.startsWith(`then ${dot.root}.aggregate`)
+      ? providerAggregateSourceCompletions(metadata, dot.root)
       : lowerLine.trimStart().startsWith('yield ')
-      ? metadata.aggregateFunctions.filter((item) => item.label.startsWith(`${dot.name}.`))
-      : metadata.expressionFunctions.filter((item) => item.label.startsWith(`${dot.name}.`));
+      ? metadata.aggregateFunctions.filter((item) => item.label.startsWith(`${dot.root}.`))
+      : metadata.expressionFunctions.filter((item) => item.label.startsWith(`${dot.root}.`));
   }
-  const row = model.rows.find((candidate) => candidate.name === dot.name);
-  return row ? fieldCompletions(row.fields) : [];
+  const row = model.rows.find((candidate) => candidate.name === dot.root);
+  return row ? fieldCompletions(fieldNamesAtPath(row.mask, dot.path)) : [];
 }
 
 function providerAggregateSourceCompletions(
@@ -566,15 +469,6 @@ function providerAggregateSourceCompletions(
       label: `${provider}.aggregate`,
     }]
     : [];
-}
-
-function providerAggregateYieldAliases(
-  items: readonly FdqlProviderAggregateYieldItem[],
-): readonly string[] {
-  return items.flatMap((item) => {
-    if (item.kind === 'flat') return item.item.alias ? [item.item.alias] : [];
-    return item.alias ? [item.alias] : [];
-  });
 }
 
 function sourceAliasCompletions(model: QueryModel): readonly FdqlCompletionItem[] {
@@ -719,14 +613,14 @@ function sortCompletions(items: readonly FdqlCompletionItem[]): readonly FdqlCom
   return sorted;
 }
 
-function toLanguageDiagnostic(diagnostic: FdqlDiagnostic): FdqlLanguageDiagnostic {
+function toLanguageDiagnostic(diagnostic: FdqlDiagnosticWithRange): FdqlLanguageDiagnostic {
   const line = diagnostic.line ?? 1;
   const column = diagnostic.column ?? 1;
   return {
     ...diagnostic,
     column,
-    endColumn: column + 1,
-    endLine: line,
+    endColumn: diagnostic.endColumn ?? column + 1,
+    endLine: diagnostic.endLine ?? line,
     line,
   };
 }

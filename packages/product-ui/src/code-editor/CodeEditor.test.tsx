@@ -358,6 +358,32 @@ return fs.id(o) as id`;
     }
   });
 
+  it('sets FDQL field mask warnings as Monaco warning markers', async () => {
+    render(
+      <AppearanceProvider settings={new MockSettingsRepository()}>
+        <CodeEditor
+          language={FDQL_LANGUAGE_ID}
+          value={`set fs.projectId = "local"
+alias $orders = fs.collection("orders", ["status"])
+from $orders as o
+return o.total`}
+        />
+      </AppearanceProvider>,
+    );
+    await screen.findByTestId('monaco');
+
+    expect(monacoMock.setModelMarkers).toHaveBeenCalledWith(
+      expect.any(Object),
+      'fdql',
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: monacoApiMock.MarkerSeverity.Warning,
+          source: 'FDQL_FIELD_NOT_IN_MASK',
+        }),
+      ]),
+    );
+  });
+
   it('exposes Monaco when mounted for integration diagnostics', async () => {
     delete (globalThis as typeof globalThis & { monaco?: unknown; }).monaco;
     render(

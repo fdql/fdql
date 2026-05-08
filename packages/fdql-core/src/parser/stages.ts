@@ -275,6 +275,7 @@ export function parseAggregateFrom(
         block.sourceLine,
         block.sourceColumn,
         diagnostics,
+        block.sourceLocations,
       );
       index = block.nextIndex;
       nextIndex = block.nextIndex;
@@ -477,6 +478,7 @@ export function parseProviderAggregateStage(
         block.sourceLine,
         block.sourceColumn,
         diagnostics,
+        block.sourceLocations,
       );
       index = block.nextIndex;
       nextIndex = block.nextIndex;

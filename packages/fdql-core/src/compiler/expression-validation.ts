@@ -273,14 +273,19 @@ function validateExpressionRowBindings(
     const root = node.path[0];
     if (!root || rowBindings.has(root) || seen.has(root)) return;
     seen.add(root);
-    diagnostics.push(
-      compilerError(
+    const diagnosticLine = node.range?.startLine ?? line;
+    const diagnosticColumn = node.range?.startColumn ?? column;
+    diagnostics.push({
+      ...compilerError(
         'FDQL_UNKNOWN_ROW_BINDING',
         `Unknown row binding ${root}. Use a current row alias or projected binding such as stats.total.`,
-        line,
-        column,
+        diagnosticLine,
+        diagnosticColumn,
       ),
-    );
+      ...(diagnosticColumn
+        ? { endColumn: diagnosticColumn + root.length, endLine: diagnosticLine }
+        : {}),
+    });
   });
 }
 
