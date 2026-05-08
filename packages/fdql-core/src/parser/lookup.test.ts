@@ -47,32 +47,6 @@ describe('FDQL parser lookup', () => {
     });
   });
 
-  it('parses aggregate lookup headers and yield projections', () => {
-    const diagnostics: FdqlDiagnostic[] = [];
-    const result = parseLookup(
-      createSourceLines(`then lookup aggregate $rounds as stats from round cache run
-  mem where round.driverId = mem.id(driver)
-  yield mem.count() as total, mem.max(round.createdAt) as lastRoundAt`),
-      0,
-      diagnostics,
-    );
-
-    expect(diagnostics).toEqual([]);
-    expect(result.stage).toMatchObject({
-      cache: 'run',
-      clauses: [expect.objectContaining({ kind: 'providerWhere', provider: 'mem' })],
-      kind: 'lookup',
-      mode: 'aggregate',
-      providerRowAlias: 'round',
-      rowAlias: 'stats',
-      sourceAlias: '$rounds',
-      yieldItems: [
-        expect.objectContaining({ alias: 'total' }),
-        expect.objectContaining({ alias: 'lastRoundAt' }),
-      ],
-    });
-  });
-
   it('rejects malformed cache suffixes and invalid required modes', () => {
     const invalidCache: FdqlDiagnostic[] = [];
     parseLookup(

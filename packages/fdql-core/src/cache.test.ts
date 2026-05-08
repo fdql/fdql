@@ -170,7 +170,7 @@ function aggregateRequest(
       sourceType: 'collection',
       target: { collection: 'teams', projectId: 'local' },
     },
-    stage: 'lookupAggregate',
+    stage: 'pipelineAggregate',
     ...overrides,
   };
 }

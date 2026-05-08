@@ -56,12 +56,12 @@ Current parser/compiler accepts:
 - `set*`, then `alias*`, then one read pipeline.
 - Line-oriented `set`, `alias`, `from`, and provider clause statements. Source alias declarations must fit on one line today.
 - Top-level `union all` between read pipelines, with the first branch preamble shared into later branches.
-- Top-level `from` sources through declared `$` aliases and provider aggregate sources.
+- Top-level `from` sources through declared `$` aliases and `from fs.aggregate $source`.
 - Lookup sources through declared `$` aliases or provider source calls.
 - `from $source as rowAlias`.
 - Provider clauses: `namespace where`, `namespace order by`, `namespace limit`.
-- Local stages: `then filter`, `then take`, `then sort by`, `then with`, `then lookup one`, `then lookup required one`, `then lookup many`, `then unwind`, `then aggregate`, `return`.
-- Lookup cache suffixes: `cache off`, `cache run`, `cache persistent`, `cache persistent 60s`.
+- Local stages: `then filter`, `then take`, `then sort by`, `then with`, `then lookup one`, `then lookup required one`, `then lookup many`, `then fs.aggregate`, `then unwind`, `then aggregate`, `return`.
+- Lookup/provider aggregate cache suffixes: `cache off`, `cache run`, `cache persistent`, `cache persistent 60s`.
 - Expressions: literals, arrays, maps, `$aliases`, qualified fields, function calls, `=`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `and`, `or`, unary `not`, parentheses, and `*`.
 
 Current Firestore dialect accepts:
@@ -71,8 +71,7 @@ Current Firestore dialect accepts:
 - Settings: `set fs.projectId = "..."`, `set fs.databaseId = "..."`.
 - Value/metadata functions: `fs.id(row)`, `fs.path(row)`, `fs.projectId(row)`, `fs.ref(rowOrPath)`, `fs.fieldPath(...)`, `fs.arrayContains(field, value)`.
 - Provider predicates with provider field/id on the left. Lookup predicates may reference previous row bindings on the value side.
-- Firestore aggregate lookup: `lookup aggregate` with `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, and `fs.max`.
-- Firestore provider aggregate sources: `from fs.aggregate(...)` with `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, and `fs.max`.
+- Firestore provider aggregates: `from fs.aggregate $source` and `then fs.aggregate $source` with `fs.count`, `fs.sum`, `fs.avg`, `fs.min`, and `fs.max`.
 
 Current implementation does not parse or execute:
 
@@ -210,8 +209,7 @@ These block the read implementation from being honest at production scale.
 | `lookup one`                              | Done    | Optional; missing correlated values/no match attach `null`; supports lookup-local cache override.                                               |
 | `lookup required one`                     | Done    | Drops rows when correlated values are missing or no match exists.                                                                               |
 | `lookup many`                             | Done    | Optional; missing correlated values attach `[]`, counts lookup reads separately, supports cache override.                                       |
-| `lookup aggregate`                        | Done    | Attaches one aggregate object; supports provider `where` only, cache overrides, and default empty values.                                       |
-| `from fs.aggregate(...)`                  | Done    | Native one-row provider aggregate source; `yield` aliases become output fields. Covers collection, group, and static subcollection aggregates.  |
+| `fs.aggregate`                            | Done    | Native provider aggregate at `from` or `then`; `yield` creates flat bindings or map bindings; supports cache on pipeline aggregates.            |
 | `fs.subcollection(parent, name, fields?)` | Done    | Supports static paths, dynamic lookup sources, and reusable templates with `of parent`.                                                         |
 | `fs.subcollections(parent)`               | Missing | Deferred child-collection-name discovery.                                                                                                       |
 | `unwind array`                            | Done    | Expands arrays into one row per item.                                                                                                           |

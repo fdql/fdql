@@ -51,7 +51,7 @@ export function createAggregateRequest(
   plan: FdqlSingleReadPlan,
   stats: MutableStats,
   rows?: EvalRows,
-  stage: FdqlProviderAggregateRequest['stage'] = 'lookupAggregate',
+  stage: FdqlProviderAggregateRequest['stage'] = 'pipelineAggregate',
 ): FdqlProviderAggregateRequest {
   const remainingBudget = Math.max(0, plan.settings.readBudget - stats.reads);
   return {

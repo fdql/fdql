@@ -101,8 +101,7 @@ const fdqlCoreSnippetByName = {
     insertText: 'set fdql.readBudget = ${1:5000}',
   },
   'from provider aggregate': {
-    insertText:
-      'from ${1:fs}.aggregate($${2:source} as ${3:row})\n  yield ${1:fs}.count() as total',
+    insertText: 'from ${1:fs}.aggregate $${2:source} as ${3:row}\n  yield ${1:fs}.count() as total',
   },
   'then aggregate': {
     insertText: 'then aggregate\n  by ${1:field} as ${2:key}\n  yield count() as total',
@@ -119,13 +118,13 @@ const fdqlCoreSnippetByName = {
   'then lookup many of parent': {
     insertText: 'then lookup many $${1:source} of ${2:parent} as ${3:rows}',
   },
-  'then lookup aggregate': {
+  'then provider aggregate': {
     insertText:
-      'then lookup aggregate $${1:source} as ${2:stats} from ${3:row}\n  ${4:fs} where ${3:row}.${5:field} = ${6:value}\n  yield ${4:fs}.count() as total',
+      'then ${1:fs}.aggregate $${2:source} of ${3:parent} as ${4:row}\n  ${1:fs} where ${4:row}.${5:field} = ${6:value}\n  yield ${1:fs}.count() as total',
   },
-  'then lookup aggregate cache': {
+  'then provider aggregate cache': {
     insertText:
-      'then lookup aggregate $${1:source} as ${2:stats} from ${3:row} cache ${4|run,persistent,off|}\n  ${5:fs} where ${3:row}.${6:field} = ${7:value}\n  yield ${5:fs}.count() as total',
+      'then ${1:fs}.aggregate $${2:source} of ${3:parent} as ${4:row} cache ${5|run,persistent,off|}\n  ${1:fs} where ${4:row}.${6:field} = ${7:value}\n  yield ${1:fs}.count() as total',
   },
   'then lookup one': {
     insertText: 'then lookup one $${1:source} as ${2:row}',

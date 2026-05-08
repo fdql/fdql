@@ -111,7 +111,7 @@ return fs.id(order) as orderId, item.status`,
     expect(completed(requiredEvents)).toMatchObject({ lookupReads: 0, reads: 1 });
   });
 
-  it('runs aggregate lookups with Firestore aggregate helpers', async () => {
+  it('runs provider aggregate stages with Firestore aggregate helpers', async () => {
     const runtime = createTestFirestoreRuntime({
       projects: {
         local: {
@@ -132,10 +132,10 @@ return fs.id(order) as orderId, item.status`,
 alias $rounds = fs.collection("rounds", ["driverId", "points", "createdAt"])
 from $drivers as d
 fs limit 2
-then lookup aggregate $rounds as roundStats from round
+then fs.aggregate $rounds as round
   fs where round.driverId = fs.id(d)
   yield fs.count() as total, fs.sum(round.points) as points, fs.avg(round.points) as avgPoints, fs.max(round.createdAt) as lastRoundAt
-return fs.id(d) as id, roundStats.total, roundStats.points, roundStats.avgPoints, roundStats.lastRoundAt`,
+return fs.id(d) as id, total, points, avgPoints, lastRoundAt`,
       runtime,
     );
 
@@ -173,14 +173,14 @@ return fs.id(d) as id, roundStats.total, roundStats.points, roundStats.avgPoints
 
     const countEvents = await execute(
       `alias $rounds = fs.collection("rounds", ["active"])
-from fs.aggregate($rounds)
+from fs.aggregate $rounds
   yield fs.count() as total
 return total`,
       runtime,
     );
     const statsEvents = await execute(
       `alias $rounds = fs.collection("rounds", ["active", "points", "createdAt"])
-from fs.aggregate($rounds as round)
+from fs.aggregate $rounds as round
   fs where round.active = true
   yield fs.count() as total, fs.sum(round.points) as points, fs.avg(round.points) as avgPoints, fs.min(round.createdAt) as firstRoundAt, fs.max(round.createdAt) as lastRoundAt
 return total, points, avgPoints, firstRoundAt, lastRoundAt`,
@@ -222,7 +222,7 @@ return total, points, avgPoints, firstRoundAt, lastRoundAt`,
 
     const events = await execute(
       `alias $items = fs.subcollection("orders/ord_1", "items", ["status", "total"])
-from fs.aggregate($items as item)
+from fs.aggregate $items as item
   fs where item.status = "paid"
   yield fs.count() as total, fs.sum(item.total) as value
 return total, value`,

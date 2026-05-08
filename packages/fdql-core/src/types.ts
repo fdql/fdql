@@ -141,7 +141,7 @@ export interface FdqlAggregateFromStage {
   readonly range: FdqlSourceRange;
   readonly sourceAlias: string;
   readonly sourceExpression?: FdqlExpression | undefined;
-  readonly yieldItems?: readonly FdqlProjectionItem[] | undefined;
+  readonly yieldItems?: readonly FdqlProviderAggregateYieldItem[] | undefined;
 }
 
 export type FdqlStage =
@@ -150,6 +150,7 @@ export type FdqlStage =
   | FdqlLimitStage
   | FdqlLookupStage
   | FdqlOrderByStage
+  | FdqlProviderAggregateStage
   | FdqlReturnStage
   | FdqlSortByStage
   | FdqlTakeStage
@@ -220,7 +221,7 @@ export interface FdqlAggregateStage {
   readonly range: FdqlSourceRange;
 }
 
-export type FdqlLookupMode = 'aggregate' | 'many' | 'one';
+export type FdqlLookupMode = 'many' | 'one';
 export type FdqlCacheMode = 'off' | 'persistent' | 'run';
 
 export type FdqlLookupClause = FdqlWhereStage | FdqlOrderByStage | FdqlLimitStage;
@@ -234,13 +235,27 @@ export interface FdqlLookupStage {
   readonly line: number;
   readonly mode: FdqlLookupMode;
   readonly parent?: FdqlExpression | undefined;
-  readonly providerRowAlias?: string | undefined;
   readonly range: FdqlSourceRange;
   readonly required: boolean;
   readonly rowAlias: string;
   readonly sourceAlias: string;
   readonly sourceExpression?: FdqlExpression | undefined;
-  readonly yieldItems?: readonly FdqlProjectionItem[] | undefined;
+}
+
+export interface FdqlProviderAggregateStage {
+  readonly cache?: FdqlCacheMode | undefined;
+  readonly cacheTtlRaw?: string | undefined;
+  readonly clauses: readonly FdqlLookupClause[];
+  readonly column: number;
+  readonly kind: 'providerAggregate';
+  readonly line: number;
+  readonly parent?: FdqlExpression | undefined;
+  readonly provider: string;
+  readonly providerRowAlias?: string | undefined;
+  readonly range: FdqlSourceRange;
+  readonly sourceAlias: string;
+  readonly sourceExpression?: FdqlExpression | undefined;
+  readonly yieldItems?: readonly FdqlProviderAggregateYieldItem[] | undefined;
 }
 
 export interface FdqlUnwindStage {
@@ -260,6 +275,25 @@ export interface FdqlProjectionItem {
   readonly line?: number | undefined;
   readonly range?: FdqlSourceRange | undefined;
   readonly spread?: boolean | undefined;
+}
+
+export type FdqlProviderAggregateYieldItem =
+  | FdqlProviderAggregateFlatYieldItem
+  | FdqlProviderAggregateMapYieldItem;
+
+export interface FdqlProviderAggregateFlatYieldItem {
+  readonly item: FdqlProjectionItem;
+  readonly kind: 'flat';
+}
+
+export interface FdqlProviderAggregateMapYieldItem {
+  readonly alias?: string | undefined;
+  readonly column?: number | undefined;
+  readonly items: readonly FdqlProjectionItem[];
+  readonly kind: 'map';
+  readonly label: string;
+  readonly line?: number | undefined;
+  readonly range?: FdqlSourceRange | undefined;
 }
 
 export interface FdqlWithStage {
@@ -382,13 +416,13 @@ export type FdqlLocalPlanStage =
   | FdqlAggregateStage
   | FdqlFilterStage
   | FdqlLookupPlanStage
+  | FdqlProviderAggregatePlanStage
   | FdqlSortByStage
   | FdqlTakeStage
   | FdqlUnwindStage
   | FdqlWithStage;
 
 export interface FdqlLookupPlanStage {
-  readonly aggregate?: FdqlProviderAggregatePlan | undefined;
   readonly cache?: FdqlCacheMode | undefined;
   readonly cacheTtlMs?: number | undefined;
   readonly column: number;
@@ -402,8 +436,21 @@ export interface FdqlLookupPlanStage {
   readonly sourceAlias: string;
 }
 
+export interface FdqlProviderAggregatePlanStage {
+  readonly aggregate: FdqlProviderAggregatePlan;
+  readonly cache?: FdqlCacheMode | undefined;
+  readonly cacheTtlMs?: number | undefined;
+  readonly column: number;
+  readonly kind: 'providerAggregate';
+  readonly line: number;
+  readonly provider: FdqlProviderReadPlan;
+  readonly range: FdqlSourceRange;
+  readonly sourceAlias: string;
+}
+
 export interface FdqlProviderAggregatePlan {
   readonly items: readonly FdqlProviderAggregateItem[];
+  readonly outputs: readonly FdqlProviderAggregateOutput[];
   readonly rowAlias: string;
 }
 
@@ -411,6 +458,27 @@ export interface FdqlProviderAggregateItem {
   readonly alias: string;
   readonly expression?: FdqlExpression | undefined;
   readonly functionName: string;
+}
+
+export type FdqlProviderAggregateOutput =
+  | FdqlProviderAggregateFieldOutput
+  | FdqlProviderAggregateMapOutput;
+
+export interface FdqlProviderAggregateFieldOutput {
+  readonly alias: string;
+  readonly itemAlias: string;
+  readonly kind: 'field';
+}
+
+export interface FdqlProviderAggregateMapOutput {
+  readonly alias: string;
+  readonly fields: readonly FdqlProviderAggregateOutputField[];
+  readonly kind: 'map';
+}
+
+export interface FdqlProviderAggregateOutputField {
+  readonly alias: string;
+  readonly itemAlias: string;
 }
 
 export type FdqlReadCompileResult =
@@ -478,7 +546,7 @@ export interface FdqlProviderAggregateRequest {
   readonly rowAlias: string;
   readonly rows?: EvalRows | undefined;
   readonly source: FdqlProviderSource;
-  readonly stage: 'lookupAggregate' | 'sourceAggregate';
+  readonly stage: 'pipelineAggregate' | 'sourceAggregate';
 }
 
 export interface FdqlProviderAggregateResult {

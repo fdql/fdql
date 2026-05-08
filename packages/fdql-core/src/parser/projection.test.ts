@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { FdqlDiagnostic } from '../types.ts';
-import { collectProjection, parseProjectionItems } from './projection.ts';
+import {
+  collectProjection,
+  parseProjectionItems,
+  parseProviderAggregateYieldItems,
+} from './projection.ts';
 import { createSourceLines } from './source-text.ts';
 
 describe('FDQL parser projection', () => {
@@ -62,5 +66,27 @@ then take 1`),
     expect(diagnostics).toContainEqual(
       expect.objectContaining({ code: 'FDQL_INVALID_SPREAD_PROJECTION' }),
     );
+  });
+
+  it('parses provider aggregate object yield items', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    const items = parseProviderAggregateYieldItems(
+      '{ mem.count() as total, mem.sum(item.score) as score } as stats',
+      1,
+      9,
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(items).toEqual([
+      expect.objectContaining({
+        alias: 'stats',
+        items: [
+          expect.objectContaining({ alias: 'total' }),
+          expect.objectContaining({ alias: 'score' }),
+        ],
+        kind: 'map',
+      }),
+    ]);
   });
 });

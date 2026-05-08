@@ -6,7 +6,8 @@ import type {
   FdqlExpression,
   FdqlFromStage,
   FdqlLookupClause,
-  FdqlProjectionItem,
+  FdqlProviderAggregateStage,
+  FdqlProviderAggregateYieldItem,
   FdqlSourceRange,
   FdqlStage,
 } from '../types.ts';
@@ -16,7 +17,11 @@ import {
   parserError,
   providerFromStatement,
 } from './helpers.ts';
-import { collectProjection, parseProjectionItems } from './projection.ts';
+import {
+  collectProjection,
+  parseProjectionItems,
+  parseProviderAggregateYieldItems,
+} from './projection.ts';
 import { expressionSlice, type SourceLine, span } from './source-text.ts';
 
 export function parseProviderClause(
@@ -228,7 +233,7 @@ export function parseAggregateFrom(
   const header = parseAggregateFromHeader(start, diagnostics);
   if (!header) return null;
   const clauses: FdqlLookupClause[] = [];
-  let yieldItems: readonly FdqlProjectionItem[] | undefined;
+  let yieldItems: readonly FdqlProviderAggregateYieldItem[] | undefined;
   let nextIndex = startIndex;
   let endRange = start.range;
   for (let index = startIndex + 1; index < lines.length; index += 1) {
@@ -265,7 +270,7 @@ export function parseAggregateFrom(
         );
       }
       const block = collectProjection(lines, index, 'yield');
-      yieldItems = parseProjectionItems(
+      yieldItems = parseProviderAggregateYieldItems(
         block.source,
         block.sourceLine,
         block.sourceColumn,
@@ -368,10 +373,21 @@ function parseAggregateFromHeader(
   }
   | null
 {
-  const match = /^from\s+([A-Za-z_][A-Za-z0-9_]*)\.aggregate\((.*)\)$/i.exec(line.text);
+  const match = /^from\s+([A-Za-z_][A-Za-z0-9_]*)\.aggregate\s+(.+)$/i.exec(line.text);
   if (!match) return null;
   const provider = match[1]!;
   const body = match[2]!.trim();
+  const ofIndex = findTopLevelKeyword(body, 'of');
+  if (ofIndex >= 0) {
+    diagnostics.push(
+      parserError(
+        'FDQL_PARSE_ERROR',
+        '`of parent` is only valid in pipeline provider aggregate stages.',
+        line.line,
+        line.column,
+      ),
+    );
+  }
   const aliasIndex = findTopLevelAs(body);
   const sourceText = (aliasIndex < 0 ? body : body.slice(0, aliasIndex)).trim();
   const providerRowAlias = aliasIndex < 0 ? undefined : body.slice(aliasIndex + 4).trim();
@@ -411,4 +427,214 @@ function parseAggregateFromHeader(
     sourceAlias: sourceText,
     ...(parsed.expression ? { sourceExpression: parsed.expression } : {}),
   };
+}
+
+export function parseProviderAggregateStage(
+  lines: readonly SourceLine[],
+  startIndex: number,
+  diagnostics: FdqlDiagnostic[],
+): { readonly nextIndex: number; readonly stage?: FdqlProviderAggregateStage | undefined; } {
+  const start = lines[startIndex]!;
+  const header = parseProviderAggregateHeader(start, diagnostics);
+  const clauses: FdqlLookupClause[] = [];
+  let yieldItems: readonly FdqlProviderAggregateYieldItem[] | undefined;
+  let nextIndex = startIndex;
+  let endRange = start.range;
+
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (!line.text) {
+      nextIndex = index;
+      endRange = line.range;
+      continue;
+    }
+    if (isProviderClauseStart(line.text)) {
+      const clause = parseProviderClause(line, diagnostics);
+      if (
+        clause?.kind === 'providerWhere' || clause?.kind === 'providerOrderBy'
+        || clause?.kind === 'providerLimit'
+      ) {
+        clauses.push(clause);
+      }
+      nextIndex = index;
+      endRange = line.range;
+      continue;
+    }
+    if (line.text === 'yield' || line.text.startsWith('yield ')) {
+      if (yieldItems) {
+        diagnostics.push(
+          parserError(
+            'FDQL_DUPLICATE_STAGE',
+            'Provider aggregate supports one `yield`.',
+            line.line,
+            line.column,
+          ),
+        );
+      }
+      const block = collectProjection(lines, index, 'yield');
+      yieldItems = parseProviderAggregateYieldItems(
+        block.source,
+        block.sourceLine,
+        block.sourceColumn,
+        diagnostics,
+      );
+      index = block.nextIndex;
+      nextIndex = block.nextIndex;
+      endRange = block.range;
+      continue;
+    }
+    break;
+  }
+
+  return {
+    nextIndex,
+    ...(header
+      ? {
+        stage: {
+          ...(header.cache ? { cache: header.cache } : {}),
+          ...(header.cacheTtlRaw ? { cacheTtlRaw: header.cacheTtlRaw } : {}),
+          clauses,
+          column: start.column,
+          kind: 'providerAggregate',
+          line: start.line,
+          ...(header.parent ? { parent: header.parent } : {}),
+          provider: header.provider,
+          ...(header.providerRowAlias ? { providerRowAlias: header.providerRowAlias } : {}),
+          range: span(start.range, endRange),
+          sourceAlias: header.sourceAlias,
+          ...(header.sourceExpression ? { sourceExpression: header.sourceExpression } : {}),
+          ...(yieldItems ? { yieldItems } : {}),
+        },
+      }
+      : {}),
+  };
+}
+
+function parseProviderAggregateHeader(
+  line: SourceLine,
+  diagnostics: FdqlDiagnostic[],
+):
+  | {
+    readonly cache?: 'off' | 'persistent' | 'run' | undefined;
+    readonly cacheTtlRaw?: string | undefined;
+    readonly parent?: FdqlExpression | undefined;
+    readonly provider: string;
+    readonly providerRowAlias?: string | undefined;
+    readonly sourceAlias: string;
+    readonly sourceExpression?: FdqlExpression | undefined;
+  }
+  | null
+{
+  const match = /^then\s+([A-Za-z_][A-Za-z0-9_]*)\.aggregate\s+(.+)$/i.exec(line.text);
+  if (!match) return null;
+  const provider = match[1]!;
+  const cache = splitTrailingCache(match[2]!.trim());
+  const body = cache.body;
+  const aliasIndex = findTopLevelAs(body);
+  const providerRowAlias = aliasIndex < 0 ? undefined : body.slice(aliasIndex + 4).trim();
+  if (providerRowAlias && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(providerRowAlias)) {
+    diagnostics.push(
+      parserError(
+        'FDQL_PARSE_ERROR',
+        `Invalid aggregate row alias ${providerRowAlias}.`,
+        line.line,
+        line.column,
+      ),
+    );
+  }
+  const beforeAlias = (aliasIndex < 0 ? body : body.slice(0, aliasIndex)).trim();
+  const ofIndex = findTopLevelKeyword(beforeAlias, 'of');
+  const sourceText = (ofIndex < 0 ? beforeAlias : beforeAlias.slice(0, ofIndex)).trim();
+  const parentText = ofIndex < 0 ? '' : beforeAlias.slice(ofIndex + 'of'.length).trim();
+  const parentOffset = parentText ? body.indexOf(parentText) : -1;
+  let parent: FdqlExpression | undefined;
+  if (parentText) {
+    const parsed = parseExpression(parentText, line.line, line.column + Math.max(0, parentOffset));
+    diagnostics.push(...parsed.diagnostics);
+    parent = parsed.expression;
+  }
+  const parsedSource = parseProviderAggregateSource(sourceText, line, diagnostics);
+  if (!parsedSource) return null;
+  return {
+    ...(cache.cache ? { cache: cache.cache } : {}),
+    ...(cache.cacheTtlRaw ? { cacheTtlRaw: cache.cacheTtlRaw } : {}),
+    ...(parent ? { parent } : {}),
+    provider,
+    ...(providerRowAlias ? { providerRowAlias } : {}),
+    ...parsedSource,
+  };
+}
+
+function parseProviderAggregateSource(
+  sourceText: string,
+  line: SourceLine,
+  diagnostics: FdqlDiagnostic[],
+):
+  | { readonly sourceAlias: string; readonly sourceExpression?: FdqlExpression | undefined; }
+  | null
+{
+  if (!sourceText) {
+    diagnostics.push(
+      parserError('FDQL_PARSE_ERROR', 'Provider aggregate needs a source.', line.line, line.column),
+    );
+    return null;
+  }
+  if (/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(sourceText)) return { sourceAlias: sourceText };
+  const parsed = parseExpression(
+    sourceText,
+    line.line,
+    line.column + line.text.indexOf(sourceText),
+  );
+  diagnostics.push(...parsed.diagnostics);
+  return {
+    sourceAlias: sourceText,
+    ...(parsed.expression ? { sourceExpression: parsed.expression } : {}),
+  };
+}
+
+function splitTrailingCache(
+  body: string,
+): {
+  readonly body: string;
+  readonly cache?: 'off' | 'persistent' | 'run' | undefined;
+  readonly cacheTtlRaw?: string | undefined;
+} {
+  const cacheIndex = findTopLevelKeyword(body, 'cache');
+  if (cacheIndex < 0) return { body };
+  const sourceBody = body.slice(0, cacheIndex).trim();
+  const cacheBody = body.slice(cacheIndex + 'cache'.length).trim();
+  const match = /^(off|run|persistent)(?:\s+(\d+[smhd]))?$/i.exec(cacheBody);
+  return {
+    body: sourceBody,
+    ...(match?.[1] ? { cache: match[1].toLowerCase() as 'off' | 'persistent' | 'run' } : {}),
+    ...(match?.[2] ? { cacheTtlRaw: match[2] } : {}),
+  };
+}
+
+function findTopLevelKeyword(source: string, keyword: string): number {
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index] ?? '';
+    if (quote) {
+      if (char === quote && source[index - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '(' || char === '[' || char === '{') depth += 1;
+    else if (char === ')' || char === ']' || char === '}') depth -= 1;
+    else if (
+      depth === 0
+      && source.slice(index, index + keyword.length).toLowerCase() === keyword
+      && (index === 0 || /\s/.test(source[index - 1] ?? ''))
+      && (index + keyword.length === source.length
+        || /\s/.test(source[index + keyword.length] ?? ''))
+    ) {
+      return index;
+    }
+  }
+  return -1;
 }

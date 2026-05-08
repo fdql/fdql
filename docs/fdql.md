@@ -8,7 +8,7 @@ The query text is the execution plan. Provider-native commands are namespace-pre
 
 Initial provider namespace:
 
-- `fs`: Firestore-native reads, filters, ordering, limits, metadata predicates, aggregate lookups, and explicit Firestore write syntax.
+- `fs`: Firestore-native reads, filters, ordering, limits, metadata predicates, provider aggregates, and explicit Firestore write syntax.
 
 Implementation status is tracked separately in [FDQL Read Implementation](./fdql-read-implementation.md). The current product slice is read-only; write syntax remains spec work until implemented there.
 
@@ -32,7 +32,7 @@ Reserved namespaces have no semantics until a provider dialect defines them. Usi
 ## Current Read Direction
 
 The implemented read surface already includes bounded Firestore reads, lookups, subcollections,
-Firestore aggregate lookups, local unwind, local aggregation, union all, cache, and execution stats.
+Firestore provider aggregates, local unwind, local aggregation, union all, cache, and execution stats.
 The next read work is ordered by product value and implementation risk:
 
 1. Complete common read expressions.
@@ -64,7 +64,7 @@ Rules:
 - Provider commands use spaced syntax: `fs where`, `fs order by`, `fs limit`.
 - Provider functions use dot-call syntax: `fs.collection(...)`, `fs.id(...)`, `fs.ref(...)`.
 - A provider source alias can only be produced by that provider dialect.
-- A provider command applies to the current provider source or lookup source.
+- A provider command applies to the current provider source, lookup source, or provider aggregate source.
 - A provider command must compile to provider-native work. FDQL must not silently convert `fs where` into local `filter`.
 - Local stages operate on rows already loaded or produced by earlier stages.
 - Core value constructors are unprefixed.
@@ -466,6 +466,7 @@ Default behavior:
 
 - `fs where`, `fs order by`, `fs limit`, `filter`, `sort by`, `take`, and `lookup` preserve existing fields.
 - `lookup` adds a field.
+- `then fs.aggregate` adds yielded fields or maps.
 - `unwind` adds a field and expands rows.
 - `with` replaces row shape.
 - `aggregate` replaces row shape.
@@ -510,13 +511,13 @@ Rules:
 - Provider row spread emits loaded document data only. Metadata stays explicit with functions such
   as `fs.id(row)` and `fs.path(row)`.
 - Metadata-only rows can be empty objects in `return *`.
-- FDQL map bindings, such as aggregate lookup output, return their fields in `return *`.
+- FDQL map bindings, such as provider aggregate object yields, return their fields in `return *`.
 - Spreading `missing` emits no fields.
 - Spreading a runtime null, scalar, array, or other non-map value falls back to normal projection
   without `...`.
 - Spread collisions append a sequence suffix to the later field: `total`, `total_2`, `total_3`.
-- Return expression roots must be current row bindings. After `lookup aggregate ... as stats`,
-  use `stats.total`; `total` alone is not in scope.
+- Return expression roots must be current row bindings. After `then fs.aggregate ... yield fs.count() as total`,
+  `total` is in scope. After `yield { fs.count() as total } as stats`, use `stats.total`.
 - Firestore metadata functions such as `fs.id(d)`, `fs.path(d)`, `fs.ref(d)`, `fs.parentPath(d)`, and `fs.projectId(d)` are valid for Firestore document row bindings.
 - In `from $drivers as d`, `d` is the document row binding. `fs.id(d)` returns that document id.
 - In `lookup one $teams as team`, `team` is the joined document row binding or `null`. `fs.id(team)` returns the joined document id when present.
@@ -531,8 +532,8 @@ alias $skiers = fs.subcollection("skiers")
 from $orders as order
 fs limit 25
 
-then lookup aggregate $skiers of order as stats from skier
-  yield fs.count() as total
+then fs.aggregate $skiers of order
+  yield { fs.count() as total } as stats
 
 return *
 ```
@@ -617,29 +618,10 @@ then lookup many $roundsSource as rounds
 return fs.id(d), d.firstName, rounds
 ```
 
-### Lookup Aggregate
-
-Attach an aggregate object:
-
-```sql
-alias $drivers = fs.collection("drivers")
-alias $roundsSource = fs.collection("rounds")
-
-from $drivers as d
-fs where d.active = true
-fs limit 100
-
-then lookup aggregate $roundsSource as roundStats from round
-  fs where round.driverId = fs.id(d)
-  yield fs.count() as total, fs.max(round.createdAt) as lastRoundAt
-
-return fs.id(d), d.firstName, roundStats.total, roundStats.lastRoundAt
-```
-
 Rules:
 
 - Lookup clauses are provider-native.
-- Valid lookup headers are `then lookup one`, `then lookup required one`, `then lookup many`, and `then lookup aggregate`.
+- Valid lookup headers are `then lookup one`, `then lookup required one`, and `then lookup many`.
 - Lookup row aliases are available inside their provider clauses.
 - Correlated references must use previous row fields or metadata functions such as `fs.id(d)`.
 - `cache run`, `cache persistent`, `cache persistent 60s`, or `cache off` on a lookup overrides `set fdql.cache` for that lookup only.
@@ -647,23 +629,18 @@ Rules:
 - `lookup one` is optional: missing correlated values skip the provider read, no match sets the lookup alias to `null`, and more than one match reports a diagnostic.
 - `lookup required one` drops rows when the correlated value is missing or no match is found, and still reports a diagnostic for more than one match.
 - `lookup many` attaches an array and preserves the input row.
-- `lookup aggregate $source as outputAlias from rowAlias` attaches one object.
-- `yield` is the aggregate projection inside `lookup aggregate`; it is not the final query output.
-- `lookup aggregate` supports provider `where` clauses only.
-- Missing correlated values skip the provider read and attach aggregate defaults: `count` and `sum` are `0`; `avg`, `min`, and `max` are `null`.
-- No matching documents attach the same aggregate defaults.
 
-### Provider Aggregate Source
+## Provider Aggregates
 
-Use a provider aggregate source when the aggregate is the first provider operation in a pipeline.
-This keeps native aggregate execution at the `from` boundary, before document rows are streamed.
+Use `fs.aggregate` for Firestore-native aggregate reads.
+At the top level it starts the pipeline. In a pipeline it runs once per current row.
 
 Count documents in a collection:
 
 ```sql
 alias $orders = fs.collection("orders")
 
-from fs.aggregate($orders)
+from fs.aggregate $orders
   yield fs.count() as total
 
 return total
@@ -674,7 +651,7 @@ Aggregate a collection without a `where` clause:
 ```sql
 alias $orders = fs.collection("orders")
 
-from fs.aggregate($orders as o)
+from fs.aggregate $orders as o
   yield fs.count() as total,
         fs.sum(o.total) as revenue,
         fs.avg(o.total) as averageOrder
@@ -687,7 +664,7 @@ Aggregate a filtered collection:
 ```sql
 alias $orders = fs.collection("orders")
 
-from fs.aggregate($orders as o)
+from fs.aggregate $orders as o
   fs where o.status = "paid"
   yield fs.count() as total, fs.sum(o.total) as revenue
 
@@ -699,7 +676,7 @@ Aggregate a static subcollection:
 ```sql
 alias $items = fs.subcollection("orders/ord_1", "items", ["status", "total"])
 
-from fs.aggregate($items as item)
+from fs.aggregate $items as item
   fs where item.status = "paid"
   yield fs.count() as total, fs.sum(item.total) as value
 
@@ -709,13 +686,13 @@ return total, value
 Inline static subcollection aggregate:
 
 ```sql
-from fs.aggregate(fs.subcollection("orders/ord_1", "items", ["status", "total"]))
+from fs.aggregate fs.subcollection("orders/ord_1", "items", ["status", "total"])
   yield fs.count() as total
 
 return total
 ```
 
-Dynamic per-parent subcollection aggregates use `lookup aggregate`:
+Dynamic per-parent subcollection aggregate:
 
 ```sql
 alias $orders = fs.collection("orders")
@@ -724,28 +701,41 @@ alias $items = fs.subcollection("items", ["status", "total"])
 from $orders as o
 fs limit 100
 
-then lookup aggregate $items of o as itemStats from item
+then fs.aggregate $items of o as item
   fs where item.status = "paid"
   yield fs.count() as total, fs.sum(item.total) as value
 
-return fs.id(o), itemStats.total, itemStats.value
+return fs.id(o), total, value
+```
+
+Object yield creates a map binding:
+
+```sql
+then fs.aggregate $items of o as item
+  yield { fs.count() as total, fs.sum(item.total) as value } as itemStats
+
+return itemStats.total, itemStats.value
 ```
 
 Rules:
 
-- `from fs.aggregate(source)` emits exactly one pipeline row.
-- Aggregate `yield` aliases become fields on that one output row.
-- `from fs.aggregate(source as providerRowAlias)` declares a provider row alias for provider clauses and aggregate field expressions.
+- `from fs.aggregate $source` emits exactly one pipeline row.
+- `then fs.aggregate $source` preserves the current row and appends yielded bindings.
+- `then fs.aggregate $source of parent` binds a parent-bound subcollection source per input row.
+- Aggregate `yield` aliases become current row bindings.
+- `yield { ... } as name` creates one FDQL map binding.
+- `as providerRowAlias` declares a provider row alias for provider clauses and aggregate field expressions.
 - The provider row alias is optional when no provider field is referenced, for example `fs.count()`.
 - A provider row alias is required when the aggregate block has `fs where`.
 - A provider row alias is required for `fs.sum`, `fs.avg`, `fs.min`, and `fs.max` when using normal field syntax.
 - `source` may be a declared source alias or a static provider source expression.
 - Static collection, collection group, explicit collection path, and static subcollection sources are valid.
-- Dynamic row-bound subcollection sources are invalid in top-level aggregate sources because no parent row exists yet.
-- Provider aggregate sources support provider `where` clauses only.
-- Provider `order by` and `limit` are invalid in provider aggregate source syntax.
+- `of parent` is valid only with pipeline provider aggregates.
+- Provider aggregates support provider `where` clauses only.
+- Provider `order by` and `limit` are invalid in provider aggregate syntax.
 - Providers may still use ordered `limit(1)` internally to implement aggregate functions such as `fs.min` and `fs.max`.
 - `yield` is required exactly once and each yielded expression must use `as`.
+- Yield aliases cannot collide with current row bindings.
 - Empty matches return defaults: `count` and `sum` are `0`; `avg`, `min`, and `max` are `null`.
 - Provider aggregate sources do not group. Use local `then aggregate` after a bounded document read for grouping.
 

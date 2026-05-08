@@ -37,7 +37,7 @@ return mem.id(p) as id, p.name`,
   it('executes provider aggregate source reads', async () => {
     const events = await run(
       `alias $people = mem.collection("people")
-from mem.aggregate($people as p)
+from mem.aggregate $people as p
   mem where p.active = true
   yield mem.count() as total,
         mem.sum(p.score) as score,
@@ -72,7 +72,7 @@ return total, score, averageScore, firstCreatedAt, lastCreatedAt`,
   it('executes provider aggregate count without row alias', async () => {
     const events = await run(
       `alias $people = mem.collection("people")
-from mem.aggregate($people)
+from mem.aggregate $people
   yield mem.count() as total
 return total`,
       createTestProviderRuntime({

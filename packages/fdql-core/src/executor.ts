@@ -1,6 +1,7 @@
 import { diagnosticFromError } from './executor/errors.ts';
 import { applyLocalStages } from './executor/local-stages.ts';
 import { projectItems } from './executor/projection.ts';
+import { providerAggregateOutputRow } from './executor/provider-aggregate.ts';
 import {
   aggregateProvider,
   createAggregateRequest,
@@ -111,11 +112,12 @@ async function* executeReadBranch(
     if (aggregate.aggregateReads > 0) {
       recordAggregateRead(aggregateRequest, stats, aggregate.aggregateReads);
     }
+    const aggregateRow = providerAggregateOutputRow(plan.providerAggregate, aggregate.values);
     for (const document of aggregate.documentReads ?? []) {
       yield recordRead(document, request, stats, false);
-      sourceLineage.set(aggregate.values, document);
+      sourceLineage.set(aggregateRow, document);
     }
-    sourceRows.push(aggregate.values);
+    sourceRows.push(aggregateRow);
   } else {
     for await (
       const document of readProvider(

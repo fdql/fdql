@@ -60,7 +60,7 @@ describe('FDQL language service', () => {
         'filter',
         'lookup one',
         'lookup required one',
-        'lookup aggregate',
+        'then provider aggregate',
         'where',
       ]),
     );
@@ -73,11 +73,11 @@ describe('FDQL language service', () => {
     expect(completionLabels(service, 'from fs.', 1, 9)).toEqual(['fs.aggregate']);
   });
 
-  it('suggests provider aggregate functions in lookup aggregate yield context', () => {
+  it('suggests provider aggregate functions in provider aggregate yield context', () => {
     const service = createFdqlLanguageService();
     const source = `alias $rounds = fs.collection("rounds")
 from $rounds as r
-then lookup aggregate $rounds as stats from round
+then fs.aggregate $rounds as round
   yield fs.`;
 
     expect(completionLabelsAtEnd(service, source)).toEqual(

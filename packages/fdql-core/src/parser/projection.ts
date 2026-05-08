@@ -1,5 +1,10 @@
 import { findTopLevelAs, parseExpression, splitTopLevel } from '../expression.ts';
-import type { FdqlDiagnostic, FdqlProjectionItem, FdqlSourceRange } from '../types.ts';
+import type {
+  FdqlDiagnostic,
+  FdqlProjectionItem,
+  FdqlProviderAggregateYieldItem,
+  FdqlSourceRange,
+} from '../types.ts';
 import { isStatementStart, parserError } from './helpers.ts';
 import { expressionSlice, type SourceLine, span } from './source-text.ts';
 
@@ -81,5 +86,46 @@ export function parseProjectionItems(
       },
       ...(spread ? { spread: true } : {}),
     };
+  });
+}
+
+export function parseProviderAggregateYieldItems(
+  source: string,
+  line: number,
+  column: number,
+  diagnostics: FdqlDiagnostic[],
+): readonly FdqlProviderAggregateYieldItem[] {
+  return splitTopLevel(source.replace(/\n/g, ',')).map((item) => {
+    const aliasIndex = findTopLevelAs(item);
+    const rawExpressionText = aliasIndex < 0 ? item.trim() : item.slice(0, aliasIndex).trim();
+    if (rawExpressionText.startsWith('{') && rawExpressionText.endsWith('}')) {
+      const alias = aliasIndex < 0 ? undefined : item.slice(aliasIndex + 4).trim();
+      const inner = rawExpressionText.slice(1, -1).trim();
+      if (!alias) {
+        diagnostics.push(
+          parserError(
+            'FDQL_PARSE_ERROR',
+            'Aggregate object yield needs `as alias`.',
+            line,
+            column,
+          ),
+        );
+      }
+      return {
+        ...(alias ? { alias } : {}),
+        column,
+        items: parseProjectionItems(inner, line, column + 1, diagnostics),
+        kind: 'map',
+        label: alias ?? rawExpressionText,
+        line,
+        range: {
+          endColumn: column + item.length,
+          endLine: line,
+          startColumn: column,
+          startLine: line,
+        },
+      };
+    }
+    return { item: parseProjectionItems(item, line, column, diagnostics)[0]!, kind: 'flat' };
   });
 }

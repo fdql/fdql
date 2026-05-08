@@ -11,6 +11,7 @@ import type {
   FdqlDiagnostic,
   FdqlExpression,
   FdqlProgram,
+  FdqlProviderAggregateYieldItem,
   FdqlProviderDialect,
   FdqlProviderLanguageClause,
   FdqlProviderLanguageItem,
@@ -227,13 +228,16 @@ function thenCompletions(
   includeSnippets: boolean,
 ): readonly FdqlCompletionItem[] {
   if (
-    /^then\s+lookup\s+(?:aggregate\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+from\s+[A-Za-z_][A-Za-z0-9_]*|required\s+one\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*|one\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*|many\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*)\s+cache\s*$/i
+    /^then\s+lookup\s+(?:required\s+one\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*|one\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*|many\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*)\s+cache\s*$/i
       .test(line)
+    || /^then\s+[A-Za-z_][A-Za-z0-9_]*\.aggregate\s+.+\s+cache\s*$/i.test(line)
   ) {
     return lookupCacheModeCompletions();
   }
   if (
-    /^then\s+lookup\s+(?:aggregate\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+from\s+[A-Za-z_][A-Za-z0-9_]*|required\s+one\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*|one\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*|many\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*)\s*$/i
+    /^then\s+lookup\s+(?:required\s+one\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*|one\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*|many\s+\$[A-Za-z_][A-Za-z0-9_]*\s+as\s+[A-Za-z_][A-Za-z0-9_]*)\s*$/i
+      .test(line)
+    || /^then\s+[A-Za-z_][A-Za-z0-9_]*\.aggregate\s+.+(?:\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?\s*$/i
       .test(line)
   ) {
     return lookupCacheCompletions();
@@ -241,7 +245,9 @@ function thenCompletions(
   if (/^then\s+lookup\s+(?:required\s+one|one|many)\s+\$/i.test(line)) {
     return sourceAliasCompletions(model);
   }
-  if (/^then\s+lookup\s+aggregate\s+\$/i.test(line)) return sourceAliasCompletions(model);
+  if (/^then\s+[A-Za-z_][A-Za-z0-9_]*\.aggregate\s+\$/i.test(line)) {
+    return sourceAliasCompletions(model);
+  }
   if (/^yield\s+/i.test(line)) return aggregateExpressionCompletions(metadata, model);
   if (
     /^then\s+(?:filter|sort by|unwind|with)\s+/i.test(line)
@@ -252,6 +258,7 @@ function thenCompletions(
   if (/^then\s+take\s+/i.test(line)) return [];
   return sortCompletions([
     ...localStageCompletions(),
+    ...providerAggregateStageCompletions(metadata),
     ...providerNamespaces(metadata).flatMap((namespace) =>
       providerClauseSuffixCompletions(metadata, namespace)
     ),
@@ -336,7 +343,6 @@ function localStageCompletions(): readonly FdqlCompletionItem[] {
   return [
     stageCompletion('aggregate', 'aggregate\n  by '),
     stageCompletion('filter', 'filter '),
-    stageCompletion('lookup aggregate', 'lookup aggregate '),
     stageCompletion('lookup many', 'lookup many '),
     stageCompletion('lookup one', 'lookup one '),
     stageCompletion('lookup required one', 'lookup required one '),
@@ -345,6 +351,22 @@ function localStageCompletions(): readonly FdqlCompletionItem[] {
     stageCompletion('unwind', 'unwind '),
     stageCompletion('with', 'with '),
   ];
+}
+
+function providerAggregateStageCompletions(
+  metadata: FdqlLanguageMetadata,
+): readonly FdqlCompletionItem[] {
+  return providerNamespaces(metadata)
+    .filter((namespace) =>
+      metadata.aggregateFunctions.some((item) => item.label === `${namespace}.count`)
+    )
+    .map((namespace) => ({
+      detail: 'Provider aggregate stage',
+      insertText:
+        `${namespace}.aggregate $source of parent as row\n  yield ${namespace}.count() as total`,
+      kind: 'stage',
+      label: 'then provider aggregate',
+    }));
 }
 
 function providerClauseSuffixCompletions(
@@ -427,6 +449,9 @@ function rowsForProgram(
           name: program.from.providerRowAlias,
         });
       }
+      for (const name of providerAggregateYieldAliases(program.from.yieldItems ?? [])) {
+        rows.push({ fields: [], name });
+      }
     } else {
       rows.push({
         fields: aliases.get(program.from.sourceAlias)?.fields ?? [],
@@ -437,11 +462,20 @@ function rowsForProgram(
   for (const stage of program.stages) {
     if (stage.kind === 'lookup') {
       rows.push({
-        fields: stage.mode === 'aggregate'
-          ? (stage.yieldItems ?? []).flatMap((item) => item.alias ? [item.alias] : [])
-          : aliases.get(stage.sourceAlias)?.fields ?? [],
+        fields: aliases.get(stage.sourceAlias)?.fields ?? [],
         name: stage.rowAlias,
       });
+    }
+    if (stage.kind === 'providerAggregate') {
+      if (stage.providerRowAlias) {
+        rows.push({
+          fields: aliases.get(stage.sourceAlias)?.fields ?? [],
+          name: stage.providerRowAlias,
+        });
+      }
+      for (const name of providerAggregateYieldAliases(stage.yieldItems ?? [])) {
+        rows.push({ fields: [], name });
+      }
     }
     if (stage.kind === 'unwind') {
       rows.push({
@@ -510,6 +544,8 @@ function dotCompletions(
       ? metadata.sourceFunctions.filter((item) => item.label.startsWith(`${dot.name}.`))
       : lowerLine.startsWith('from ')
       ? providerAggregateSourceCompletions(metadata, dot.name)
+      : lowerLine.startsWith(`then ${dot.name}.aggregate`)
+      ? providerAggregateSourceCompletions(metadata, dot.name)
       : lowerLine.trimStart().startsWith('yield ')
       ? metadata.aggregateFunctions.filter((item) => item.label.startsWith(`${dot.name}.`))
       : metadata.expressionFunctions.filter((item) => item.label.startsWith(`${dot.name}.`));
@@ -525,11 +561,20 @@ function providerAggregateSourceCompletions(
   return metadata.aggregateFunctions.some((item) => item.label === `${provider}.count`)
     ? [{
       detail: 'Provider aggregate source',
-      insertText: `${provider}.aggregate($source as row)\n  yield ${provider}.count() as total`,
+      insertText: `${provider}.aggregate $source as row\n  yield ${provider}.count() as total`,
       kind: 'function',
       label: `${provider}.aggregate`,
     }]
     : [];
+}
+
+function providerAggregateYieldAliases(
+  items: readonly FdqlProviderAggregateYieldItem[],
+): readonly string[] {
+  return items.flatMap((item) => {
+    if (item.kind === 'flat') return item.item.alias ? [item.item.alias] : [];
+    return item.alias ? [item.alias] : [];
+  });
 }
 
 function sourceAliasCompletions(model: QueryModel): readonly FdqlCompletionItem[] {

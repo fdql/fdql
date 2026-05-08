@@ -5,6 +5,7 @@ import {
   parseAggregateFrom,
   parseAggregateStage,
   parseFrom,
+  parseProviderAggregateStage,
   parseProviderClause,
   parseSortBy,
   parseUnwind,
@@ -93,7 +94,7 @@ describe('FDQL parser stages', () => {
   it('parses provider aggregate from sources', () => {
     const diagnostics: FdqlDiagnostic[] = [];
     const parsed = parseAggregateFrom(
-      createSourceLines(`from fs.aggregate($orders as o)
+      createSourceLines(`from fs.aggregate $orders as o
   fs where o.status = "paid"
   yield fs.count() as total`),
       0,
@@ -106,6 +107,37 @@ describe('FDQL parser stages', () => {
       provider: 'fs',
       providerRowAlias: 'o',
       sourceAlias: '$orders',
+    });
+  });
+
+  it('parses provider aggregate pipeline stages and object yield maps', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    const parsed = parseProviderAggregateStage(
+      createSourceLines(`then fs.aggregate $items of order as item cache run
+  fs where item.status = "paid"
+  yield { fs.count() as itemCount, fs.sum(item.price) as itemTotal } as itemStats`),
+      0,
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(parsed.stage).toMatchObject({
+      cache: 'run',
+      kind: 'providerAggregate',
+      parent: { path: ['order'] },
+      provider: 'fs',
+      providerRowAlias: 'item',
+      sourceAlias: '$items',
+      yieldItems: [
+        {
+          alias: 'itemStats',
+          items: [
+            { alias: 'itemCount' },
+            { alias: 'itemTotal' },
+          ],
+          kind: 'map',
+        },
+      ],
     });
   });
 });

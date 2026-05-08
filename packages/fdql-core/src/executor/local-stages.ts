@@ -26,6 +26,7 @@ import {
 } from '../value.ts';
 import { executeLookup } from './lookup.ts';
 import { projectItems } from './projection.ts';
+import { executeProviderAggregateStage } from './provider-aggregate.ts';
 import { contextFor } from './provider-read.ts';
 import type { LookupCache, MutableStats, RowRecord } from './types.ts';
 
@@ -77,6 +78,30 @@ export async function* applyLocalStages(
         if (lookup.row) {
           nextRows.push(lookup.row);
           copyLineage(lineage, nextLineage, row, lookup.row);
+        }
+      }
+      rows = nextRows;
+      lineage = nextLineage;
+    } else if (stage.kind === 'providerAggregate') {
+      const nextRows: RowRecord[] = [];
+      const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
+      for (const row of rows) {
+        const aggregate = await executeProviderAggregateStage(
+          stage,
+          plan,
+          row,
+          runtime,
+          stats,
+          options,
+          startedAt,
+          lookupCache,
+        );
+        for (const event of aggregate.events) yield event;
+        if (aggregate.diagnostic) return { diagnostic: aggregate.diagnostic, kind: 'failed' };
+        if (aggregate.stopReason) return { kind: 'stopped', reason: aggregate.stopReason };
+        if (aggregate.row) {
+          nextRows.push(aggregate.row);
+          copyLineage(lineage, nextLineage, row, aggregate.row);
         }
       }
       rows = nextRows;

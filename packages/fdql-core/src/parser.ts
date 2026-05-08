@@ -13,6 +13,7 @@ import {
   parseAggregateFrom,
   parseAggregateStage,
   parseFrom,
+  parseProviderAggregateStage,
   parseProviderClause,
   parseSortBy,
   parseUnwind,
@@ -147,6 +148,12 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
       const aggregate = parseAggregateStage(lines, index, diagnostics);
       index = aggregate.nextIndex;
       stages.push(aggregate.stage);
+      continue;
+    }
+    if (/^then\s+[A-Za-z_][A-Za-z0-9_]*\.aggregate\s+/i.test(text)) {
+      const aggregate = parseProviderAggregateStage(lines, index, diagnostics);
+      index = aggregate.nextIndex;
+      if (aggregate.stage) stages.push(aggregate.stage);
       continue;
     }
     if (text.startsWith('then lookup ')) {

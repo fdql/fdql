@@ -28,7 +28,11 @@ import {
 } from './expression-validation.ts';
 import { compileLocalStage } from './local-stages.ts';
 import { compileLookupStage } from './lookup.ts';
-import { compileProviderAggregateItems } from './provider-aggregate.ts';
+import {
+  compileProviderAggregatePlan,
+  compileProviderAggregateStage,
+  providerAggregateOutputAliases,
+} from './provider-aggregate.ts';
 import { type ResolvedPreambleSettings, resolveSettings } from './settings.ts';
 
 export function providerRegistry(options: FdqlCompileOptions): FdqlProviderDialectRegistry {
@@ -230,6 +234,24 @@ export function compileSingleFdqlRead(
         }
         break;
       }
+      case 'providerAggregate': {
+        const aggregateStage = compileProviderAggregateStage(
+          stage,
+          aliases,
+          availableRowAliases,
+          scalarAliasValues,
+          preamble.providerContext,
+          providers,
+          diagnostics,
+        );
+        if (aggregateStage) {
+          localStages.push(aggregateStage);
+          for (const alias of providerAggregateOutputAliases(aggregateStage.aggregate)) {
+            availableRowAliases.add(alias);
+          }
+        }
+        break;
+      }
       case 'return':
         if (returnLine !== undefined) {
           diagnostics.push(duplicateStage('return', returnLine, stage.line));
@@ -394,7 +416,7 @@ function compileAggregateSourceRead(input: {
       : clause.expression;
   }
 
-  const aggregateItems = compileProviderAggregateItems({
+  const aggregate = compileProviderAggregatePlan({
     diagnostics: input.diagnostics,
     line: from.line,
     ...(providerRowAlias ? { providerRowAlias } : {}),
@@ -403,7 +425,7 @@ function compileAggregateSourceRead(input: {
     sourceProvider: from.provider,
     yieldItems: from.yieldItems,
   });
-  const availableRowAliases = new Set(aggregateItems.map((item) => item.alias));
+  const availableRowAliases = new Set(providerAggregateOutputAliases(aggregate));
 
   for (const stage of input.program.stages) {
     switch (stage.kind) {
@@ -504,8 +526,7 @@ function compileAggregateSourceRead(input: {
         source: sourceAlias.source,
       },
       providerAggregate: {
-        items: aggregateItems,
-        rowAlias: providerRowAlias ?? '__aggregate',
+        ...aggregate,
       },
       returnStage,
       rowAlias: providerRowAlias ?? '__aggregate',

@@ -327,11 +327,11 @@ return fs.id(d) as id, team.name as teamName`,
     });
   });
 
-  it('runs aggregate lookup with native aggregate and bounded min max reads', async () => {
+  it('runs provider aggregate stages with native aggregate and bounded min max reads', async () => {
     const driversQuery = fakeQuery([fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini' })]);
     const roundsQuery = fakeQuery([]);
     roundsQuery.aggregate = vi.fn((_spec: unknown) => ({
-      get: vi.fn(async () => ({ data: () => ({ points: 30, total: 2 }) })),
+      get: vi.fn(async () => ({ data: () => ({ __fdql_0: 2, __fdql_1: 30 }) })),
     }));
     roundsQuery.get = vi.fn(async () => ({
       docs: [fakeSnapshot('rnd_2', 'rounds/rnd_2', { createdAt: '2026-02-01T00:00:00.000Z' })],
@@ -348,10 +348,10 @@ return fs.id(d) as id, team.name as teamName`,
 alias $rounds = fs.collection("rounds", ["driverId", "points", "createdAt"])
 from $drivers as d
 fs limit 1
-then lookup aggregate $rounds as roundStats from round
+then fs.aggregate $rounds as round
   fs where round.driverId = fs.id(d)
   yield fs.count() as total, fs.sum(round.points) as points, fs.max(round.createdAt) as lastRoundAt
-return fs.id(d) as id, roundStats.total, roundStats.points, roundStats.lastRoundAt`,
+return fs.id(d) as id, total, points, lastRoundAt`,
     });
 
     expect(roundsQuery.aggregate).toHaveBeenCalledTimes(1);
@@ -375,7 +375,9 @@ return fs.id(d) as id, roundStats.total, roundStats.points, roundStats.lastRound
       [fakeSnapshot('rnd_2', 'rounds/rnd_2', { createdAt: '2026-02-01T00:00:00.000Z' })],
     ]);
     roundsQuery.aggregate = vi.fn((_spec: unknown) => ({
-      get: vi.fn(async () => ({ data: () => ({ avgPoints: 15, points: 30, total: 2 }) })),
+      get: vi.fn(async () => ({
+        data: () => ({ __fdql_0: 2, __fdql_1: 30, __fdql_2: 15 }),
+      })),
     }));
     const db = {
       collection: vi.fn(() => roundsQuery),
@@ -386,7 +388,7 @@ return fs.id(d) as id, roundStats.total, roundStats.points, roundStats.lastRound
       connectionId: 'local',
       runId: 'run_1',
       source: `alias $rounds = fs.collection("rounds", ["points", "createdAt"])
-from fs.aggregate($rounds as round)
+from fs.aggregate $rounds as round
   yield fs.count() as total, fs.sum(round.points) as points, fs.avg(round.points) as avgPoints, fs.min(round.createdAt) as firstRoundAt, fs.max(round.createdAt) as lastRoundAt
 return total, points, avgPoints, firstRoundAt, lastRoundAt`,
     });
@@ -412,7 +414,7 @@ return total, points, avgPoints, firstRoundAt, lastRoundAt`,
   it('runs static subcollection aggregate sources', async () => {
     const itemsQuery = fakeQuery([]);
     itemsQuery.aggregate = vi.fn((_spec: unknown) => ({
-      get: vi.fn(async () => ({ data: () => ({ total: 2 }) })),
+      get: vi.fn(async () => ({ data: () => ({ __fdql_0: 2 }) })),
     }));
     const db = {
       collection: vi.fn(() => itemsQuery),
@@ -422,7 +424,7 @@ return total, points, avgPoints, firstRoundAt, lastRoundAt`,
     const result = await repository.run({
       connectionId: 'local',
       runId: 'run_1',
-      source: `from fs.aggregate(fs.subcollection("orders/ord_1", "items", ["status"]))
+      source: `from fs.aggregate fs.subcollection("orders/ord_1", "items", ["status"])
   yield fs.count() as total
 return total`,
     });
@@ -436,14 +438,14 @@ return total`,
     });
   });
 
-  it('caches aggregate lookup results', async () => {
+  it('caches provider aggregate stage results', async () => {
     const driversQuery = fakeQuery([
       fakeSnapshot('drv_1', 'drivers/drv_1', { firstName: 'Vini', teamId: 'team_1' }),
       fakeSnapshot('drv_2', 'drivers/drv_2', { firstName: 'Alex', teamId: 'team_1' }),
     ]);
     const teamsQuery = fakeQuery([]);
     teamsQuery.aggregate = vi.fn((_spec: unknown) => ({
-      get: vi.fn(async () => ({ data: () => ({ total: 1 }) })),
+      get: vi.fn(async () => ({ data: () => ({ __fdql_0: 1 }) })),
     }));
     const db = {
       collection: vi.fn((path: string) => path === 'drivers' ? driversQuery : teamsQuery),
@@ -458,10 +460,10 @@ alias $drivers = fs.collection("drivers", ["firstName", "teamId"])
 alias $teams = fs.collection("teams", ["name"])
 from $drivers as d
 fs limit 2
-then lookup aggregate $teams as teamStats from team
+then fs.aggregate $teams as team
   fs where fs.id(team) = d.teamId
   yield fs.count() as total
-return fs.id(d) as id, teamStats.total as total`,
+return fs.id(d) as id, total`,
     });
 
     expect(teamsQuery.aggregate).toHaveBeenCalledTimes(1);

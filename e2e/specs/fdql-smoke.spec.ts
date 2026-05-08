@@ -169,7 +169,7 @@ return driverId, total, score`,
         page,
         `alias $rounds = fs.collection("${data.rounds}", [])
 
-from fs.aggregate($rounds)
+from fs.aggregate $rounds
   yield fs.count() as total
 
 return total`,
@@ -186,7 +186,7 @@ return total`,
         page,
         `alias $rounds = fs.collection("${data.rounds}", ["score"])
 
-from fs.aggregate($rounds as r)
+from fs.aggregate $rounds as r
   yield fs.count() as total,
         fs.sum(r.score) as score
 
@@ -204,7 +204,7 @@ return total, score`,
         page,
         `alias $orders = fs.subcollection("${data.parent}/parent_1", "orders", ["status"])
 
-from fs.aggregate($orders)
+from fs.aggregate $orders
   yield fs.count() as total
 
 return total`,
@@ -308,8 +308,8 @@ alias $skiers = fs.subcollection("orders", [])
 from $orders as order
 fs where fs.id(order) = "parent_1"
 
-then lookup aggregate $skiers of order as stats from item
-  yield fs.count() as total
+then fs.aggregate $skiers of order
+  yield { fs.count() as total } as stats
 
 return *`,
       );
@@ -331,8 +331,8 @@ alias $skiers = fs.subcollection("orders", [])
 from $orders as order
 fs where fs.id(order) = "parent_1"
 
-then lookup aggregate $skiers of order as stats from item
-  yield fs.count() as total
+then fs.aggregate $skiers of order
+  yield { fs.count() as total } as stats
 
 return fs.id(order) as orderId, ...stats`,
       );
@@ -349,7 +349,7 @@ alias $skiers = fs.subcollection("orders", [])
 from $orders as order
 fs where fs.id(order) = "parent_1"
 
-then lookup aggregate $skiers of order as stats from item
+then fs.aggregate $skiers of order
   yield fs.count() as total`,
       );
 
@@ -369,10 +369,10 @@ alias $skiers = fs.subcollection("orders", [])
 from $orders as order
 fs where fs.id(order) = "parent_1"
 
-then lookup aggregate $skiers of order as stats from item
+then fs.aggregate $skiers of order
   yield fs.count() as total
 
-return total`,
+return missingTotal`,
       );
 
       await page.getByRole('tab', { name: /Issues/ }).click();
@@ -481,7 +481,7 @@ return eventDriver.steamId, driver.firstName, event.slug, event.name, event.sche
       await page.getByRole('tab', { name: 'Table' }).click();
     });
 
-    await test.step('aggregate lookup returns exact cells and uses run cache', async () => {
+    await test.step('provider aggregate returns exact cells and uses run cache', async () => {
       await runFdql(
         page,
         `set fdql.cache = run
@@ -495,10 +495,10 @@ fs limit 20
 then unwind entries(event.entriesById) as entry
 then unwind entry.value.drivers as eventDriver
 then take 3
-then lookup aggregate $rounds as stats from round cache run
+then fs.aggregate $rounds as round cache run
   fs where round.driverId = eventDriver.steamId
   yield fs.count() as total, fs.sum(round.points) as points, fs.avg(round.points) as avgPoints, fs.min(round.createdAt) as firstRoundAt, fs.max(round.createdAt) as lastRoundAt
-return eventDriver.steamId, stats.total, stats.points, stats.avgPoints, stats.firstRoundAt, stats.lastRoundAt`,
+return eventDriver.steamId, total, points, avgPoints, firstRoundAt, lastRoundAt`,
       );
 
       await expectFdqlTable(

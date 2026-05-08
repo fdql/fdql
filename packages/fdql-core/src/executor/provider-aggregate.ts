@@ -1,5 +1,6 @@
-import { createFdqlProviderReadCacheKey } from '../cache.ts';
-import { type EvalContext, evaluateExpression } from '../evaluator.ts';
+import { createFdqlProviderAggregateCacheKey } from '../cache.ts';
+import type { EvalContext } from '../evaluator.ts';
+import { evaluateExpression } from '../evaluator.ts';
 import type { FdqlProviderRuntimeRegistry } from '../provider.ts';
 import type {
   EvalRows,
@@ -7,19 +8,28 @@ import type {
   FdqlExecutionEvent,
   FdqlExecutionOptions,
   FdqlExpression,
-  FdqlLookupPlanStage,
+  FdqlProviderAggregatePlan,
+  FdqlProviderAggregatePlanStage,
+  FdqlProviderAggregateRequest,
   FdqlProviderReadRequest,
   FdqlProviderRow,
   FdqlSingleReadPlan,
   FdqlStats,
+  FdqlValue,
 } from '../types.ts';
-import { isMissingValue } from '../value.ts';
-import { createReadRequest, providerDialects, readProvider } from './provider-read.ts';
-import { freezeStats, providerReadControls, recordRead, stopReasonFor } from './stats.ts';
+import { isMissingValue, mapValue, nullValue, numberValue } from '../value.ts';
+import { aggregateProvider, createAggregateRequest, providerDialects } from './provider-read.ts';
+import {
+  freezeStats,
+  providerReadControls,
+  recordAggregateRead,
+  recordRead,
+  stopReasonFor,
+} from './stats.ts';
 import type { LookupCache, MutableStats, RowRecord } from './types.ts';
 
-export async function executeLookup(
-  stage: FdqlLookupPlanStage,
+export async function executeProviderAggregateStage(
+  stage: FdqlProviderAggregatePlanStage,
   plan: FdqlSingleReadPlan,
   row: RowRecord,
   runtime: FdqlProviderRuntimeRegistry,
@@ -33,38 +43,49 @@ export async function executeLookup(
   readonly row: RowRecord | null;
   readonly stopReason?: NonNullable<FdqlStats['stoppedReason']> | undefined;
 }> {
-  const remainingBudget = Math.max(0, plan.settings.readBudget - stats.reads);
-  const lookupOneCap = stage.mode === 'one' && stage.provider.limit === undefined ? 2 : undefined;
   const boundProvider = bindProviderReadPlan(stage, row, runtime);
   if (boundProvider.kind === 'failed') {
     return { diagnostic: boundProvider.diagnostic, events: [], row };
   }
-  if (boundProvider.kind === 'skip') return { events: [], row: lookupRow(stage, row, []) };
-  const request = createReadRequest(
-    boundProvider.provider,
-    plan,
-    stage.rowAlias,
-    stats,
-    'lookup',
-    row as EvalRows,
-    Math.min(remainingBudget, lookupOneCap ?? remainingBudget),
-  );
-  const beforeLookupStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
-  if (beforeLookupStop) return { events: [], row, stopReason: beforeLookupStop };
-  if (lookupHasMissingCorrelatedValue(request, runtime)) {
-    return { events: [], row: lookupRow(stage, row, []) };
+  const defaults = defaultProviderAggregateValues(stage.aggregate);
+  if (boundProvider.kind === 'skip') {
+    return {
+      events: [],
+      row: { ...row, ...providerAggregateOutputRow(stage.aggregate, defaults) },
+    };
   }
-  const documents: FdqlProviderRow[] = [];
-  const events: FdqlExecutionEvent[] = [];
-  const cachePolicy = lookupCachePolicy(stage, plan, request, runtime, options);
-  const cachedDocuments = cachePolicy.kind === 'run'
+  const request = createAggregateRequest(
+    boundProvider.provider,
+    stage.aggregate,
+    plan,
+    stats,
+    row as EvalRows,
+    'pipelineAggregate',
+  );
+  const beforeReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
+  if (beforeReadStop) return { events: [], row, stopReason: beforeReadStop };
+  if (aggregateHasMissingCorrelatedValue(request, runtime)) {
+    return {
+      events: [],
+      row: { ...row, ...providerAggregateOutputRow(stage.aggregate, defaults) },
+    };
+  }
+
+  const cachePolicy = aggregateCachePolicy(stage, plan, request, runtime, options);
+  const cachedRows = cachePolicy.kind === 'run'
     ? lookupCache.get(cachePolicy.key.canonicalJson)
     : undefined;
-  if (cachedDocuments) {
+  if (cachedRows) {
     stats.cacheHits += 1;
     return {
       events: [{ kind: 'stats', stats: freezeStats(stats) }],
-      row: lookupRow(stage, row, cachedDocuments.slice(0, request.maxDocuments)),
+      row: {
+        ...row,
+        ...providerAggregateOutputRow(
+          stage.aggregate,
+          aggregateValuesFromCache(stage.aggregate, cachedRows),
+        ),
+      },
     };
   }
   if (cachePolicy.kind === 'persistent' && options.persistentCache) {
@@ -75,61 +96,76 @@ export async function executeLookup(
       stats.cacheBytes += hit.sizeBytes;
       return {
         events: [{ kind: 'stats', stats: freezeStats(stats) }],
-        row: lookupRow(stage, row, hit.rows.slice(0, request.maxDocuments)),
+        row: {
+          ...row,
+          ...providerAggregateOutputRow(
+            stage.aggregate,
+            aggregateValuesFromCache(stage.aggregate, hit.rows),
+          ),
+        },
       };
     }
   }
   if (cachePolicy.kind !== 'off') stats.cacheMisses += 1;
 
-  for await (
-    const document of readProvider(runtime, request, providerReadControls(plan, options, startedAt))
-  ) {
-    const beforeReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
-    if (beforeReadStop) return { events, row, stopReason: beforeReadStop };
-    events.push(recordRead(document, request, stats, true));
-    documents.push(document);
-    const stopReason = stopReasonFor(plan, stats, startedAt, options, 'afterRow');
-    if (stopReason) return { events, row, stopReason };
-  }
+  const result = await aggregateProvider(
+    runtime,
+    request,
+    providerReadControls(plan, options, startedAt),
+  );
+  if (result.aggregateReads > 0) recordAggregateRead(request, stats, result.aggregateReads);
+  const events = (result.documentReads ?? []).map((document) =>
+    recordRead(document, readRequestForAggregate(request), stats, true)
+  );
   const afterReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
   if (afterReadStop) return { events, row, stopReason: afterReadStop };
-  if (stage.mode === 'one' && documents.length > 1) {
-    return {
-      diagnostic: {
-        code: 'FDQL_LOOKUP_ONE_TOO_MANY',
-        line: stage.line,
-        message:
-          `lookup one ${stage.sourceAlias} as ${stage.rowAlias} returned more than one document.`,
-        severity: 'error',
-      },
-      events,
-      row,
-    };
-  }
-  if (cachePolicy.kind === 'run') lookupCache.set(cachePolicy.key.canonicalJson, documents);
-  if (
-    cachePolicy.kind === 'persistent' && options.persistentCache
-    && shouldPersistLookupRows(stage, request, documents)
-  ) {
+
+  const values = { ...defaults, ...result.values };
+  const cacheRows = aggregateRowsForCache(stage, request, values);
+  if (cachePolicy.kind === 'run') lookupCache.set(cachePolicy.key.canonicalJson, cacheRows);
+  if (cachePolicy.kind === 'persistent' && options.persistentCache) {
     const nowMs = options.now?.() ?? Date.now();
-    const result = await options.persistentCache.set({
-      expiresAtMs: nowMs + lookupCacheTtlMs(stage, plan),
+    const cacheResult = await options.persistentCache.set({
+      expiresAtMs: nowMs + aggregateCacheTtlMs(stage, plan),
       key: cachePolicy.key,
       nowMs,
-      rows: documents,
+      rows: cacheRows,
     });
     stats.cacheWrites += 1;
-    stats.cacheEvictions += result.evictedEntries;
-    stats.cacheBytes += result.sizeBytes;
+    stats.cacheEvictions += cacheResult.evictedEntries;
+    stats.cacheBytes += cacheResult.sizeBytes;
   }
   return {
     events,
-    row: lookupRow(stage, row, documents),
+    row: { ...row, ...providerAggregateOutputRow(stage.aggregate, values) },
   };
 }
 
+export function providerAggregateOutputRow(
+  aggregate: FdqlProviderAggregatePlan,
+  values: Readonly<Record<string, FdqlValue>>,
+): RowRecord {
+  const row: RowRecord = {};
+  for (const output of aggregate.outputs) {
+    if (output.kind === 'field') {
+      row[output.alias] = values[output.itemAlias]
+        ?? defaultValueForItem(aggregate, output.itemAlias);
+      continue;
+    }
+    row[output.alias] = mapValue(
+      Object.fromEntries(
+        output.fields.map((field) => [
+          field.alias,
+          values[field.itemAlias] ?? defaultValueForItem(aggregate, field.itemAlias),
+        ]),
+      ),
+    );
+  }
+  return row;
+}
+
 function bindProviderReadPlan(
-  stage: FdqlLookupPlanStage,
+  stage: FdqlProviderAggregatePlanStage,
   row: RowRecord,
   runtime: FdqlProviderRuntimeRegistry,
 ):
@@ -143,7 +179,7 @@ function bindProviderReadPlan(
   if (!dialect?.bindSource) {
     return {
       diagnostic: {
-        code: 'FDQL_INVALID_LOOKUP_SOURCE',
+        code: 'FDQL_INVALID_PROVIDER_SOURCE',
         line: stage.line,
         message: `Provider ${stage.provider.source.provider} cannot bind parent sources.`,
         severity: 'error',
@@ -162,87 +198,108 @@ function bindProviderReadPlan(
     source: stage.provider.source,
   });
   if (result.kind === 'bound') {
-    return {
-      kind: 'bound',
-      provider: { ...stage.provider, source: result.source },
-    };
+    return { kind: 'bound', provider: { ...stage.provider, source: result.source } };
   }
   if (result.kind === 'failed') return result;
   return result;
 }
 
-function lookupCacheMode(
-  stage: FdqlLookupPlanStage,
+function aggregateCachePolicy(
+  stage: FdqlProviderAggregatePlanStage,
   plan: FdqlSingleReadPlan,
-) {
-  return stage.cache ?? plan.settings.cache;
-}
-
-function lookupCacheTtlMs(
-  stage: FdqlLookupPlanStage,
-  plan: FdqlSingleReadPlan,
-): number {
-  return stage.cacheTtlMs ?? plan.settings.cacheTtlMs;
-}
-
-function lookupCachePolicy(
-  stage: FdqlLookupPlanStage,
-  plan: FdqlSingleReadPlan,
-  request: FdqlProviderReadRequest,
+  request: FdqlProviderAggregateRequest,
   runtime: FdqlProviderRuntimeRegistry,
   options: FdqlExecutionOptions,
 ):
   | {
-    readonly key: ReturnType<typeof createFdqlProviderReadCacheKey>;
+    readonly key: ReturnType<typeof createFdqlProviderAggregateCacheKey>;
     readonly kind: 'persistent';
   }
-  | { readonly key: ReturnType<typeof createFdqlProviderReadCacheKey>; readonly kind: 'run'; }
+  | { readonly key: ReturnType<typeof createFdqlProviderAggregateCacheKey>; readonly kind: 'run'; }
   | { readonly kind: 'off'; }
 {
-  const mode = lookupCacheMode(stage, plan);
+  const mode = stage.cache ?? plan.settings.cache;
   if (mode === 'off') return { kind: 'off' };
-  const key = createFdqlProviderReadCacheKey({
+  const key = createFdqlProviderAggregateCacheKey({
     cacheContext: options.cacheContext,
     providers: providerDialects(runtime),
-    readLimit: cacheReadLimit(stage, request),
     request,
   });
   return { key, kind: mode };
 }
 
-function cacheReadLimit(
-  stage: FdqlLookupPlanStage,
-  request: FdqlProviderReadRequest,
-): number | undefined {
-  if (request.limit !== undefined) return request.limit;
-  return stage.mode === 'one' ? request.maxDocuments : undefined;
+function aggregateCacheTtlMs(
+  stage: FdqlProviderAggregatePlanStage,
+  plan: FdqlSingleReadPlan,
+): number {
+  return stage.cacheTtlMs ?? plan.settings.cacheTtlMs;
 }
 
-function shouldPersistLookupRows(
-  stage: FdqlLookupPlanStage,
-  request: FdqlProviderReadRequest,
-  documents: readonly FdqlProviderRow[],
-): boolean {
-  if (request.maxDocuments <= 0) return false;
-  if (stage.mode === 'one') return documents.length <= 1;
-  if (request.limit !== undefined) return true;
-  return documents.length < request.maxDocuments;
+function defaultProviderAggregateValues(
+  aggregate: FdqlProviderAggregatePlan,
+): Readonly<Record<string, FdqlValue>> {
+  return Object.fromEntries(
+    aggregate.items.map((item) => [
+      item.alias,
+      item.functionName.endsWith('.count') || item.functionName.endsWith('.sum')
+        ? numberValue(0)
+        : nullValue,
+    ]),
+  );
 }
 
-function lookupRow(
-  stage: FdqlLookupPlanStage,
-  row: RowRecord,
-  documents: readonly FdqlProviderRow[],
-): RowRecord | null {
-  if (stage.required && documents.length === 0) return null;
+function defaultValueForItem(
+  aggregate: FdqlProviderAggregatePlan,
+  itemAlias: string,
+): FdqlValue {
+  const item = aggregate.items.find((candidate) => candidate.alias === itemAlias);
+  return item?.functionName.endsWith('.count') || item?.functionName.endsWith('.sum')
+    ? numberValue(0)
+    : nullValue;
+}
+
+function aggregateRowsForCache(
+  stage: FdqlProviderAggregatePlanStage,
+  request: FdqlProviderAggregateRequest,
+  values: Readonly<Record<string, FdqlValue>>,
+): readonly FdqlProviderRow[] {
+  return [{
+    context: {},
+    data: values,
+    id: '__aggregate__',
+    path: '',
+    provider: request.source.provider,
+    source: {
+      ...request.source,
+      sourceAlias: `${stage.sourceAlias}:aggregate`,
+    },
+  }];
+}
+
+function aggregateValuesFromCache(
+  aggregate: FdqlProviderAggregatePlan,
+  rows: readonly FdqlProviderRow[],
+): Readonly<Record<string, FdqlValue>> {
+  return { ...defaultProviderAggregateValues(aggregate), ...rows[0]?.data };
+}
+
+function readRequestForAggregate(
+  request: FdqlProviderAggregateRequest,
+): FdqlProviderReadRequest {
   return {
-    ...row,
-    [stage.rowAlias]: stage.mode === 'one' ? documents[0] ?? null : documents,
+    aliases: request.aliases,
+    maxDocuments: request.maxDocuments,
+    pageSize: request.maxDocuments,
+    ...(request.predicate ? { predicate: request.predicate } : {}),
+    rowAlias: request.rowAlias,
+    ...(request.rows ? { rows: request.rows } : {}),
+    source: request.source,
+    stage: 'lookup',
   };
 }
 
-function lookupHasMissingCorrelatedValue(
-  request: FdqlProviderReadRequest,
+function aggregateHasMissingCorrelatedValue(
+  request: FdqlProviderAggregateRequest,
   runtime: FdqlProviderRuntimeRegistry,
 ): boolean {
   if (!request.predicate || !request.rows) return false;
@@ -256,7 +313,7 @@ function lookupHasMissingCorrelatedValue(
 
 function expressionHasMissingCorrelatedValue(
   expression: FdqlExpression,
-  request: FdqlProviderReadRequest,
+  request: FdqlProviderAggregateRequest,
   context: EvalContext,
 ): boolean {
   if (expression.kind === 'field') {
@@ -296,7 +353,7 @@ function expressionHasMissingCorrelatedValue(
 
 function expressionContainsCorrelatedReference(
   expression: FdqlExpression,
-  request: FdqlProviderReadRequest,
+  request: FdqlProviderAggregateRequest,
 ): boolean {
   if (!request.rows) return false;
   if (expression.kind === 'field') {
