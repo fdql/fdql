@@ -7,7 +7,6 @@ import type {
   FdqlExecutionOptions,
   FdqlExpression,
   FdqlFilterStage,
-  FdqlProviderRow,
   FdqlSingleReadPlan,
   FdqlSortByStage,
   FdqlStats,
@@ -24,6 +23,7 @@ import {
   numberValue,
   numericValue,
 } from '../value.ts';
+import type { FdqlLineageRecorder } from './lineage.ts';
 import { executeLookup } from './lookup.ts';
 import { projectItems } from './projection.ts';
 import { executeProviderAggregateStage } from './provider-aggregate.ts';
@@ -33,7 +33,7 @@ import type { LookupCache, MutableStats, RowRecord } from './types.ts';
 export async function* applyLocalStages(
   plan: FdqlSingleReadPlan,
   sourceRows: readonly RowRecord[],
-  sourceLineage: WeakMap<RowRecord, FdqlProviderRow>,
+  lineage: FdqlLineageRecorder,
   runtime: FdqlProviderRuntimeRegistry,
   stats: MutableStats,
   startedAt: number,
@@ -44,23 +44,27 @@ export async function* applyLocalStages(
   | { readonly kind: 'failed'; readonly diagnostic: FdqlDiagnostic; }
   | {
     readonly kind: 'rows';
-    readonly lineage: WeakMap<RowRecord, FdqlProviderRow>;
+    readonly lineage: FdqlLineageRecorder;
     readonly rows: readonly RowRecord[];
   }
   | { readonly kind: 'stopped'; readonly reason: NonNullable<FdqlStats['stoppedReason']>; },
   unknown
 > {
   let rows = [...sourceRows];
-  let lineage = sourceLineage;
   const takeCounts = new Map<number, number>();
 
   // oxlint-disable no-await-in-loop -- Local stages are ordered and lookup depends on current row values.
   for (const stage of plan.localStages) {
+    const inputRows = rows;
+    const readsBefore = stats.reads;
+    const aggregateReadsBefore = stats.aggregateReads;
     if (stage.kind === 'filter') {
       rows = filterRows(stage, plan, rows, runtime);
+      for (const row of inputRows) {
+        if (!rows.includes(row)) lineage.drop({ reason: 'filtered', row, stage: 'filter' });
+      }
     } else if (stage.kind === 'lookup') {
       const nextRows: RowRecord[] = [];
-      const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
       for (const row of rows) {
         const lookup = await executeLookup(
           stage,
@@ -77,14 +81,17 @@ export async function* applyLocalStages(
         if (lookup.stopReason) return { kind: 'stopped', reason: lookup.stopReason };
         if (lookup.row) {
           nextRows.push(lookup.row);
-          copyLineage(lineage, nextLineage, row, lookup.row);
+          lineage.derive({ from: row, stage: 'lookup', to: lookup.row });
+          if (lookup.lineage) {
+            lineage.attach({ ...lookup.lineage, row: lookup.row, stage: 'lookup' });
+          }
+        } else {
+          lineage.drop({ reason: 'lookup required', row, stage: 'lookup' });
         }
       }
       rows = nextRows;
-      lineage = nextLineage;
     } else if (stage.kind === 'providerAggregate') {
       const nextRows: RowRecord[] = [];
-      const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
       for (const row of rows) {
         const aggregate = await executeProviderAggregateStage(
           stage,
@@ -101,39 +108,50 @@ export async function* applyLocalStages(
         if (aggregate.stopReason) return { kind: 'stopped', reason: aggregate.stopReason };
         if (aggregate.row) {
           nextRows.push(aggregate.row);
-          copyLineage(lineage, nextLineage, row, aggregate.row);
+          lineage.derive({ from: row, stage: 'providerAggregate', to: aggregate.row });
+          for (const binding of aggregate.lineage) {
+            lineage.attach({ ...binding, row: aggregate.row, stage: 'providerAggregate' });
+          }
+        } else {
+          lineage.drop({ reason: 'provider aggregate', row, stage: 'providerAggregate' });
         }
       }
       rows = nextRows;
-      lineage = nextLineage;
     } else if (stage.kind === 'sortBy') {
       rows = sortRows(stage, plan, rows, runtime);
+      for (const row of rows) lineage.derive({ from: row, stage: 'sortBy', to: row });
     } else if (stage.kind === 'unwind') {
       const nextRows: RowRecord[] = [];
-      const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
       for (const row of rows) {
         for (const unwound of unwindRow(stage, plan, row, runtime)) {
           nextRows.push(unwound);
-          copyLineage(lineage, nextLineage, row, unwound);
+          lineage.derive({ from: row, stage: 'unwind', to: unwound });
         }
       }
       rows = nextRows;
-      lineage = nextLineage;
     } else if (stage.kind === 'with') {
-      const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
       rows = rows.map((row) => {
         const projected = projectItems(stage.items, plan, row, runtime, 'internal');
-        copyLineage(lineage, nextLineage, row, projected);
+        lineage.derive({ from: row, stage: 'with', to: projected });
         return projected;
       });
-      lineage = nextLineage;
     } else if (stage.kind === 'aggregate') {
       const aggregated = aggregateRows(stage, plan, rows, lineage, stats, runtime);
       rows = aggregated.rows;
-      lineage = aggregated.lineage;
     } else if (stage.kind === 'take') {
       rows = takeRows(stage, rows, takeCounts);
+      for (const row of inputRows) {
+        if (!rows.includes(row)) lineage.drop({ reason: 'taken', row, stage: 'take' });
+      }
     }
+    lineage.stage({
+      aggregateReads: stats.aggregateReads - aggregateReadsBefore,
+      droppedRows: Math.max(0, inputRows.length - rows.length),
+      inputRows: inputRows.length,
+      outputRows: rows.length,
+      reads: stats.reads - readsBefore,
+      stage: stage.kind,
+    });
     if (rows.length === 0) break;
   }
   // oxlint-enable no-await-in-loop
@@ -199,10 +217,10 @@ function aggregateRows(
   stage: FdqlAggregateStage,
   plan: FdqlSingleReadPlan,
   rows: readonly RowRecord[],
-  lineage: WeakMap<RowRecord, FdqlProviderRow>,
+  lineage: FdqlLineageRecorder,
   stats: MutableStats,
   runtime: FdqlProviderRuntimeRegistry,
-): { readonly lineage: WeakMap<RowRecord, FdqlProviderRow>; readonly rows: RowRecord[]; } {
+): { readonly rows: RowRecord[]; } {
   stats.aggregateSourceRows += rows.length;
   const groups = new Map<
     string,
@@ -220,7 +238,6 @@ function aggregateRows(
   if (!stage.groups.length && !groups.size) groups.set('', { keyValues: [], rows: [] });
 
   const nextRows: RowRecord[] = [];
-  const nextLineage = new WeakMap<RowRecord, FdqlProviderRow>();
   for (const group of groups.values()) {
     const output: RowRecord = {};
     for (const [index, item] of stage.groups.entries()) {
@@ -230,10 +247,9 @@ function aggregateRows(
       output[item.alias ?? item.label] = aggregateValue(item.expression, plan, group.rows, runtime);
     }
     nextRows.push(output);
-    const source = group.rows.flatMap((row) => lineage.get(row) ? [lineage.get(row)!] : [])[0];
-    if (source) nextLineage.set(output, source);
+    if (group.rows[0]) lineage.derive({ from: group.rows[0], stage: 'aggregate', to: output });
   }
-  return { lineage: nextLineage, rows: nextRows };
+  return { rows: nextRows };
 }
 
 function aggregateValue(
@@ -272,16 +288,6 @@ function minMax(values: readonly FdqlValue[], mode: 'max' | 'min'): FdqlValue {
     }
   }
   return selected ?? nullValue;
-}
-
-function copyLineage(
-  from: WeakMap<RowRecord, FdqlProviderRow>,
-  to: WeakMap<RowRecord, FdqlProviderRow>,
-  oldRow: RowRecord,
-  newRow: RowRecord,
-): void {
-  const source = from.get(oldRow);
-  if (source) to.set(newRow, source);
 }
 
 function unwindItems(value: FdqlValue): readonly FdqlValue[] {

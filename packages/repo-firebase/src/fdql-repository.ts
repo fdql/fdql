@@ -116,6 +116,7 @@ export function createFirebaseFdqlRepository(
       }
 
       const rows: Record<string, unknown>[] = [];
+      const rowLineages: Array<NonNullable<FdqlRunResult['rowLineages']>[number]> = [];
       const diagnostics: FdqlDiagnostic[] = [];
       let stats: FdqlStats | null = null;
       let cancelled = false;
@@ -134,7 +135,10 @@ export function createFirebaseFdqlRepository(
       ) {
         const mapped = eventToRunEvent(request.runId, event);
         if (mapped) emit(mapped);
-        if (event.kind === 'row') rows.push(event.row);
+        if (event.kind === 'row') {
+          rows.push(event.row);
+          if (event.lineage) rowLineages.push(event.lineage);
+        }
         if (event.kind === 'diagnostic' || event.kind === 'failed') {
           diagnostics.push(event.diagnostic);
         }
@@ -148,6 +152,7 @@ export function createFirebaseFdqlRepository(
         ...(cancelled ? { cancelled: true } : {}),
         diagnostics,
         durationMs: Math.max(0, Date.now() - startedAt),
+        ...(rowLineages.length > 0 ? { rowLineages } : {}),
         rows,
         stats,
       };
@@ -799,7 +804,12 @@ function eventToRunEvent(runId: string, event: FdqlExecutionEvent): FdqlRunEvent
         type: 'read',
       };
     case 'row':
-      return { lineage: event.lineage, row: event.row, runId, type: 'row' };
+      return {
+        ...(event.lineage ? { lineage: event.lineage } : {}),
+        row: event.row,
+        runId,
+        type: 'row',
+      };
     case 'stats':
       return { runId, stats: event.stats, type: 'stats' };
     case 'completed':

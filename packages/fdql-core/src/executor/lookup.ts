@@ -7,6 +7,7 @@ import type {
   FdqlExecutionEvent,
   FdqlExecutionOptions,
   FdqlExpression,
+  FdqlLineageSource,
   FdqlLookupPlanStage,
   FdqlProviderReadRequest,
   FdqlProviderRow,
@@ -14,6 +15,7 @@ import type {
   FdqlStats,
 } from '../types.ts';
 import { isMissingValue } from '../value.ts';
+import { lineageSourcesForRows } from './lineage.ts';
 import { createReadRequest, providerDialects, readProvider } from './provider-read.ts';
 import { freezeStats, providerReadControls, recordRead, stopReasonFor } from './stats.ts';
 import type { LookupCache, MutableStats, RowRecord } from './types.ts';
@@ -30,6 +32,10 @@ export async function executeLookup(
 ): Promise<{
   readonly diagnostic?: Extract<FdqlExecutionEvent, { readonly kind: 'failed'; }>['diagnostic'];
   readonly events: readonly FdqlExecutionEvent[];
+  readonly lineage?: {
+    readonly binding: string;
+    readonly sources: readonly FdqlLineageSource[];
+  } | undefined;
   readonly row: RowRecord | null;
   readonly stopReason?: NonNullable<FdqlStats['stoppedReason']> | undefined;
 }> {
@@ -39,7 +45,13 @@ export async function executeLookup(
   if (boundProvider.kind === 'failed') {
     return { diagnostic: boundProvider.diagnostic, events: [], row };
   }
-  if (boundProvider.kind === 'skip') return { events: [], row: lookupRow(stage, row, []) };
+  if (boundProvider.kind === 'skip') {
+    return {
+      events: [],
+      lineage: lookupLineage(stage, []),
+      row: lookupRow(stage, row, []),
+    };
+  }
   const request = createReadRequest(
     boundProvider.provider,
     plan,
@@ -52,7 +64,11 @@ export async function executeLookup(
   const beforeLookupStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
   if (beforeLookupStop) return { events: [], row, stopReason: beforeLookupStop };
   if (lookupHasMissingCorrelatedValue(request, runtime)) {
-    return { events: [], row: lookupRow(stage, row, []) };
+    return {
+      events: [],
+      lineage: lookupLineage(stage, []),
+      row: lookupRow(stage, row, []),
+    };
   }
   const documents: FdqlProviderRow[] = [];
   const events: FdqlExecutionEvent[] = [];
@@ -64,6 +80,7 @@ export async function executeLookup(
     stats.cacheHits += 1;
     return {
       events: [{ kind: 'stats', stats: freezeStats(stats) }],
+      lineage: lookupLineage(stage, cachedDocuments),
       row: lookupRow(stage, row, cachedDocuments.slice(0, request.maxDocuments)),
     };
   }
@@ -75,6 +92,7 @@ export async function executeLookup(
       stats.cacheBytes += hit.sizeBytes;
       return {
         events: [{ kind: 'stats', stats: freezeStats(stats) }],
+        lineage: lookupLineage(stage, hit.rows),
         row: lookupRow(stage, row, hit.rows.slice(0, request.maxDocuments)),
       };
     }
@@ -124,7 +142,21 @@ export async function executeLookup(
   }
   return {
     events,
+    lineage: lookupLineage(stage, documents),
     row: lookupRow(stage, row, documents),
+  };
+}
+
+function lookupLineage(
+  stage: FdqlLookupPlanStage,
+  documents: readonly FdqlProviderRow[],
+): {
+  readonly binding: string;
+  readonly sources: readonly FdqlLineageSource[];
+} {
+  return {
+    binding: stage.rowAlias,
+    sources: lineageSourcesForRows(documents, 'lookup'),
   };
 }
 

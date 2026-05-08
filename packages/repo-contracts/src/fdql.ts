@@ -30,16 +30,52 @@ export interface FdqlStats {
   readonly reads: number;
   readonly rowsOutput: number;
   readonly rowsScanned: number;
+  readonly stageStats: readonly FdqlStageStats[];
   readonly stoppedReason?: 'budget' | 'cancelled' | 'completed' | 'timeout' | undefined;
   readonly unionBranches: number;
 }
 
-export interface FdqlRowLineage {
+export interface FdqlStageStats {
+  readonly aggregateReads: number;
+  readonly droppedRows: number;
+  readonly inputRows: number;
+  readonly outputRows: number;
+  readonly provider?: string | undefined;
+  readonly reads: number;
+  readonly source?: string | undefined;
+  readonly stage: string;
+}
+
+export interface FdqlLineageSource {
   readonly provider: string;
   readonly readContribution: number;
-  readonly rowPath: string;
+  readonly rowId?: string | undefined;
+  readonly rowPath?: string | undefined;
   readonly source: string;
+  readonly stage: string;
 }
+
+export interface FdqlLineageBinding {
+  readonly binding: string;
+  readonly sources: readonly FdqlLineageSource[];
+}
+
+export interface FdqlLineageTraceStep {
+  readonly action: 'attach' | 'derive' | 'drop' | 'output' | 'source';
+  readonly binding?: string | undefined;
+  readonly reason?: string | undefined;
+  readonly stage: string;
+}
+
+export interface FdqlResultRowLineage {
+  readonly bindings: readonly FdqlLineageBinding[];
+  readonly mode: 'compact' | 'trace';
+  readonly readContribution: number;
+  readonly sources: readonly FdqlLineageSource[];
+  readonly trace?: readonly FdqlLineageTraceStep[] | undefined;
+}
+
+export type FdqlRowLineage = FdqlResultRowLineage;
 
 export interface FdqlExecutionDefaults {
   readonly allowUnboundedReads?: boolean | undefined;
@@ -77,6 +113,7 @@ export interface FdqlRunResult {
   readonly command?: FdqlRunCommandResult | undefined;
   readonly diagnostics: readonly FdqlDiagnostic[];
   readonly durationMs: number;
+  readonly rowLineages?: readonly FdqlResultRowLineage[] | undefined;
   readonly rows: readonly Record<string, unknown>[];
   readonly stats: FdqlStats | null;
 }
@@ -92,7 +129,7 @@ export type FdqlRunEvent =
     readonly type: 'read';
   }
   | {
-    readonly lineage: FdqlRowLineage;
+    readonly lineage?: FdqlResultRowLineage | undefined;
     readonly row: Record<string, unknown>;
     readonly runId: string;
     readonly type: 'row';

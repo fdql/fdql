@@ -276,13 +276,68 @@ return fs.id(o) as id`);
     expect(diagnostics).toEqual([
       expect.objectContaining({
         code: 'FDQL_INVALID_SET_KEY',
-        column: 1,
-        endColumn: 2,
+        column: 5,
+        endColumn: 15,
         endLine: 1,
         line: 1,
         severity: 'error',
       }),
     ]);
+  });
+
+  it('returns token-located diagnostics for source aliases and provider clauses', () => {
+    const service = createFdqlLanguageService();
+
+    const undeclaredAlias = service.getDiagnostics(`set fs.projectId = "local"
+alias $events = fs.collection("admin-events", ["total"])
+from $evensts as event
+fs limit 1
+return event.total`);
+    const unknownProvider = service.getDiagnostics(`set fs.projectId = "local"
+alias $events = fs.collection("admin-events", ["total"])
+from $events as event
+fb limit 1
+return event.total`);
+    const duplicateProviderLimit = service.getDiagnostics(`set fs.projectId = "local"
+alias $events = fs.collection("admin-events", ["total"])
+from $events as event
+fs limit 1
+fs limit 2
+return event.total`);
+
+    expect(undeclaredAlias).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'FDQL_UNDECLARED_ALIAS',
+          column: 6,
+          endColumn: 14,
+          endLine: 3,
+          line: 3,
+        }),
+      ]),
+    );
+    expect(unknownProvider).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'FDQL_UNKNOWN_NAMESPACE',
+          column: 1,
+          endColumn: 3,
+          endLine: 4,
+          line: 4,
+        }),
+      ]),
+    );
+    expect(duplicateProviderLimit).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'FDQL_DUPLICATE_STAGE',
+          column: 1,
+          endColumn: 3,
+          endLine: 5,
+          line: 5,
+        }),
+      ]),
+    );
   });
 
   it('returns editor warnings for fields outside explicit masks without blocking valid reads', () => {
@@ -339,6 +394,28 @@ return
     );
   });
 
+  it('returns token-located diagnostics for unknown function calls', () => {
+    const service = createFdqlLanguageService();
+
+    const diagnostics = service.getDiagnostics(`set fs.projectId = "local"
+alias $events = fs.collection("admin-events", ["total"])
+from $events as event
+fs limit 1
+return fb.fgdfgf(event), event.total`);
+
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'FDQL_UNKNOWN_NAMESPACE',
+          column: 8,
+          endColumn: 17,
+          endLine: 5,
+          line: 5,
+        }),
+      ]),
+    );
+  });
+
   it('does not warn for unmasked sources, metadata-only sources, metadata functions, or mapGet', () => {
     const service = createFdqlLanguageService();
 
@@ -370,6 +447,31 @@ fs where o.status = "paid"
 fs order by o.total desc
 fs limit 25
 return fs.id(o) as id, o.status, o.total`);
+
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('accepts multiline from and provider limit headers without diagnostics', () => {
+    const service = createFdqlLanguageService({
+      defaultProviderContext: { fs: { projectId: 'editor' } },
+    });
+
+    const diagnostics = service.getDiagnostics(
+      `alias $events = fs.collection("admin-events", ["schedule.startsAt", "total"])
+
+from
+  $events
+  as
+  event
+fs
+  order
+  by
+  event.schedule.startsAt desc
+fs
+  limit
+  20
+return event.total, event.schedule.startsAt, fs.id(event)`,
+    );
 
     expect(diagnostics).toEqual([]);
   });

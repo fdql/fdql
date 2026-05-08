@@ -84,6 +84,9 @@ export function fdqlRunFailed(state: FdqlState, tabId: string, error: unknown): 
   return fdqlRunFinished(state, tabId, {
     diagnostics: [diagnosticFromUnknown(error)],
     durationMs: 0,
+    ...(state.results[tabId]?.rowLineages
+      ? { rowLineages: state.results[tabId]?.rowLineages }
+      : {}),
     rows: state.results[tabId]?.rows ?? [],
     stats: state.results[tabId]?.stats ?? null,
   });
@@ -96,6 +99,9 @@ export function fdqlRunCancelled(state: FdqlState, tabId: string, now: number): 
     cancelled: true,
     diagnostics: state.results[tabId]?.diagnostics ?? [],
     durationMs: Math.max(0, now - run.startedAt),
+    ...(state.results[tabId]?.rowLineages
+      ? { rowLineages: state.results[tabId]?.rowLineages }
+      : {}),
     rows: state.results[tabId]?.rows ?? [],
     stats: state.results[tabId]?.stats ?? null,
   });
@@ -129,6 +135,9 @@ export function fdqlEventReceived(
     };
   }
   if (input.event.type === 'row') {
+    const rowLineages = input.event.lineage
+      ? [...(current.rowLineages ?? []), input.event.lineage]
+      : current.rowLineages;
     return {
       ...state,
       results: {
@@ -136,6 +145,7 @@ export function fdqlEventReceived(
         [tabEntry.tabId]: {
           ...current,
           durationMs: Math.max(0, input.now - tabEntry.run.startedAt),
+          ...(rowLineages ? { rowLineages } : {}),
           rows: [...current.rows, input.event.row],
         },
       },

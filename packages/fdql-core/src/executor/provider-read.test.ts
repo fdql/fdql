@@ -29,6 +29,7 @@ const plan: FdqlSingleReadPlan = {
     allowUnboundedReads: false,
     cache: 'off',
     cacheTtlMs: 86_400_000,
+    lineage: 'compact',
     pageSize: 100,
     readBudget: 3,
     timeoutMs: 60_000,

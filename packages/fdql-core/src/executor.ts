@@ -1,4 +1,10 @@
 import { diagnosticFromError } from './executor/errors.ts';
+import {
+  aggregateLineageBindings,
+  createLineageRecorder,
+  lineageSourceForProviderSource,
+  lineageSourcesForRows,
+} from './executor/lineage.ts';
 import { applyLocalStages } from './executor/local-stages.ts';
 import { projectItems } from './executor/projection.ts';
 import { providerAggregateOutputRow } from './executor/provider-aggregate.ts';
@@ -22,7 +28,6 @@ import type { FdqlProviderRuntimeRegistry } from './provider.ts';
 import type {
   FdqlExecutionEvent,
   FdqlExecutionOptions,
-  FdqlProviderRow,
   FdqlReadPlan,
   FdqlSingleReadPlan,
   FdqlStats,
@@ -85,8 +90,10 @@ async function* executeReadBranch(
 ): AsyncGenerator<FdqlExecutionEvent, 'done' | 'stopped', unknown> {
   const request = createReadRequest(plan.provider, plan, plan.rowAlias, stats, 'source');
   const sourceRows: RowRecord[] = [];
-  const sourceLineage = new WeakMap<RowRecord, FdqlProviderRow>();
+  const lineage = createLineageRecorder(plan.settings.lineage, stats.stageStats);
   let readStopReason: NonNullable<FdqlStats['stoppedReason']> | undefined;
+  const sourceReadsBefore = stats.reads;
+  const sourceAggregatesBefore = stats.aggregateReads;
 
   const beforeReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
   if (beforeReadStop) {
@@ -115,7 +122,18 @@ async function* executeReadBranch(
     const aggregateRow = providerAggregateOutputRow(plan.providerAggregate, aggregate.values);
     for (const document of aggregate.documentReads ?? []) {
       yield recordRead(document, request, stats, false);
-      sourceLineage.set(aggregateRow, document);
+    }
+    const sources = (aggregate.documentReads?.length ?? 0) > 0
+      ? lineageSourcesForRows(aggregate.documentReads ?? [], 'sourceAggregate')
+      : [
+        lineageSourceForProviderSource(
+          plan.provider.source,
+          'sourceAggregate',
+          aggregate.aggregateReads,
+        ),
+      ];
+    for (const binding of aggregateLineageBindings(plan.providerAggregate, sources)) {
+      lineage.attach({ ...binding, row: aggregateRow, stage: 'sourceAggregate' });
     }
     sourceRows.push(aggregateRow);
   } else {
@@ -135,13 +153,23 @@ async function* executeReadBranch(
       yield recordRead(document, request, stats, false);
       const row = { [plan.rowAlias]: document };
       sourceRows.push(row);
-      sourceLineage.set(row, document);
+      lineage.source({ binding: plan.rowAlias, document, row, stage: 'source' });
       if (stats.reads >= plan.settings.readBudget) {
         readStopReason = 'budget';
         break;
       }
     }
   }
+  lineage.stage({
+    aggregateReads: stats.aggregateReads - sourceAggregatesBefore,
+    droppedRows: 0,
+    inputRows: 0,
+    outputRows: sourceRows.length,
+    provider: plan.provider.source.provider,
+    reads: stats.reads - sourceReadsBefore,
+    source: plan.provider.source.sourceAlias,
+    stage: plan.providerAggregate ? 'sourceAggregate' : 'source',
+  });
 
   const afterReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
   if (afterReadStop) {
@@ -153,7 +181,7 @@ async function* executeReadBranch(
   const localResult = yield* applyLocalStages(
     plan,
     sourceRows,
-    sourceLineage,
+    lineage,
     runtime,
     stats,
     startedAt,
@@ -170,23 +198,20 @@ async function* executeReadBranch(
     return 'stopped';
   }
 
+  const outputRowsBefore = stats.rowsOutput;
   for (const row of localResult.rows) {
-    const document = localResult.lineage.get(row)
-      ?? sourceRows.flatMap((item) => sourceLineage.get(item) ? [sourceLineage.get(item)!] : [])[0];
     const projected = projectItems(plan.returnStage.items, plan, row, runtime, 'external');
     stats.rowsOutput += 1;
-    yield {
+    const rowEvent: Extract<FdqlExecutionEvent, { readonly kind: 'row'; }> = {
       kind: 'row',
-      lineage: {
-        provider: document?.provider ?? plan.provider.source.provider,
-        rowPath: document?.path ?? '',
-        readContribution: 1,
-        source: unionBranch === undefined
-          ? plan.provider.source.sourceAlias
-          : `${plan.provider.source.sourceAlias}#${unionBranch + 1}`,
-      },
       row: projected,
     };
+    const rowLineage = localResult.lineage.output({
+      projected,
+      row,
+      stage: unionBranch === undefined ? 'return' : `return#${unionBranch + 1}`,
+    });
+    yield rowLineage ? { ...rowEvent, lineage: rowLineage } : rowEvent;
     yield { kind: 'stats', stats: freezeStats(stats) };
     const rowStopReason = stopReasonFor(plan, stats, startedAt, options, 'afterRow');
     if (rowStopReason && rowStopReason !== 'budget') {
@@ -195,6 +220,14 @@ async function* executeReadBranch(
       return 'stopped';
     }
   }
+  localResult.lineage.stage({
+    aggregateReads: 0,
+    droppedRows: 0,
+    inputRows: localResult.rows.length,
+    outputRows: stats.rowsOutput - outputRowsBefore,
+    reads: 0,
+    stage: 'return',
+  });
 
   if (readStopReason) {
     stats.stoppedReason = readStopReason;

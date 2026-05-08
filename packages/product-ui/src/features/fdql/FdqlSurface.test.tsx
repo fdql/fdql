@@ -57,6 +57,27 @@ const startsAtIso = '2026-05-05T10:27:00.000Z';
 const result: FdqlRunResult = {
   diagnostics: [],
   durationMs: 1_234,
+  rowLineages: [{
+    bindings: [{
+      binding: 'version',
+      sources: [{
+        provider: 'fs',
+        readContribution: 1,
+        rowPath: 'public-versions/current',
+        source: '$versions',
+        stage: 'source',
+      }],
+    }],
+    mode: 'compact',
+    readContribution: 1,
+    sources: [{
+      provider: 'fs',
+      readContribution: 1,
+      rowPath: 'public-versions/current',
+      source: '$versions',
+      stage: 'source',
+    }],
+  }],
   rows: [{
     id: 'version',
     metadata: { channel: 'stable' },
@@ -78,6 +99,16 @@ const result: FdqlRunResult = {
     reads: 1,
     rowsOutput: 1,
     rowsScanned: 1,
+    stageStats: [{
+      aggregateReads: 0,
+      droppedRows: 0,
+      inputRows: 0,
+      outputRows: 1,
+      provider: 'fs',
+      reads: 1,
+      source: '$versions',
+      stage: 'source',
+    }],
     stoppedReason: 'completed',
     unionBranches: 0,
   },
@@ -94,6 +125,53 @@ describe('FdqlSurface', () => {
         removeEventListener: vi.fn(),
       })),
     );
+  });
+
+  it('shows lineage for the selected row', () => {
+    const onOpenDocumentInNewTab = vi.fn();
+    render(
+      <FdqlSurface
+        result={result}
+        source='return version'
+        onCancel={() => undefined}
+        onOpenDocumentInNewTab={onOpenDocumentInNewTab}
+        onRun={() => undefined}
+        onSourceChange={() => undefined}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /Lineage/ }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    expect(screen.getByText('source')).toBeTruthy();
+    expect(screen.getByText('0 in · 1 out · 0 dropped · 1 reads')).toBeTruthy();
+    expect(screen.getByText('fs · $versions')).toBeTruthy();
+    expect(screen.getByText('public-versions/current')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Open/ }));
+
+    expect(onOpenDocumentInNewTab).toHaveBeenCalledWith('public-versions/current');
+  });
+
+  it('shows lineage disabled state when row lineage is omitted', () => {
+    render(
+      <FdqlSurface
+        result={{ ...result, rowLineages: undefined }}
+        source='set fdql.lineage = off'
+        onCancel={() => undefined}
+        onRun={() => undefined}
+        onSourceChange={() => undefined}
+      />,
+    );
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /Lineage/ }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    expect(screen.getByText('Lineage disabled for this run.')).toBeTruthy();
   });
 
   it('shows table, tree, lazy JSON, and execution time for results', async () => {

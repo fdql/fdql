@@ -32,15 +32,43 @@ export const FdqlStatsSchema = z.object({
   reads: z.number(),
   rowsOutput: z.number(),
   rowsScanned: z.number(),
+  stageStats: z.array(z.object({
+    aggregateReads: z.number(),
+    droppedRows: z.number(),
+    inputRows: z.number(),
+    outputRows: z.number(),
+    provider: z.string().optional(),
+    reads: z.number(),
+    source: z.string().optional(),
+    stage: z.string(),
+  })),
   stoppedReason: z.enum(['budget', 'cancelled', 'completed', 'timeout']).optional(),
   unionBranches: z.number(),
 });
 
-export const FdqlRowLineageSchema = z.object({
+export const FdqlLineageSourceSchema = z.object({
   provider: z.string(),
   readContribution: z.number(),
-  rowPath: z.string(),
+  rowId: z.string().optional(),
+  rowPath: z.string().optional(),
   source: z.string(),
+  stage: z.string(),
+});
+
+export const FdqlRowLineageSchema = z.object({
+  bindings: z.array(z.object({
+    binding: z.string(),
+    sources: z.array(FdqlLineageSourceSchema),
+  })),
+  mode: z.enum(['compact', 'trace']),
+  readContribution: z.number(),
+  sources: z.array(FdqlLineageSourceSchema),
+  trace: z.array(z.object({
+    action: z.enum(['attach', 'derive', 'drop', 'output', 'source']),
+    binding: z.string().optional(),
+    reason: z.string().optional(),
+    stage: z.string(),
+  })).optional(),
 });
 
 export const FdqlExecutionDefaultsSchema = z.object({
@@ -79,6 +107,7 @@ export const FdqlRunResultSchema = z.object({
   command: FdqlRunCommandResultSchema.optional(),
   diagnostics: z.array(FdqlDiagnosticSchema),
   durationMs: z.number(),
+  rowLineages: z.array(FdqlRowLineageSchema).optional(),
   rows: z.array(z.record(z.string(), z.unknown())),
   stats: FdqlStatsSchema.nullable(),
 });
@@ -98,7 +127,7 @@ export const FdqlRunEventSchema = z.discriminatedUnion('type', [
     type: z.literal('read'),
   }),
   z.object({
-    lineage: FdqlRowLineageSchema,
+    lineage: FdqlRowLineageSchema.optional(),
     row: z.record(z.string(), z.unknown()),
     runId: z.string(),
     type: z.literal('row'),

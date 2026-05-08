@@ -6,7 +6,7 @@ import type {
   FdqlSourceRange,
 } from '../types.ts';
 import { isStatementStart, parserError } from './helpers.ts';
-import { expressionSlice, type SourceLine, span } from './source-text.ts';
+import { expressionSlice, nameRefAt, type SourceLine, span } from './source-text.ts';
 
 interface ProjectionSourceLocation {
   readonly column: number;
@@ -73,15 +73,29 @@ export function parseProjectionItems(
     const rawExpressionText = aliasIndex < 0 ? item.trim() : item.slice(0, aliasIndex).trim();
     const spread = rawExpressionText.startsWith('...');
     const expressionText = spread ? rawExpressionText.slice(3).trim() : rawExpressionText;
-    const alias = aliasIndex < 0 || spread ? undefined : item.slice(aliasIndex + 4).trim();
+    const rawAlias = aliasIndex < 0 ? undefined : item.slice(aliasIndex + 4).trim();
+    const alias = spread ? undefined : rawAlias;
+    const aliasRef = rawAlias
+      ? nameRefAt(rawAlias, item, part.line, part.column, aliasIndex + 4)
+      : undefined;
     if (spread && aliasIndex >= 0) {
+      const errorRange = aliasRef?.range ?? {
+        endColumn: part.endColumn,
+        endLine: part.endLine,
+        startColumn: part.column,
+        startLine: part.line,
+      };
       diagnostics.push(
-        parserError(
-          'FDQL_INVALID_SPREAD_PROJECTION',
-          'Spread return projections cannot use `as alias`.',
-          line,
-          part.column,
-        ),
+        {
+          code: 'FDQL_INVALID_SPREAD_PROJECTION',
+          column: errorRange.startColumn,
+          endColumn: errorRange.endColumn,
+          endLine: errorRange.endLine,
+          line: errorRange.startLine,
+          message: 'Spread return projections cannot use `as alias`.',
+          range: errorRange,
+          severity: 'error',
+        },
       );
     }
     const expressionColumn = part.column + Math.max(0, item.indexOf(expressionText));
@@ -89,6 +103,7 @@ export function parseProjectionItems(
     diagnostics.push(...parsed.diagnostics);
     return {
       ...(alias ? { alias } : {}),
+      ...(aliasRef ? { aliasRef } : {}),
       column: part.column,
       expression: parsed.expression ?? { kind: 'literal', value: null },
       label: expressionText || item,
@@ -215,6 +230,9 @@ export function parseProviderAggregateYieldItems(
     const rawExpressionText = aliasIndex < 0 ? item.trim() : item.slice(0, aliasIndex).trim();
     if (rawExpressionText.startsWith('{') && rawExpressionText.endsWith('}')) {
       const alias = aliasIndex < 0 ? undefined : item.slice(aliasIndex + 4).trim();
+      const aliasRef = alias
+        ? nameRefAt(alias, item, part.line, part.column, aliasIndex + 4)
+        : undefined;
       const inner = rawExpressionText.slice(1, -1).trim();
       if (!alias) {
         diagnostics.push(
@@ -228,6 +246,7 @@ export function parseProviderAggregateYieldItems(
       }
       return {
         ...(alias ? { alias } : {}),
+        ...(aliasRef ? { aliasRef } : {}),
         column: part.column,
         items: parseProjectionItems(inner, part.line, part.column + 1, diagnostics),
         kind: 'map',

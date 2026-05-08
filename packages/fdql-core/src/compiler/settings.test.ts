@@ -29,7 +29,8 @@ describe('FDQL compiler settings', () => {
         setDeclaration('fdql.cache', 'run', literal('run'), 3),
         setDeclaration('fdql.cacheTtl', '2h', undefined, 4),
         setDeclaration('fdql.allowUnboundedReads', 'true', literal(true), 5),
-        setDeclaration('mem.projectId', '"local"', literal('local'), 6),
+        setDeclaration('fdql.lineage', 'trace', literal('trace'), 6),
+        setDeclaration('mem.projectId', '"local"', literal('local'), 7),
       ],
       {},
       providers,
@@ -43,6 +44,7 @@ describe('FDQL compiler settings', () => {
         allowUnboundedReads: true,
         cache: 'run',
         cacheTtlMs: 7_200_000,
+        lineage: 'trace',
         readBudget: 7,
         timeoutMs: 2000,
       },
@@ -61,6 +63,7 @@ describe('FDQL compiler settings', () => {
         setDeclaration('fdql.readBudget', '20', literal(20), 6),
         setDeclaration('fdql.cache', '"run"', literal('run'), 7),
         setDeclaration('fdql.cacheTtl', '31d', undefined, 8),
+        setDeclaration('fdql.lineage', '"trace"', literal('trace'), 9),
       ],
       {},
       providers,
@@ -76,6 +79,7 @@ describe('FDQL compiler settings', () => {
         expect.objectContaining({ code: 'FDQL_DUPLICATE_SET', line: 6 }),
         expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 7 }),
         expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 8 }),
+        expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 9 }),
       ]),
     );
   });

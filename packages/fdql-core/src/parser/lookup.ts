@@ -1,7 +1,24 @@
-import { findTopLevelAs, parseExpression } from '../expression.ts';
-import type { FdqlDiagnostic, FdqlExpression, FdqlLookupClause, FdqlStage } from '../types.ts';
-import { isProviderClauseStart, parserError, providerFromStatement } from './helpers.ts';
-import { expressionSlice, type SourceLine, span } from './source-text.ts';
+import { findTopLevelAs } from '../expression.ts';
+import type {
+  FdqlDiagnostic,
+  FdqlExpression,
+  FdqlLookupClause,
+  FdqlNameRef,
+  FdqlStage,
+} from '../types.ts';
+import { parserError } from './helpers.ts';
+import {
+  collectStatementBlock,
+  expressionBlockSlice,
+  isProviderClauseBlockStart,
+  nameRefInSourceBlock,
+  parseExpressionBlock,
+  type SourceBlock,
+  sourceBlockSlice,
+  trimSourceBlock,
+} from './source-block.ts';
+import { type SourceLine, span } from './source-text.ts';
+import { parseProviderClause } from './stages.ts';
 
 interface LookupHeader {
   readonly cache?: 'off' | 'persistent' | 'run' | undefined;
@@ -9,8 +26,8 @@ interface LookupHeader {
   readonly mode: 'many' | 'one';
   readonly required: boolean;
   readonly rowAlias: string;
-  readonly sourceColumn: number;
-  readonly sourceText: string;
+  readonly rowAliasRef: FdqlNameRef;
+  readonly source: SourceBlock;
 }
 
 export function parseLookup(
@@ -19,30 +36,38 @@ export function parseLookup(
   diagnostics: FdqlDiagnostic[],
 ): { readonly nextIndex: number; readonly stage?: FdqlStage | undefined; } {
   const start = lines[startIndex]!;
+  const headerBlock = collectStatementBlock(lines, startIndex);
   const clauses: FdqlLookupClause[] = [];
-  let nextIndex = startIndex;
-  let endRange = start.range;
+  let nextIndex = headerBlock.nextIndex;
+  let endRange = headerBlock.range;
 
-  for (let index = startIndex + 1; index < lines.length; index += 1) {
+  for (let index = headerBlock.nextIndex + 1; index < lines.length; index += 1) {
     const line = lines[index]!;
     if (!line.text) {
       nextIndex = index;
       endRange = line.range;
       continue;
     }
-    if (isProviderClauseStart(line.text)) {
-      const clause = parseLookupClause(line, diagnostics);
-      if (clause) clauses.push(clause);
-      nextIndex = index;
-      endRange = line.range;
+    if (isProviderClauseBlockStart(lines, index)) {
+      const clauseBlock = collectStatementBlock(lines, index);
+      const clause = parseProviderClause(clauseBlock, diagnostics);
+      if (
+        clause?.kind === 'providerWhere' || clause?.kind === 'providerOrderBy'
+        || clause?.kind === 'providerLimit'
+      ) {
+        clauses.push(clause);
+      }
+      index = clauseBlock.nextIndex;
+      nextIndex = clauseBlock.nextIndex;
+      endRange = clauseBlock.range;
       continue;
     }
     break;
   }
 
-  const header = parseLookupHeader(start);
+  const header = parseLookupHeader(headerBlock);
   if (!header) {
-    if (isMalformedLookupCache(start.text)) {
+    if (isMalformedLookupCache(headerBlock.text)) {
       diagnostics.push(
         parserError(
           'FDQL_INVALID_LOOKUP_CACHE',
@@ -64,12 +89,7 @@ export function parseLookup(
     return { nextIndex };
   }
 
-  const parsedSource = parseLookupSource(
-    header.sourceText,
-    start.line,
-    header.sourceColumn,
-    diagnostics,
-  );
+  const parsedSource = parseLookupSource(header.source, diagnostics);
   return {
     nextIndex,
     stage: {
@@ -84,36 +104,39 @@ export function parseLookup(
       range: span(start.range, endRange),
       required: header.required,
       rowAlias: header.rowAlias,
+      rowAliasRef: header.rowAliasRef,
       sourceAlias: parsedSource.sourceAlias,
+      ...(parsedSource.sourceAliasRef ? { sourceAliasRef: parsedSource.sourceAliasRef } : {}),
       ...(parsedSource.sourceExpression ? { sourceExpression: parsedSource.sourceExpression } : {}),
     },
   };
 }
 
-function parseLookupHeader(line: SourceLine): LookupHeader | null {
+function parseLookupHeader(block: SourceBlock): LookupHeader | null {
   const prefix = 'then lookup ';
-  let body = line.text.slice(prefix.length).trim();
-  let bodyColumn = line.column + prefix.length;
+  let bodyBlock = expressionBlockSlice(block, prefix.length);
+  let body = bodyBlock.text;
   const required = body.toLowerCase().startsWith('required ');
   if (required) {
-    body = body.slice('required '.length).trimStart();
-    bodyColumn = line.column + line.text.indexOf(body);
+    bodyBlock = expressionBlockSlice(bodyBlock, 'required '.length);
+    body = bodyBlock.text;
   }
   const modeMatch = /^(one|many)\s+/i.exec(body);
   if (!modeMatch || (required && modeMatch[1]?.toLowerCase() !== 'one')) return null;
   const mode = modeMatch[1]!.toLowerCase() as 'many' | 'one';
-  const remainder = body.slice(modeMatch[0].length);
-  const remainderColumn = bodyColumn + modeMatch[0].length;
+  const remainderBlock = sourceBlockSlice(bodyBlock, modeMatch[0].length);
+  const remainder = remainderBlock.text;
   const aliasIndex = findTopLevelAs(remainder);
   if (aliasIndex < 0) return null;
-  const sourceText = remainder.slice(0, aliasIndex).trim();
-  if (!sourceText) return null;
-  const sourceColumn = remainderColumn + remainder.indexOf(sourceText);
-  const suffix = remainder.slice(aliasIndex + 4).trim();
+  const source = trimSourceBlock(sourceBlockSlice(remainderBlock, 0, aliasIndex));
+  if (!source.text) return null;
+  const suffixBlock = trimSourceBlock(sourceBlockSlice(remainderBlock, aliasIndex + 4));
+  const suffix = suffixBlock.text;
   const suffixMatch =
     /^([A-Za-z_][A-Za-z0-9_]*)(?:\s+cache\s+(off|run|persistent)(?:\s+(\d+[smhd]))?)?$/i
       .exec(suffix);
   if (!suffixMatch) return null;
+  const rowAlias = suffixMatch[1]!;
   return {
     ...(suffixMatch[2]
       ? {
@@ -126,9 +149,9 @@ function parseLookupHeader(line: SourceLine): LookupHeader | null {
     ...(suffixMatch[3] ? { cacheTtlRaw: suffixMatch[3] } : {}),
     mode,
     required,
-    rowAlias: suffixMatch[1]!,
-    sourceColumn,
-    sourceText,
+    rowAlias,
+    rowAliasRef: nameRefInSourceBlock(rowAlias, suffixBlock),
+    source,
   };
 }
 
@@ -138,22 +161,26 @@ function isMalformedLookupCache(text: string): boolean {
 }
 
 function parseLookupSource(
-  text: string,
-  line: number,
-  column: number,
+  block: SourceBlock,
   diagnostics: FdqlDiagnostic[],
 ): {
   readonly parent?: FdqlExpression | undefined;
   readonly sourceAlias: string;
+  readonly sourceAliasRef?: FdqlNameRef | undefined;
   readonly sourceExpression?: FdqlExpression | undefined;
 } {
+  const text = block.text;
   const ofIndex = findTopLevelKeyword(text, 'of');
-  const sourceText = (ofIndex >= 0 ? text.slice(0, ofIndex) : text).trim();
-  const parentText = ofIndex >= 0 ? text.slice(ofIndex + 'of'.length).trim() : '';
+  const sourceBlock = trimSourceBlock(
+    sourceBlockSlice(block, 0, ofIndex >= 0 ? ofIndex : text.length),
+  );
+  const sourceText = sourceBlock.text;
+  const parentBlock = ofIndex >= 0
+    ? trimSourceBlock(sourceBlockSlice(block, ofIndex + 'of'.length))
+    : undefined;
   let parent: FdqlExpression | undefined;
-  if (parentText) {
-    const parentOffset = text.indexOf(parentText, ofIndex + 'of'.length);
-    const parsedParent = parseExpression(parentText, line, column + parentOffset);
+  if (parentBlock?.text) {
+    const parsedParent = parseExpressionBlock(parentBlock);
     diagnostics.push(...parsedParent.diagnostics);
     parent = parsedParent.expression;
   }
@@ -161,9 +188,10 @@ function parseLookupSource(
     return {
       ...(parent ? { parent } : {}),
       sourceAlias: sourceText,
+      sourceAliasRef: nameRefInSourceBlock(sourceText, sourceBlock),
     };
   }
-  const parsedSource = parseExpression(sourceText, line, column);
+  const parsedSource = parseExpressionBlock(sourceBlock);
   diagnostics.push(...parsedSource.diagnostics);
   return {
     ...(parent ? { parent } : {}),
@@ -198,74 +226,4 @@ function findTopLevelKeyword(source: string, keyword: string): number {
     }
   }
   return -1;
-}
-
-function parseLookupClause(
-  line: SourceLine,
-  diagnostics: FdqlDiagnostic[],
-): FdqlLookupClause | null {
-  const { column, range, text } = line;
-  const provider = providerFromStatement(text);
-  if (!provider) {
-    diagnostics.push(
-      parserError('FDQL_UNKNOWN_STAGE', `Unsupported lookup clause: ${text}.`, line.line, column),
-    );
-    return null;
-  }
-  if (text.startsWith(`${provider} where `)) {
-    const prefix = `${provider} where `;
-    const expressionSource = expressionSlice(text, column, prefix.length);
-    const parsed = parseExpression(expressionSource.text, line.line, expressionSource.column);
-    diagnostics.push(...parsed.diagnostics);
-    return parsed.expression
-      ? {
-        column,
-        expression: parsed.expression,
-        kind: 'providerWhere',
-        line: line.line,
-        provider,
-        range,
-      }
-      : null;
-  }
-  if (text.startsWith(`${provider} order by `)) {
-    const prefix = `${provider} order by `;
-    const sourceBody = expressionSlice(text, column, prefix.length);
-    const body = sourceBody.text;
-    const direction = body.toLowerCase().endsWith(' desc')
-      ? 'desc'
-      : body.toLowerCase().endsWith(' asc')
-      ? 'asc'
-      : 'asc';
-    const expressionText = direction === 'asc' && !body.toLowerCase().endsWith(' asc')
-      ? body
-      : body.slice(0, Math.max(0, body.length - 4)).trim();
-    const parsed = parseExpression(expressionText, line.line, sourceBody.column);
-    diagnostics.push(...parsed.diagnostics);
-    return parsed.expression
-      ? {
-        column,
-        direction,
-        expression: parsed.expression,
-        kind: 'providerOrderBy',
-        line: line.line,
-        provider,
-        range,
-      }
-      : null;
-  }
-  if (text.startsWith(`${provider} limit `)) {
-    return {
-      column,
-      kind: 'providerLimit',
-      line: line.line,
-      provider,
-      range,
-      value: Number(text.slice(`${provider} limit `.length).trim()),
-    };
-  }
-  diagnostics.push(
-    parserError('FDQL_UNKNOWN_STAGE', `Unsupported lookup clause: ${text}.`, line.line, column),
-  );
-  return null;
 }

@@ -27,6 +27,7 @@ export function createStats(readBudget: number): MutableStats {
     reads: 0,
     rowsOutput: 0,
     rowsScanned: 0,
+    stageStats: [],
     unionBranches: 0,
   };
 }
@@ -118,6 +119,7 @@ export function freezeStats(stats: MutableStats): FdqlStats {
     reads: stats.reads,
     rowsOutput: stats.rowsOutput,
     rowsScanned: stats.rowsScanned,
+    stageStats: stats.stageStats.map((stage) => ({ ...stage })),
     ...(stats.stoppedReason ? { stoppedReason: stats.stoppedReason } : {}),
     unionBranches: stats.unionBranches,
   };

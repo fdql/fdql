@@ -11,7 +11,7 @@ import type {
   FdqlProviderAggregateStage,
 } from '../types.ts';
 import type { ResolvedAliasValue } from './aliases.ts';
-import { compilerError } from './diagnostics.ts';
+import { diagnosticAtName, diagnosticAtRange } from './diagnostics.ts';
 
 type ProviderStage = FdqlLookupStage | FdqlProviderAggregateStage;
 
@@ -45,20 +45,20 @@ function resolveProviderSourceAlias(
   const sourceAlias = aliases[stage.sourceAlias];
   if (!sourceAlias) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtName(
         'FDQL_UNDECLARED_ALIAS',
         `Source alias ${stage.sourceAlias} is not declared.`,
-        stage.line,
+        stage.sourceAliasRef,
       ),
     );
     return null;
   }
   if (sourceAlias.kind !== 'source') {
     diagnostics.push(
-      compilerError(
+      diagnosticAtName(
         'FDQL_UNDECLARED_ALIAS',
         `Alias ${stage.sourceAlias} is not a provider source.`,
-        stage.line,
+        stage.sourceAliasRef,
       ),
     );
     return null;
@@ -77,10 +77,10 @@ function resolveProviderSourceExpression(
   const expression = stage.sourceExpression;
   if (!expression || expression.kind !== 'call') {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_PROVIDER_SOURCE',
         `${stageLabel(stage)} source must be a source alias or provider source call.`,
-        stage.line,
+        stage.sourceAliasRef?.range ?? stage.range,
       ),
     );
     return null;
@@ -88,10 +88,10 @@ function resolveProviderSourceExpression(
   const namespace = providerNamespaceFromCall(expression.name);
   if (!namespace) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_PROVIDER_SOURCE',
         `${stageLabel(stage)} source must be a provider source call.`,
-        stage.line,
+        expression.nameRange ?? expression.range,
       ),
     );
     return null;
@@ -99,20 +99,20 @@ function resolveProviderSourceExpression(
   const provider = providers[namespace];
   if (!provider) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_UNKNOWN_NAMESPACE',
         `Unknown provider namespace ${namespace}.`,
-        stage.line,
+        expression.nameRange ?? expression.range,
       ),
     );
     return null;
   }
   if (!provider.resolveSourceExpression) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_PROVIDER_SOURCE',
         `Provider ${namespace} does not support inline provider sources.`,
-        stage.line,
+        expression.nameRange ?? expression.range,
       ),
     );
     return null;
@@ -179,16 +179,20 @@ function validateParentExpression(
     return;
   }
   diagnostics.push(
-    compilerError(
+    diagnosticAtRange(
       parentErrorCode(stage),
       'Subcollection parent must be an existing provider row alias.',
-      stage.line,
+      expression.range ?? stage.range,
     ),
   );
 }
 
 function parentError(message: string, stage: ProviderStage): FdqlDiagnostic {
-  return compilerError(parentErrorCode(stage), message, stage.line);
+  return diagnosticAtRange(
+    parentErrorCode(stage),
+    message,
+    stage.sourceAliasRef?.range ?? stage.range,
+  );
 }
 
 function parentErrorCode(stage: ProviderStage): string {

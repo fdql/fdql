@@ -8,12 +8,13 @@ import type {
   FdqlValue,
 } from '../types.ts';
 import { arrayValue, literalToValue, mapValue, missingValue, scalarValue } from '../value.ts';
-import { compilerError } from './diagnostics.ts';
+import { diagnosticAtName, diagnosticAtRange } from './diagnostics.ts';
 
 export const defaultSettings: FdqlExecutionSettings = {
   allowUnboundedReads: false,
   cache: 'off',
   cacheTtlMs: 86_400_000,
+  lineage: 'compact',
   pageSize: 100,
   readBudget: 5000,
   timeoutMs: 60_000,
@@ -39,21 +40,25 @@ export function resolveSettings(
   let settings: FdqlExecutionSettings = { ...defaultSettings, ...options.executionDefaults };
   let providerContext = defaultProviderContext(options);
   const seenKeys = new Map<string, number>();
+  const seenKeyRefs = new Map<string, FdqlSetDeclaration>();
   for (const declaration of declarations) {
-    const parsedKey = parseSettingKey(declaration.key, declaration.line, diagnostics);
+    const parsedKey = parseSettingKey(declaration, diagnostics);
     if (!parsedKey) continue;
     const firstLine = seenKeys.get(declaration.key);
     if (firstLine !== undefined) {
+      const firstDeclaration = seenKeyRefs.get(declaration.key);
       diagnostics.push(
-        compilerError(
+        diagnosticAtName(
           'FDQL_DUPLICATE_SET',
           `set ${declaration.key} can only appear once. First used on line ${firstLine}.`,
+          declaration.keyRef ?? firstDeclaration?.keyRef,
           declaration.line,
         ),
       );
       continue;
     }
     seenKeys.set(declaration.key, declaration.line);
+    seenKeyRefs.set(declaration.key, declaration);
     if (parsedKey.namespace === 'fdql') {
       settings = applyFdqlSetting(parsedKey.key, declaration, settings, diagnostics);
       continue;
@@ -63,9 +68,10 @@ export function resolveSettings(
     const provider = providers[parsedKey.namespace];
     if (!provider) {
       diagnostics.push(
-        compilerError(
+        diagnosticAtName(
           'FDQL_UNKNOWN_NAMESPACE',
           `Unknown provider namespace ${parsedKey.namespace}.`,
+          declaration.keyRef,
           declaration.line,
         ),
       );
@@ -81,9 +87,10 @@ export function resolveSettings(
       providerContext = mergeProviderContext(providerContext, parsedKey.namespace, resolved);
     } else if (!provider.resolveSetting) {
       diagnostics.push(
-        compilerError(
+        diagnosticAtName(
           'FDQL_UNKNOWN_SET_KEY',
           `Unknown set key ${declaration.key}.`,
+          declaration.keyRef,
           declaration.line,
         ),
       );
@@ -99,14 +106,19 @@ export function parseCacheTtlMs(value: string): number | undefined {
 }
 
 function parseSettingKey(
-  key: string,
-  line: number,
+  declaration: FdqlSetDeclaration,
   diagnostics: FdqlDiagnostic[],
 ): { readonly key: string; readonly namespace: string; } | null {
+  const key = declaration.key;
   const match = /^([A-Za-z][A-Za-z0-9]*)\.([A-Za-z][A-Za-z0-9]*)$/.exec(key);
   if (!match) {
     diagnostics.push(
-      compilerError('FDQL_INVALID_SET_KEY', 'set keys must use namespace.key syntax.', line),
+      diagnosticAtName(
+        'FDQL_INVALID_SET_KEY',
+        'set keys must use namespace.key syntax.',
+        declaration.keyRef,
+        declaration.line,
+      ),
     );
     return null;
   }
@@ -119,20 +131,20 @@ function evaluateSetValue(
 ): FdqlValue | null {
   if (!declaration.value) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_SET',
         `Invalid value for set ${declaration.key}.`,
-        declaration.line,
+        declaration.range,
       ),
     );
     return null;
   }
   if (!isSetValueExpression(declaration.value)) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_SET',
         `set ${declaration.key} values must be literals, arrays, or maps.`,
-        declaration.line,
+        declaration.value.range,
       ),
     );
     return null;
@@ -171,20 +183,20 @@ function applyFdqlSetting(
   settings: FdqlExecutionSettings,
   diagnostics: FdqlDiagnostic[],
 ): FdqlExecutionSettings {
-  const line = declaration.line;
   const rawValue = declaration.rawValue.trim();
+  const valueRange = declaration.value?.range ?? declaration.range;
   if (key === 'readBudget') {
     const value = numericSetValue(declaration, diagnostics);
     if (value && Number.isInteger(value) && value > 0) return { ...settings, readBudget: value };
     diagnostics.push(
-      compilerError('FDQL_INVALID_SET', 'Invalid value for set fdql.readBudget.', line),
+      diagnosticAtRange('FDQL_INVALID_SET', 'Invalid value for set fdql.readBudget.', valueRange),
     );
   } else if (key === 'timeout') {
     const timeoutMs = parseDurationMs(rawValue);
     if (timeoutMs) return { ...settings, timeoutMs };
     else {
       diagnostics.push(
-        compilerError('FDQL_INVALID_SET', 'Invalid value for set fdql.timeout.', line),
+        diagnosticAtRange('FDQL_INVALID_SET', 'Invalid value for set fdql.timeout.', valueRange),
       );
     }
   } else if (key === 'cache') {
@@ -192,23 +204,48 @@ function applyFdqlSetting(
     if (cacheMode === 'off' || cacheMode === 'run' || cacheMode === 'persistent') {
       return { ...settings, cache: cacheMode };
     }
-    diagnostics.push(compilerError('FDQL_INVALID_SET', 'Invalid value for set fdql.cache.', line));
+    diagnostics.push(
+      diagnosticAtRange('FDQL_INVALID_SET', 'Invalid value for set fdql.cache.', valueRange),
+    );
   } else if (key === 'cacheTtl') {
     const cacheTtlMs = parseCacheTtlMs(rawValue);
     if (cacheTtlMs) return { ...settings, cacheTtlMs };
     diagnostics.push(
-      compilerError('FDQL_INVALID_SET', 'Invalid value for set fdql.cacheTtl.', line),
+      diagnosticAtRange('FDQL_INVALID_SET', 'Invalid value for set fdql.cacheTtl.', valueRange),
+    );
+  } else if (key === 'lineage') {
+    const lineage = rawValue.toLowerCase();
+    if (lineage === 'compact' || lineage === 'off' || lineage === 'trace') {
+      return { ...settings, lineage };
+    }
+    diagnostics.push(
+      diagnosticAtRange('FDQL_INVALID_SET', 'Invalid value for set fdql.lineage.', valueRange),
     );
   } else if (key === 'allowUnboundedReads') {
     const value = scalarSetValue(declaration, diagnostics);
     if (typeof value === 'boolean') return { ...settings, allowUnboundedReads: value };
     diagnostics.push(
-      compilerError('FDQL_INVALID_SET', 'Invalid value for set fdql.allowUnboundedReads.', line),
+      diagnosticAtRange(
+        'FDQL_INVALID_SET',
+        'Invalid value for set fdql.allowUnboundedReads.',
+        valueRange,
+      ),
     );
-  } else if (!['allowUnboundedReads', 'cache', 'cacheTtl', 'readBudget', 'timeout'].includes(key)) {
-    diagnostics.push(compilerError('FDQL_UNKNOWN_SET_KEY', `Unknown set key fdql.${key}.`, line));
+  } else if (
+    !['allowUnboundedReads', 'cache', 'cacheTtl', 'lineage', 'readBudget', 'timeout'].includes(key)
+  ) {
+    diagnostics.push(
+      diagnosticAtName(
+        'FDQL_UNKNOWN_SET_KEY',
+        `Unknown set key fdql.${key}.`,
+        declaration.keyRef,
+        declaration.line,
+      ),
+    );
   } else {
-    diagnostics.push(compilerError('FDQL_INVALID_SET', `Invalid value for set fdql.${key}.`, line));
+    diagnostics.push(
+      diagnosticAtRange('FDQL_INVALID_SET', `Invalid value for set fdql.${key}.`, valueRange),
+    );
   }
   return settings;
 }

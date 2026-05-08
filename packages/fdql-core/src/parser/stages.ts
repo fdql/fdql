@@ -1,4 +1,4 @@
-import { findTopLevelAs, parseExpression } from '../expression.ts';
+import { findTopLevelAs } from '../expression.ts';
 import type {
   FdqlAggregateFromStage,
   FdqlAggregateStage,
@@ -6,60 +6,68 @@ import type {
   FdqlExpression,
   FdqlFromStage,
   FdqlLookupClause,
+  FdqlNameRef,
   FdqlProviderAggregateStage,
   FdqlProviderAggregateYieldItem,
   FdqlSourceRange,
   FdqlStage,
 } from '../types.ts';
-import {
-  isProviderClauseStart,
-  isStatementStart,
-  parserError,
-  providerFromStatement,
-} from './helpers.ts';
+import { isStatementStart, parserError, providerFromStatement } from './helpers.ts';
 import {
   collectProjection,
   parseProjectionItems,
   parseProviderAggregateYieldItems,
 } from './projection.ts';
+import {
+  collectStatementBlock,
+  expressionBlockSlice,
+  isProviderClauseBlockStart,
+  nameRefInSourceBlock,
+  parseExpressionBlock,
+  rangeInSourceBlock,
+  type SourceBlock,
+  sourceBlockSlice,
+  trimSourceBlock,
+} from './source-block.ts';
 import { expressionSlice, type SourceLine, span } from './source-text.ts';
 
 export function parseProviderClause(
-  line: SourceLine,
+  block: SourceBlock,
   diagnostics: FdqlDiagnostic[],
 ): FdqlStage | null {
-  const { column, range, text } = line;
+  const { column, range, text } = block;
   const provider = providerFromStatement(text);
   if (!provider) return null;
+  const providerRef = nameRefInSourceBlock(provider, block);
   if (text.startsWith(`${provider} where `)) {
     const prefix = `${provider} where `;
-    const expressionSource = expressionSlice(text, column, prefix.length);
-    const parsed = parseExpression(expressionSource.text, line.line, expressionSource.column);
+    const parsed = parseExpressionBlock(expressionBlockSlice(block, prefix.length));
     diagnostics.push(...parsed.diagnostics);
     return parsed.expression
       ? {
         column,
         expression: parsed.expression,
         kind: 'providerWhere',
-        line: line.line,
+        line: block.line,
         provider,
+        providerRef,
         range,
       }
       : null;
   }
   if (text.startsWith(`${provider} order by `)) {
     const prefix = `${provider} order by `;
-    const sourceBody = expressionSlice(text, column, prefix.length);
+    const sourceBody = expressionBlockSlice(block, prefix.length);
     const body = sourceBody.text;
     const direction = body.toLowerCase().endsWith(' desc')
       ? 'desc'
       : body.toLowerCase().endsWith(' asc')
       ? 'asc'
       : 'asc';
-    const expressionText = direction === 'asc' && !body.toLowerCase().endsWith(' asc')
-      ? body
-      : body.slice(0, Math.max(0, body.length - 4)).trim();
-    const parsed = parseExpression(expressionText, line.line, sourceBody.column);
+    const expressionBlock = direction === 'asc' && !body.toLowerCase().endsWith(' asc')
+      ? sourceBody
+      : trimSourceBlock(sourceBlockSlice(sourceBody, 0, Math.max(0, body.length - 4)));
+    const parsed = parseExpressionBlock(expressionBlock);
     diagnostics.push(...parsed.diagnostics);
     return parsed.expression
       ? {
@@ -67,8 +75,9 @@ export function parseProviderClause(
         direction,
         expression: parsed.expression,
         kind: 'providerOrderBy',
-        line: line.line,
+        line: block.line,
         provider,
+        providerRef,
         range,
       }
       : null;
@@ -77,8 +86,9 @@ export function parseProviderClause(
     return {
       column,
       kind: 'providerLimit',
-      line: line.line,
+      line: block.line,
       provider,
+      providerRef,
       range,
       value: Number(text.slice(`${provider} limit `.length).trim()),
     };
@@ -87,26 +97,30 @@ export function parseProviderClause(
 }
 
 export function parseSortBy(
-  text: string,
-  line: number,
-  column: number,
-  range: FdqlSourceRange,
+  block: SourceBlock,
   diagnostics: FdqlDiagnostic[],
 ): FdqlStage | null {
-  const sourceBody = expressionSlice(text, column, 'then sort by '.length);
+  const sourceBody = expressionBlockSlice(block, 'then sort by '.length);
   const body = sourceBody.text;
   const direction = body.toLowerCase().endsWith(' desc')
     ? 'desc'
     : body.toLowerCase().endsWith(' asc')
     ? 'asc'
     : 'asc';
-  const expressionText = direction === 'asc' && !body.toLowerCase().endsWith(' asc')
-    ? body
-    : body.slice(0, Math.max(0, body.length - 4)).trim();
-  const parsed = parseExpression(expressionText, line, sourceBody.column);
+  const expressionBlock = direction === 'asc' && !body.toLowerCase().endsWith(' asc')
+    ? sourceBody
+    : trimSourceBlock(sourceBlockSlice(sourceBody, 0, Math.max(0, body.length - 4)));
+  const parsed = parseExpressionBlock(expressionBlock);
   diagnostics.push(...parsed.diagnostics);
   return parsed.expression
-    ? { column, direction, expression: parsed.expression, kind: 'sortBy', line, range }
+    ? {
+      column: block.column,
+      direction,
+      expression: parsed.expression,
+      kind: 'sortBy',
+      line: block.line,
+      range: block.range,
+    }
     : null;
 }
 
@@ -172,56 +186,115 @@ export function parseAggregateStage(
 }
 
 export function parseUnwind(
-  text: string,
-  line: number,
-  column: number,
-  range: FdqlSourceRange,
+  block: SourceBlock,
   diagnostics: FdqlDiagnostic[],
 ): FdqlStage | null {
-  const body = text.slice('then unwind '.length).trim();
+  const bodyBlock = expressionBlockSlice(block, 'then unwind '.length);
+  const body = bodyBlock.text;
   const aliasIndex = findTopLevelAs(body);
   if (aliasIndex < 0) {
     diagnostics.push(
       parserError(
         'FDQL_PARSE_ERROR',
         '`unwind` must use `then unwind expression as rowAlias`.',
-        line,
-        column,
+        block.line,
+        block.column,
       ),
     );
     return null;
   }
-  const expressionText = body.slice(0, aliasIndex).trim();
-  const rowAlias = body.slice(aliasIndex + 4).trim();
+  const expressionBlock = trimSourceBlock(sourceBlockSlice(bodyBlock, 0, aliasIndex));
+  const rowAliasBlock = trimSourceBlock(sourceBlockSlice(bodyBlock, aliasIndex + 4));
+  const rowAlias = rowAliasBlock.text;
+  const rowAliasRef = nameRefInSourceBlock(rowAlias, rowAliasBlock);
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(rowAlias)) {
     diagnostics.push(
-      parserError('FDQL_PARSE_ERROR', `Invalid unwind row alias ${rowAlias}.`, line, column),
+      parserError(
+        'FDQL_PARSE_ERROR',
+        `Invalid unwind row alias ${rowAlias}.`,
+        block.line,
+        block.column,
+        rowAliasRef.range,
+      ),
     );
     return null;
   }
-  const expressionSource = expressionSlice(text, column, 'then unwind '.length);
-  const parsed = parseExpression(expressionText, line, expressionSource.column);
+  const parsed = parseExpressionBlock(expressionBlock);
   diagnostics.push(...parsed.diagnostics);
   return parsed.expression
-    ? { column, expression: parsed.expression, kind: 'unwind', line, range, rowAlias }
+    ? {
+      column: block.column,
+      expression: parsed.expression,
+      kind: 'unwind',
+      line: block.line,
+      range: block.range,
+      rowAlias,
+      rowAliasRef,
+    }
     : null;
 }
 
 export function parseFrom(
-  text: string,
-  line: number,
-  column: number,
-  range: FdqlSourceRange,
+  block: SourceBlock,
   diagnostics: FdqlDiagnostic[],
 ): FdqlFromStage | undefined {
+  const { column, line, range, text } = block;
   const match = /^from\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)$/i.exec(text);
   if (!match) {
+    const invalidAlias = /^from\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+(.+)$/i.exec(text);
+    if (invalidAlias) {
+      const alias = invalidAlias[2]!.trim();
+      diagnostics.push(
+        parserError(
+          'FDQL_PARSE_ERROR',
+          '`from` row alias must be an identifier.',
+          line,
+          column,
+          nameRefInSourceBlock(alias, block, text.indexOf(' as ') + 4).range,
+        ),
+      );
+      return undefined;
+    }
+    const sourceOnly = /^from\s+(\$[A-Za-z_][A-Za-z0-9_]*)$/i.exec(text);
+    if (sourceOnly) {
+      diagnostics.push(
+        parserError(
+          'FDQL_PARSE_ERROR',
+          '`from` must use `from $source as rowAlias`.',
+          line,
+          column,
+          rangeInSourceBlock(block, text.length, 1),
+        ),
+      );
+      return undefined;
+    }
+    const sourceCandidate = /^from\s+(\S+)/i.exec(text);
+    const errorRange = sourceCandidate
+      ? nameRefInSourceBlock(sourceCandidate[1]!, block, 'from '.length).range
+      : range;
     diagnostics.push(
-      parserError('FDQL_PARSE_ERROR', '`from` must use `from $source as rowAlias`.', line, column),
+      parserError(
+        'FDQL_PARSE_ERROR',
+        '`from` must use `from $source as rowAlias`.',
+        line,
+        column,
+        errorRange,
+      ),
     );
     return undefined;
   }
-  return { column, kind: 'from', line, range, rowAlias: match[2]!, sourceAlias: match[1]! };
+  const sourceAlias = match[1]!;
+  const rowAlias = match[2]!;
+  return {
+    column,
+    kind: 'from',
+    line,
+    range,
+    rowAlias,
+    rowAliasRef: nameRefInSourceBlock(rowAlias, block, text.indexOf(' as ') + 4),
+    sourceAlias,
+    sourceAliasRef: nameRefInSourceBlock(sourceAlias, block, 'from '.length),
+  };
 }
 
 export function parseAggregateFrom(
@@ -230,21 +303,23 @@ export function parseAggregateFrom(
   diagnostics: FdqlDiagnostic[],
 ): { readonly from?: FdqlAggregateFromStage | undefined; readonly nextIndex: number; } | null {
   const start = lines[startIndex]!;
-  const header = parseAggregateFromHeader(start, diagnostics);
+  const headerBlock = collectStatementBlock(lines, startIndex);
+  const header = parseAggregateFromHeader(headerBlock, diagnostics);
   if (!header) return null;
   const clauses: FdqlLookupClause[] = [];
   let yieldItems: readonly FdqlProviderAggregateYieldItem[] | undefined;
-  let nextIndex = startIndex;
-  let endRange = start.range;
-  for (let index = startIndex + 1; index < lines.length; index += 1) {
+  let nextIndex = headerBlock.nextIndex;
+  let endRange = headerBlock.range;
+  for (let index = headerBlock.nextIndex + 1; index < lines.length; index += 1) {
     const line = lines[index]!;
     if (!line.text) {
       nextIndex = index;
       endRange = line.range;
       continue;
     }
-    if (isProviderClauseStart(line.text)) {
-      const clause = parseProviderClause(line, diagnostics);
+    if (isProviderClauseBlockStart(lines, index)) {
+      const clauseBlock = collectStatementBlock(lines, index);
+      const clause = parseProviderClause(clauseBlock, diagnostics);
       if (
         clause
         && (
@@ -254,8 +329,9 @@ export function parseAggregateFrom(
       ) {
         clauses.push(clause);
       }
-      nextIndex = index;
-      endRange = line.range;
+      index = clauseBlock.nextIndex;
+      nextIndex = clauseBlock.nextIndex;
+      endRange = clauseBlock.range;
       continue;
     }
     if (line.text === 'yield' || line.text.startsWith('yield ')) {
@@ -292,9 +368,12 @@ export function parseAggregateFrom(
       line: start.line,
       mode: 'aggregate',
       provider: header.provider,
+      ...(header.providerRef ? { providerRef: header.providerRef } : {}),
       ...(header.providerRowAlias ? { providerRowAlias: header.providerRowAlias } : {}),
+      ...(header.providerRowAliasRef ? { providerRowAliasRef: header.providerRowAliasRef } : {}),
       range: span(start.range, endRange),
       sourceAlias: header.sourceAlias,
+      ...(header.sourceAliasRef ? { sourceAliasRef: header.sourceAliasRef } : {}),
       ...(header.sourceExpression ? { sourceExpression: header.sourceExpression } : {}),
       ...(yieldItems ? { yieldItems } : {}),
     },
@@ -363,38 +442,56 @@ function isAggregateBodyLine(text: string): boolean {
 }
 
 function parseAggregateFromHeader(
-  line: SourceLine,
+  block: SourceBlock,
   diagnostics: FdqlDiagnostic[],
 ):
   | {
     readonly provider: string;
+    readonly providerRef?: FdqlNameRef | undefined;
     readonly providerRowAlias?: string | undefined;
+    readonly providerRowAliasRef?: FdqlNameRef | undefined;
     readonly sourceAlias: string;
+    readonly sourceAliasRef?: FdqlNameRef | undefined;
     readonly sourceExpression?: FdqlExpression | undefined;
   }
   | null
 {
-  const match = /^from\s+([A-Za-z_][A-Za-z0-9_]*)\.aggregate\s+(.+)$/i.exec(line.text);
+  const match = /^from\s+([A-Za-z_][A-Za-z0-9_]*)\.aggregate\b/i.exec(block.text);
   if (!match) return null;
   const provider = match[1]!;
-  const body = match[2]!.trim();
+  const providerRef = nameRefInSourceBlock(provider, block, 'from '.length);
+  const bodyBlock = expressionBlockSlice(block, match[0].length);
+  const body = bodyBlock.text;
   const ofIndex = findTopLevelKeyword(body, 'of');
   if (ofIndex >= 0) {
     diagnostics.push(
       parserError(
         'FDQL_PARSE_ERROR',
         '`of parent` is only valid in pipeline provider aggregate stages.',
-        line.line,
-        line.column,
+        block.line,
+        block.column,
+        rangeInSourceBlock(bodyBlock, ofIndex, 'of'.length),
       ),
     );
   }
   const aliasIndex = findTopLevelAs(body);
-  const sourceText = (aliasIndex < 0 ? body : body.slice(0, aliasIndex)).trim();
-  const providerRowAlias = aliasIndex < 0 ? undefined : body.slice(aliasIndex + 4).trim();
+  const sourceBlock = trimSourceBlock(
+    sourceBlockSlice(bodyBlock, 0, aliasIndex < 0 ? body.length : aliasIndex),
+  );
+  const sourceText = sourceBlock.text;
+  const providerRowAliasBlock = aliasIndex < 0
+    ? undefined
+    : trimSourceBlock(sourceBlockSlice(bodyBlock, aliasIndex + 4));
+  const providerRowAlias = providerRowAliasBlock?.text;
+  const sourceAliasRef = /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(sourceText)
+    ? nameRefInSourceBlock(sourceText, sourceBlock)
+    : undefined;
+  const providerRowAliasRef = providerRowAlias
+    ? nameRefInSourceBlock(providerRowAlias, providerRowAliasBlock!)
+    : undefined;
   if (!sourceText) {
     diagnostics.push(
-      parserError('FDQL_PARSE_ERROR', '`fs.aggregate` needs a source.', line.line, line.column),
+      parserError('FDQL_PARSE_ERROR', '`fs.aggregate` needs a source.', block.line, block.column),
     );
     return null;
   }
@@ -403,8 +500,9 @@ function parseAggregateFromHeader(
       parserError(
         'FDQL_PARSE_ERROR',
         `Invalid aggregate row alias ${providerRowAlias}.`,
-        line.line,
-        line.column,
+        block.line,
+        block.column,
+        providerRowAliasRef?.range,
       ),
     );
     return null;
@@ -412,19 +510,20 @@ function parseAggregateFromHeader(
   if (/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(sourceText)) {
     return {
       provider,
+      providerRef,
       ...(providerRowAlias ? { providerRowAlias } : {}),
+      ...(providerRowAliasRef ? { providerRowAliasRef } : {}),
       sourceAlias: sourceText,
+      ...(sourceAliasRef ? { sourceAliasRef } : {}),
     };
   }
-  const parsed = parseExpression(
-    sourceText,
-    line.line,
-    line.column + line.text.indexOf(sourceText),
-  );
+  const parsed = parseExpressionBlock(sourceBlock);
   diagnostics.push(...parsed.diagnostics);
   return {
     provider,
+    providerRef,
     ...(providerRowAlias ? { providerRowAlias } : {}),
+    ...(providerRowAliasRef ? { providerRowAliasRef } : {}),
     sourceAlias: sourceText,
     ...(parsed.expression ? { sourceExpression: parsed.expression } : {}),
   };
@@ -436,29 +535,32 @@ export function parseProviderAggregateStage(
   diagnostics: FdqlDiagnostic[],
 ): { readonly nextIndex: number; readonly stage?: FdqlProviderAggregateStage | undefined; } {
   const start = lines[startIndex]!;
-  const header = parseProviderAggregateHeader(start, diagnostics);
+  const headerBlock = collectStatementBlock(lines, startIndex);
+  const header = parseProviderAggregateHeader(headerBlock, diagnostics);
   const clauses: FdqlLookupClause[] = [];
   let yieldItems: readonly FdqlProviderAggregateYieldItem[] | undefined;
-  let nextIndex = startIndex;
-  let endRange = start.range;
+  let nextIndex = headerBlock.nextIndex;
+  let endRange = headerBlock.range;
 
-  for (let index = startIndex + 1; index < lines.length; index += 1) {
+  for (let index = headerBlock.nextIndex + 1; index < lines.length; index += 1) {
     const line = lines[index]!;
     if (!line.text) {
       nextIndex = index;
       endRange = line.range;
       continue;
     }
-    if (isProviderClauseStart(line.text)) {
-      const clause = parseProviderClause(line, diagnostics);
+    if (isProviderClauseBlockStart(lines, index)) {
+      const clauseBlock = collectStatementBlock(lines, index);
+      const clause = parseProviderClause(clauseBlock, diagnostics);
       if (
         clause?.kind === 'providerWhere' || clause?.kind === 'providerOrderBy'
         || clause?.kind === 'providerLimit'
       ) {
         clauses.push(clause);
       }
-      nextIndex = index;
-      endRange = line.range;
+      index = clauseBlock.nextIndex;
+      nextIndex = clauseBlock.nextIndex;
+      endRange = clauseBlock.range;
       continue;
     }
     if (line.text === 'yield' || line.text.startsWith('yield ')) {
@@ -501,9 +603,14 @@ export function parseProviderAggregateStage(
           line: start.line,
           ...(header.parent ? { parent: header.parent } : {}),
           provider: header.provider,
+          ...(header.providerRef ? { providerRef: header.providerRef } : {}),
           ...(header.providerRowAlias ? { providerRowAlias: header.providerRowAlias } : {}),
+          ...(header.providerRowAliasRef
+            ? { providerRowAliasRef: header.providerRowAliasRef }
+            : {}),
           range: span(start.range, endRange),
           sourceAlias: header.sourceAlias,
+          ...(header.sourceAliasRef ? { sourceAliasRef: header.sourceAliasRef } : {}),
           ...(header.sourceExpression ? { sourceExpression: header.sourceExpression } : {}),
           ...(yieldItems ? { yieldItems } : {}),
         },
@@ -513,7 +620,7 @@ export function parseProviderAggregateStage(
 }
 
 function parseProviderAggregateHeader(
-  line: SourceLine,
+  block: SourceBlock,
   diagnostics: FdqlDiagnostic[],
 ):
   | {
@@ -521,72 +628,106 @@ function parseProviderAggregateHeader(
     readonly cacheTtlRaw?: string | undefined;
     readonly parent?: FdqlExpression | undefined;
     readonly provider: string;
+    readonly providerRef?: FdqlNameRef | undefined;
     readonly providerRowAlias?: string | undefined;
+    readonly providerRowAliasRef?: FdqlNameRef | undefined;
     readonly sourceAlias: string;
+    readonly sourceAliasRef?: FdqlNameRef | undefined;
     readonly sourceExpression?: FdqlExpression | undefined;
   }
   | null
 {
-  const match = /^then\s+([A-Za-z_][A-Za-z0-9_]*)\.aggregate\s+(.+)$/i.exec(line.text);
+  const match = /^then\s+([A-Za-z_][A-Za-z0-9_]*)\.aggregate\b/i.exec(block.text);
   if (!match) return null;
   const provider = match[1]!;
-  const cache = splitTrailingCache(match[2]!.trim());
-  const body = cache.body;
+  const providerRef = nameRefInSourceBlock(provider, block, 'then '.length);
+  const rawBodyBlock = expressionBlockSlice(block, match[0].length);
+  const cache = splitTrailingCache(rawBodyBlock.text);
+  const bodyBlock = cache.cacheIndex === undefined
+    ? rawBodyBlock
+    : trimSourceBlock(sourceBlockSlice(rawBodyBlock, 0, cache.cacheIndex));
+  const body = bodyBlock.text;
   const aliasIndex = findTopLevelAs(body);
-  const providerRowAlias = aliasIndex < 0 ? undefined : body.slice(aliasIndex + 4).trim();
+  const providerRowAliasBlock = aliasIndex < 0
+    ? undefined
+    : trimSourceBlock(sourceBlockSlice(bodyBlock, aliasIndex + 4));
+  const providerRowAlias = providerRowAliasBlock?.text;
+  const providerRowAliasRef = providerRowAlias
+    ? nameRefInSourceBlock(providerRowAlias, providerRowAliasBlock!)
+    : undefined;
   if (providerRowAlias && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(providerRowAlias)) {
     diagnostics.push(
       parserError(
         'FDQL_PARSE_ERROR',
         `Invalid aggregate row alias ${providerRowAlias}.`,
-        line.line,
-        line.column,
+        block.line,
+        block.column,
+        providerRowAliasRef?.range,
       ),
     );
   }
-  const beforeAlias = (aliasIndex < 0 ? body : body.slice(0, aliasIndex)).trim();
+  const beforeAliasBlock = trimSourceBlock(
+    sourceBlockSlice(bodyBlock, 0, aliasIndex < 0 ? body.length : aliasIndex),
+  );
+  const beforeAlias = beforeAliasBlock.text;
   const ofIndex = findTopLevelKeyword(beforeAlias, 'of');
-  const sourceText = (ofIndex < 0 ? beforeAlias : beforeAlias.slice(0, ofIndex)).trim();
-  const parentText = ofIndex < 0 ? '' : beforeAlias.slice(ofIndex + 'of'.length).trim();
-  const parentOffset = parentText ? body.indexOf(parentText) : -1;
+  const sourceBlock = trimSourceBlock(
+    sourceBlockSlice(beforeAliasBlock, 0, ofIndex < 0 ? beforeAlias.length : ofIndex),
+  );
+  const parentBlock = ofIndex < 0
+    ? undefined
+    : trimSourceBlock(sourceBlockSlice(beforeAliasBlock, ofIndex + 'of'.length));
   let parent: FdqlExpression | undefined;
-  if (parentText) {
-    const parsed = parseExpression(parentText, line.line, line.column + Math.max(0, parentOffset));
+  if (parentBlock?.text) {
+    const parsed = parseExpressionBlock(parentBlock);
     diagnostics.push(...parsed.diagnostics);
     parent = parsed.expression;
   }
-  const parsedSource = parseProviderAggregateSource(sourceText, line, diagnostics);
+  const parsedSource = parseProviderAggregateSource(sourceBlock, block, diagnostics);
   if (!parsedSource) return null;
   return {
     ...(cache.cache ? { cache: cache.cache } : {}),
     ...(cache.cacheTtlRaw ? { cacheTtlRaw: cache.cacheTtlRaw } : {}),
     ...(parent ? { parent } : {}),
     provider,
+    providerRef,
     ...(providerRowAlias ? { providerRowAlias } : {}),
+    ...(providerRowAliasRef ? { providerRowAliasRef } : {}),
     ...parsedSource,
   };
 }
 
 function parseProviderAggregateSource(
-  sourceText: string,
-  line: SourceLine,
+  sourceBlock: SourceBlock,
+  headerBlock: SourceBlock,
   diagnostics: FdqlDiagnostic[],
 ):
-  | { readonly sourceAlias: string; readonly sourceExpression?: FdqlExpression | undefined; }
+  | {
+    readonly sourceAlias: string;
+    readonly sourceAliasRef?: FdqlNameRef | undefined;
+    readonly sourceExpression?: FdqlExpression | undefined;
+  }
   | null
 {
+  const sourceText = sourceBlock.text;
   if (!sourceText) {
     diagnostics.push(
-      parserError('FDQL_PARSE_ERROR', 'Provider aggregate needs a source.', line.line, line.column),
+      parserError(
+        'FDQL_PARSE_ERROR',
+        'Provider aggregate needs a source.',
+        headerBlock.line,
+        headerBlock.column,
+      ),
     );
     return null;
   }
-  if (/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(sourceText)) return { sourceAlias: sourceText };
-  const parsed = parseExpression(
-    sourceText,
-    line.line,
-    line.column + line.text.indexOf(sourceText),
-  );
+  if (/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(sourceText)) {
+    return {
+      sourceAlias: sourceText,
+      sourceAliasRef: nameRefInSourceBlock(sourceText, sourceBlock),
+    };
+  }
+  const parsed = parseExpressionBlock(sourceBlock);
   diagnostics.push(...parsed.diagnostics);
   return {
     sourceAlias: sourceText,
@@ -599,6 +740,7 @@ function splitTrailingCache(
 ): {
   readonly body: string;
   readonly cache?: 'off' | 'persistent' | 'run' | undefined;
+  readonly cacheIndex?: number | undefined;
   readonly cacheTtlRaw?: string | undefined;
 } {
   const cacheIndex = findTopLevelKeyword(body, 'cache');
@@ -609,6 +751,7 @@ function splitTrailingCache(
   return {
     body: sourceBody,
     ...(match?.[1] ? { cache: match[1].toLowerCase() as 'off' | 'persistent' | 'run' } : {}),
+    cacheIndex,
     ...(match?.[2] ? { cacheTtlRaw: match[2] } : {}),
   };
 }

@@ -2,6 +2,7 @@ import { FDQL_LANGUAGE_ID } from '@firebase-desk/fdql-language';
 import type {
   FdqlCompileResult,
   FdqlDiagnostic,
+  FdqlResultRowLineage,
   FdqlRunCommandResult,
   FdqlRunResult,
   FdqlStats,
@@ -22,7 +23,16 @@ import {
   TabsList,
   TabsTrigger,
 } from '@firebase-desk/ui';
-import { AlertTriangle, Braces, GitBranch, Play, Square, Table2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  Braces,
+  Copy,
+  ExternalLink,
+  GitBranch,
+  Play,
+  Square,
+  Table2,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CodeEditor } from '../../code-editor/CodeEditor.tsx';
 import { useMediaQuery } from '../../hooks/useMediaQuery.ts';
@@ -51,6 +61,7 @@ export interface FdqlSurfaceProps {
   readonly compileResult?: FdqlCompileResult | null;
   readonly isRunning?: boolean;
   readonly onCancel: () => void;
+  readonly onOpenDocumentInNewTab?: ((documentPath: string) => void) | undefined;
   readonly onRun: () => void;
   readonly onSourceChange: (source: string) => void;
   readonly result?: FdqlRunResult | null;
@@ -63,6 +74,7 @@ export function FdqlSurface(
     compileResult = null,
     isRunning = false,
     onCancel,
+    onOpenDocumentInNewTab,
     onRun,
     onSourceChange,
     result = null,
@@ -143,6 +155,8 @@ export function FdqlSurface(
             durationMs={result?.durationMs ?? 0}
             isRunning={isRunning}
             onIssueClick={revealIssue}
+            onOpenDocumentInNewTab={onOpenDocumentInNewTab}
+            rowLineages={result?.rowLineages ?? []}
             rows={rows}
             runId={runId}
             stats={result?.stats ?? null}
@@ -154,17 +168,36 @@ export function FdqlSurface(
 }
 
 function FdqlOutputPanel(
-  { command, diagnostics, durationMs, isRunning, onIssueClick, rows, runId, stats }: {
+  {
+    command,
+    diagnostics,
+    durationMs,
+    isRunning,
+    onIssueClick,
+    onOpenDocumentInNewTab,
+    rowLineages,
+    rows,
+    runId,
+    stats,
+  }: {
     readonly command: FdqlRunCommandResult | null;
     readonly diagnostics: readonly FdqlDiagnostic[];
     readonly durationMs: number;
     readonly isRunning: boolean;
     readonly onIssueClick: (diagnostic: FdqlDiagnostic) => void;
+    readonly onOpenDocumentInNewTab?: ((documentPath: string) => void) | undefined;
+    readonly rowLineages: readonly FdqlResultRowLineage[];
     readonly rows: readonly Record<string, unknown>[];
     readonly runId: string | null;
     readonly stats: FdqlStats | null;
   },
 ) {
+  const [selectedRowIndex, setSelectedRowIndex] = useState(0);
+  useEffect(() => {
+    setSelectedRowIndex(0);
+  }, [runId]);
+  const selectedLineage = rowLineages[selectedRowIndex] ?? null;
+
   return (
     <Tabs defaultValue='results' className='h-full min-h-0'>
       <Panel className='grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]'>
@@ -190,6 +223,9 @@ function FdqlOutputPanel(
                   )
                   : null}
               </TabsTrigger>
+              <TabsTrigger className='h-7 gap-1.5 border-b-0 px-2' value='lineage'>
+                <GitBranch size={14} aria-hidden='true' /> Lineage
+              </TabsTrigger>
             </TabsList>
           }
         >
@@ -200,13 +236,23 @@ function FdqlOutputPanel(
             command={command}
             durationMs={durationMs}
             isRunning={isRunning}
+            rowLineages={rowLineages}
             rows={rows}
             runId={runId}
+            selectedRowIndex={selectedRowIndex}
             stats={stats}
+            onSelectRow={setSelectedRowIndex}
           />
         </TabsContent>
         <TabsContent className='min-h-0 overflow-hidden' value='issues'>
           <IssuesView diagnostics={diagnostics} onIssueClick={onIssueClick} />
+        </TabsContent>
+        <TabsContent className='min-h-0 overflow-hidden' value='lineage'>
+          <LineageView
+            lineage={selectedLineage}
+            stats={stats}
+            onOpenDocumentInNewTab={onOpenDocumentInNewTab}
+          />
         </TabsContent>
       </Panel>
     </Tabs>
@@ -214,13 +260,26 @@ function FdqlOutputPanel(
 }
 
 function ResultsView(
-  { command, durationMs, isRunning, rows, runId, stats }: {
+  {
+    command,
+    durationMs,
+    isRunning,
+    rowLineages,
+    rows,
+    runId,
+    selectedRowIndex,
+    stats,
+    onSelectRow,
+  }: {
     readonly command: FdqlRunCommandResult | null;
     readonly durationMs: number;
     readonly isRunning: boolean;
+    readonly rowLineages: readonly FdqlResultRowLineage[];
     readonly rows: readonly Record<string, unknown>[];
     readonly runId: string | null;
+    readonly selectedRowIndex: number;
     readonly stats: FdqlStats | null;
+    readonly onSelectRow: (index: number) => void;
   },
 ) {
   const columns = useMemo(() => resultColumns(rows), [rows]);
@@ -339,7 +398,16 @@ function ResultsView(
                   </thead>
                   <tbody>
                     {rows.map((row, index) => (
-                      <tr key={index} className='border-b border-border-subtle/70'>
+                      <tr
+                        key={index}
+                        className={[
+                          'cursor-default border-b border-border-subtle/70',
+                          rowLineages[index] && index === selectedRowIndex
+                            ? 'bg-action-selected'
+                            : 'hover:bg-action-ghost-hover',
+                        ].join(' ')}
+                        onClick={() => onSelectRow(index)}
+                      >
                         {columns.map((column) => {
                           const cell = formatCell(row[column]);
                           return (
@@ -389,6 +457,110 @@ function ResultsView(
           )}
       </PanelBody>
     </Tabs>
+  );
+}
+
+function LineageView(
+  { lineage, stats, onOpenDocumentInNewTab }: {
+    readonly lineage: FdqlResultRowLineage | null;
+    readonly stats: FdqlStats | null;
+    readonly onOpenDocumentInNewTab?: ((documentPath: string) => void) | undefined;
+  },
+) {
+  return (
+    <PanelBody className='h-full min-h-0 space-y-3 overflow-auto text-xs'>
+      <section className='space-y-1'>
+        <h3 className='text-sm font-semibold text-text-primary'>Stage stats</h3>
+        {stats?.stageStats.length
+          ? (
+            <div className='divide-y divide-border-subtle rounded-md border border-border-subtle'>
+              {stats.stageStats.map((stage, index) => (
+                <div
+                  key={`${stage.stage}-${index}`}
+                  className='grid grid-cols-[1fr_auto] gap-3 px-2 py-1.5'
+                >
+                  <span className='font-medium text-text-primary'>{stage.stage}</span>
+                  <span className='text-text-muted'>
+                    {stage.inputRows} in · {stage.outputRows} out · {stage.droppedRows} dropped
+                    {stage.reads ? ` · ${stage.reads} reads` : ''}
+                    {stage.aggregateReads ? ` · ${stage.aggregateReads} aggregates` : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )
+          : <p className='text-text-muted'>No stage stats yet.</p>}
+      </section>
+      <section className='space-y-2'>
+        <h3 className='text-sm font-semibold text-text-primary'>Selected row</h3>
+        {!lineage
+          ? <p className='text-text-muted'>Lineage disabled for this run.</p>
+          : (
+            <>
+              <p className='text-text-muted'>
+                {lineage.mode} · {lineage.readContribution} read contribution
+              </p>
+              <div className='space-y-2'>
+                {lineage.sources.length
+                  ? lineage.sources.map((source, index) => (
+                    <div
+                      key={`${source.provider}-${source.source}-${source.rowPath ?? index}`}
+                      className='rounded-md border border-border-subtle px-2 py-1.5'
+                    >
+                      <div className='flex flex-wrap items-center justify-between gap-2'>
+                        <span className='font-medium text-text-primary'>
+                          {source.provider} · {source.source}
+                        </span>
+                        {source.provider === 'fs' && source.rowPath
+                          ? (
+                            <div className='flex gap-1'>
+                              <Button
+                                size='xs'
+                                variant='ghost'
+                                onClick={() => copyText(source.rowPath ?? '')}
+                              >
+                                <Copy size={12} aria-hidden='true' /> Copy path
+                              </Button>
+                              {onOpenDocumentInNewTab
+                                ? (
+                                  <Button
+                                    size='xs'
+                                    variant='ghost'
+                                    onClick={() => onOpenDocumentInNewTab(source.rowPath ?? '')}
+                                  >
+                                    <ExternalLink size={12} aria-hidden='true' /> Open
+                                  </Button>
+                                )
+                                : null}
+                            </div>
+                          )
+                          : null}
+                      </div>
+                      <p className='truncate text-text-muted' title={source.rowPath}>
+                        {source.rowPath ?? source.stage}
+                      </p>
+                    </div>
+                  ))
+                  : <p className='text-text-muted'>No document source for this row.</p>}
+              </div>
+              {lineage.trace?.length
+                ? (
+                  <div className='space-y-1'>
+                    <h4 className='font-medium text-text-primary'>Trace</h4>
+                    {lineage.trace.map((step, index) => (
+                      <p key={`${step.stage}-${step.action}-${index}`} className='text-text-muted'>
+                        {step.stage}: {step.action}
+                        {step.binding ? ` ${step.binding}` : ''}
+                        {step.reason ? ` (${step.reason})` : ''}
+                      </p>
+                    ))}
+                  </div>
+                )
+                : null}
+            </>
+          )}
+      </section>
+    </PanelBody>
   );
 }
 
@@ -463,6 +635,10 @@ function typedTimestampTitle(value: unknown): string | undefined {
   const record = value as Record<string, unknown>;
   const type = record['__fdqlType'] ?? record['__type__'];
   return type === 'timestamp' && typeof record['value'] === 'string' ? record['value'] : undefined;
+}
+
+function copyText(value: string): void {
+  void globalThis.navigator?.clipboard?.writeText(value).catch(() => {});
 }
 
 function treeDocumentsForRows(

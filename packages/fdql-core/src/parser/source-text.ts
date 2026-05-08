@@ -1,4 +1,4 @@
-import type { FdqlSourceRange } from '../types.ts';
+import type { FdqlNameRef, FdqlSourceRange } from '../types.ts';
 
 export interface SourceLine {
   readonly column: number;
@@ -52,7 +52,7 @@ export function sharedPreamble(source: string): string {
       preamble.push(line);
       continue;
     }
-    if (trimmed.startsWith('from ')) break;
+    if (trimmed === 'from' || trimmed.startsWith('from ')) break;
     preamble.push(line);
   }
   return preamble.join('\n').trim();
@@ -74,6 +74,35 @@ export function span(start: FdqlSourceRange, end: FdqlSourceRange): FdqlSourceRa
     endLine: end.endLine,
     startColumn: start.startColumn,
     startLine: start.startLine,
+  };
+}
+
+export function rangeAt(
+  line: number,
+  column: number,
+  startIndex: number,
+  length: number,
+): FdqlSourceRange {
+  const startColumn = column + startIndex;
+  return {
+    endColumn: startColumn + length,
+    endLine: line,
+    startColumn,
+    startLine: line,
+  };
+}
+
+export function nameRefAt(
+  name: string,
+  text: string,
+  line: number,
+  column: number,
+  startIndex = 0,
+): FdqlNameRef {
+  const index = text.indexOf(name, Math.max(0, startIndex));
+  return {
+    name,
+    range: rangeAt(line, column, index < 0 ? startIndex : index, name.length),
   };
 }
 

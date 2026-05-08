@@ -1,12 +1,23 @@
-import type { FdqlAst, FdqlDiagnostic, FdqlUnionProgram } from '../types.ts';
+import type { FdqlAst, FdqlDiagnostic, FdqlSourceRange, FdqlUnionProgram } from '../types.ts';
 
 export function parserError(
   code: string,
   message: string,
   line: number,
   column: number,
+  range?: FdqlSourceRange | undefined,
 ): FdqlDiagnostic {
-  return { code, column, line, message, severity: 'error' };
+  if (!range) return { code, column, line, message, severity: 'error' };
+  return {
+    code,
+    column: range.startColumn,
+    endColumn: range.endColumn,
+    endLine: range.endLine,
+    line: range.startLine,
+    message,
+    range,
+    severity: 'error',
+  };
 }
 
 export function providerFromStatement(text: string): string | null {

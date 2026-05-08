@@ -1,5 +1,5 @@
 import type { IpcResponse } from '@firebase-desk/ipc-schemas';
-import type { FdqlRepository } from '@firebase-desk/repo-contracts';
+import type { FdqlRepository, FdqlResultRowLineage } from '@firebase-desk/repo-contracts';
 import type { IpcHandlerMap } from './handler-types.ts';
 
 export function createFdqlHandlers(
@@ -31,7 +31,27 @@ function toIpcRunResult(
     ...(result.command === undefined ? {} : { command: result.command }),
     diagnostics: [...result.diagnostics],
     durationMs: result.durationMs,
+    ...(result.rowLineages === undefined
+      ? {}
+      : { rowLineages: result.rowLineages.map(toIpcRowLineage) }),
     rows: [...result.rows],
-    stats: result.stats,
+    stats: result.stats
+      ? { ...result.stats, stageStats: [...result.stats.stageStats] }
+      : null,
+  };
+}
+
+function toIpcRowLineage(
+  lineage: FdqlResultRowLineage,
+): NonNullable<IpcResponse<'fdql.run'>['rowLineages']>[number] {
+  return {
+    bindings: lineage.bindings.map((binding) => ({
+      binding: binding.binding,
+      sources: binding.sources.map((source) => ({ ...source })),
+    })),
+    mode: lineage.mode,
+    readContribution: lineage.readContribution,
+    sources: lineage.sources.map((source) => ({ ...source })),
+    ...(lineage.trace ? { trace: lineage.trace.map((step) => ({ ...step })) } : {}),
   };
 }

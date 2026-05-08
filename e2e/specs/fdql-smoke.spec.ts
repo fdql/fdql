@@ -106,7 +106,43 @@ return fs.id(v) as id, v.version`,
       await expect(page.getByRole('tree').filter({ hasText: 'row_1' })).toBeVisible();
       await page.getByRole('tab', { name: 'JSON' }).click();
       await expect(page.getByLabel('FDQL JSON results')).toHaveValue(/"version": 3166/);
+      await page.getByRole('tab', { name: 'Lineage' }).click();
+      await expect(page.getByText('fs · $versions')).toBeVisible();
+      await expect(page.getByText('public-versions/version')).toBeVisible();
+      await page.getByRole('tab', { name: 'Results' }).click();
       await page.getByRole('tab', { name: 'Table' }).click();
+    });
+
+    await test.step('lineage modes control per-row lineage detail', async () => {
+      await runFdql(
+        page,
+        `set fdql.lineage = trace
+
+alias $versions = fs.collection("public-versions", ["version"])
+
+from $versions as v
+fs where fs.id(v) = "version"
+then filter v.version = 3166
+return fs.id(v) as id`,
+      );
+
+      await page.getByRole('tab', { name: 'Lineage' }).click();
+      await expect(page.getByText('trace · 1 read contribution')).toBeVisible();
+      await expect(page.getByText('return: output')).toBeVisible();
+
+      await runFdql(
+        page,
+        `set fdql.lineage = off
+
+alias $versions = fs.collection("public-versions", ["version"])
+
+from $versions as v
+fs where fs.id(v) = "version"
+return fs.id(v) as id`,
+      );
+
+      await page.getByRole('tab', { name: 'Lineage' }).click();
+      await expect(page.getByText('Lineage disabled for this run.')).toBeVisible();
     });
 
     await test.step('native Firestore predicates support common read operators', async () => {
@@ -843,6 +879,7 @@ async function expectFdqlTable(
   headers: readonly string[],
   rows: readonly (readonly string[])[],
 ): Promise<void> {
+  await page.getByRole('tab', { name: 'Results' }).click();
   const table = page.getByRole('table');
   await expect(table.locator('thead th')).toHaveText(headers);
   await expect(table.locator('tbody tr')).toHaveCount(rows.length);

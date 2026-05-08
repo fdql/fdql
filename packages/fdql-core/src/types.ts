@@ -10,6 +10,7 @@ export interface FdqlDiagnostic {
   readonly endLine?: number | undefined;
   readonly line?: number | undefined;
   readonly message: string;
+  readonly range?: FdqlSourceRange | undefined;
   readonly severity: 'error' | 'warning';
 }
 
@@ -26,6 +27,11 @@ export interface FdqlSourceRange {
   readonly endLine: number;
   readonly startColumn: number;
   readonly startLine: number;
+}
+
+export interface FdqlNameRef {
+  readonly name: string;
+  readonly range: FdqlSourceRange;
 }
 
 export type FdqlLiteralValue = boolean | null | number | string;
@@ -82,6 +88,7 @@ export interface FdqlCallExpression {
   readonly args: readonly FdqlExpression[];
   readonly kind: 'call';
   readonly name: string;
+  readonly nameRange?: FdqlSourceRange | undefined;
   readonly range?: FdqlSourceRange | undefined;
 }
 
@@ -142,6 +149,7 @@ export interface FdqlCaseExpression {
 export interface FdqlSetDeclaration {
   readonly column: number;
   readonly key: string;
+  readonly keyRef?: FdqlNameRef | undefined;
   readonly line: number;
   readonly rawValue: string;
   readonly range: FdqlSourceRange;
@@ -152,6 +160,7 @@ export interface FdqlAliasDeclaration {
   readonly column: number;
   readonly line: number;
   readonly name: string;
+  readonly nameRef?: FdqlNameRef | undefined;
   readonly range: FdqlSourceRange;
   readonly value: FdqlExpression;
 }
@@ -165,7 +174,9 @@ export interface FdqlSourceFromStage {
   readonly mode?: 'source' | undefined;
   readonly range: FdqlSourceRange;
   readonly rowAlias: string;
+  readonly rowAliasRef?: FdqlNameRef | undefined;
   readonly sourceAlias: string;
+  readonly sourceAliasRef?: FdqlNameRef | undefined;
 }
 
 export interface FdqlAggregateFromStage {
@@ -175,9 +186,12 @@ export interface FdqlAggregateFromStage {
   readonly line: number;
   readonly mode: 'aggregate';
   readonly provider: string;
+  readonly providerRef?: FdqlNameRef | undefined;
   readonly providerRowAlias?: string | undefined;
+  readonly providerRowAliasRef?: FdqlNameRef | undefined;
   readonly range: FdqlSourceRange;
   readonly sourceAlias: string;
+  readonly sourceAliasRef?: FdqlNameRef | undefined;
   readonly sourceExpression?: FdqlExpression | undefined;
   readonly yieldItems?: readonly FdqlProviderAggregateYieldItem[] | undefined;
 }
@@ -203,6 +217,7 @@ export interface FdqlWhereStage {
   readonly kind: 'providerWhere';
   readonly line: number;
   readonly provider: string;
+  readonly providerRef?: FdqlNameRef | undefined;
   readonly range: FdqlSourceRange;
 }
 
@@ -213,6 +228,7 @@ export interface FdqlOrderByStage {
   readonly kind: 'providerOrderBy';
   readonly line: number;
   readonly provider: string;
+  readonly providerRef?: FdqlNameRef | undefined;
   readonly range: FdqlSourceRange;
 }
 
@@ -221,6 +237,7 @@ export interface FdqlLimitStage {
   readonly kind: 'providerLimit';
   readonly line: number;
   readonly provider: string;
+  readonly providerRef?: FdqlNameRef | undefined;
   readonly range: FdqlSourceRange;
   readonly value: number;
 }
@@ -261,6 +278,7 @@ export interface FdqlAggregateStage {
 
 export type FdqlLookupMode = 'many' | 'one';
 export type FdqlCacheMode = 'off' | 'persistent' | 'run';
+export type FdqlLineageMode = 'compact' | 'off' | 'trace';
 
 export type FdqlLookupClause = FdqlWhereStage | FdqlOrderByStage | FdqlLimitStage;
 
@@ -276,7 +294,9 @@ export interface FdqlLookupStage {
   readonly range: FdqlSourceRange;
   readonly required: boolean;
   readonly rowAlias: string;
+  readonly rowAliasRef?: FdqlNameRef | undefined;
   readonly sourceAlias: string;
+  readonly sourceAliasRef?: FdqlNameRef | undefined;
   readonly sourceExpression?: FdqlExpression | undefined;
 }
 
@@ -289,9 +309,12 @@ export interface FdqlProviderAggregateStage {
   readonly line: number;
   readonly parent?: FdqlExpression | undefined;
   readonly provider: string;
+  readonly providerRef?: FdqlNameRef | undefined;
   readonly providerRowAlias?: string | undefined;
+  readonly providerRowAliasRef?: FdqlNameRef | undefined;
   readonly range: FdqlSourceRange;
   readonly sourceAlias: string;
+  readonly sourceAliasRef?: FdqlNameRef | undefined;
   readonly sourceExpression?: FdqlExpression | undefined;
   readonly yieldItems?: readonly FdqlProviderAggregateYieldItem[] | undefined;
 }
@@ -303,10 +326,12 @@ export interface FdqlUnwindStage {
   readonly line: number;
   readonly range: FdqlSourceRange;
   readonly rowAlias: string;
+  readonly rowAliasRef?: FdqlNameRef | undefined;
 }
 
 export interface FdqlProjectionItem {
   readonly alias?: string | undefined;
+  readonly aliasRef?: FdqlNameRef | undefined;
   readonly column?: number | undefined;
   readonly expression: FdqlExpression;
   readonly label: string;
@@ -326,6 +351,7 @@ export interface FdqlProviderAggregateFlatYieldItem {
 
 export interface FdqlProviderAggregateMapYieldItem {
   readonly alias?: string | undefined;
+  readonly aliasRef?: FdqlNameRef | undefined;
   readonly column?: number | undefined;
   readonly items: readonly FdqlProjectionItem[];
   readonly kind: 'map';
@@ -388,6 +414,7 @@ export interface FdqlExecutionSettings {
   readonly allowUnboundedReads: boolean;
   readonly cache: FdqlCacheMode;
   readonly cacheTtlMs: number;
+  readonly lineage: FdqlLineageMode;
   readonly pageSize: number;
   readonly readBudget: number;
   readonly timeoutMs: number;
@@ -635,16 +662,52 @@ export interface FdqlStats {
   readonly reads: number;
   readonly rowsOutput: number;
   readonly rowsScanned: number;
+  readonly stageStats: readonly FdqlStageStats[];
   readonly stoppedReason?: FdqlStopReason | undefined;
   readonly unionBranches: number;
 }
 
-export interface FdqlRowLineage {
-  readonly provider: string;
-  readonly source: string;
-  readonly rowPath: string;
-  readonly readContribution: number;
+export interface FdqlStageStats {
+  readonly aggregateReads: number;
+  readonly droppedRows: number;
+  readonly inputRows: number;
+  readonly outputRows: number;
+  readonly provider?: string | undefined;
+  readonly reads: number;
+  readonly source?: string | undefined;
+  readonly stage: string;
 }
+
+export interface FdqlLineageSource {
+  readonly provider: string;
+  readonly readContribution: number;
+  readonly rowId?: string | undefined;
+  readonly rowPath?: string | undefined;
+  readonly source: string;
+  readonly stage: string;
+}
+
+export interface FdqlLineageBinding {
+  readonly binding: string;
+  readonly sources: readonly FdqlLineageSource[];
+}
+
+export interface FdqlLineageTraceStep {
+  readonly action: 'attach' | 'derive' | 'drop' | 'output' | 'source';
+  readonly binding?: string | undefined;
+  readonly reason?: string | undefined;
+  readonly stage: string;
+}
+
+export interface FdqlResultRowLineage {
+  readonly bindings: readonly FdqlLineageBinding[];
+  readonly mode: Exclude<FdqlLineageMode, 'off'>;
+  readonly readContribution: number;
+  readonly sources: readonly FdqlLineageSource[];
+  readonly trace?: readonly FdqlLineageTraceStep[] | undefined;
+}
+
+export type FdqlRowLineage = FdqlResultRowLineage;
 
 export type FdqlExecutionEvent =
   | { readonly kind: 'started'; }
@@ -657,7 +720,7 @@ export type FdqlExecutionEvent =
   }
   | {
     readonly kind: 'row';
-    readonly lineage: FdqlRowLineage;
+    readonly lineage?: FdqlResultRowLineage | undefined;
     readonly row: Record<string, unknown>;
   }
   | { readonly kind: 'stats'; readonly stats: FdqlStats; }

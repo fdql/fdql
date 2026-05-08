@@ -39,6 +39,10 @@ const fdqlCoreSettingByName = {
     detail: 'Persistent cache TTL',
     insertText: 'set fdql.cacheTtl = ${1:24h}',
   },
+  'fdql.lineage': {
+    detail: 'Result lineage detail level',
+    insertText: 'set fdql.lineage = ${1|compact,trace,off|}',
+  },
   'fdql.readBudget': {
     detail: 'Maximum documents read by this query',
     insertText: 'set fdql.readBudget = ${1:5000}',

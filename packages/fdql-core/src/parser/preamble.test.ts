@@ -39,11 +39,19 @@ describe('FDQL parser preamble', () => {
     parseSet('set fdql.timeout 60s', 1, 1, range, diagnostics);
     parseAlias('alias $drivers mem.collection("drivers")', 2, 1, range, diagnostics);
 
-    expect(diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: 'FDQL_INVALID_SET', line: 1 }),
-        expect.objectContaining({ code: 'FDQL_INVALID_ALIAS_NAME', line: 2 }),
-      ]),
-    );
+    expect(diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'FDQL_INVALID_SET',
+        column: 5,
+        endColumn: 21,
+        line: 1,
+      }),
+      expect.objectContaining({
+        code: 'FDQL_INVALID_ALIAS_NAME',
+        column: 7,
+        endColumn: 41,
+        line: 2,
+      }),
+    ]);
   });
 });

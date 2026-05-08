@@ -10,10 +10,16 @@ import type {
   FdqlProviderAggregatePlanStage,
   FdqlProviderAggregateStage,
   FdqlProviderAggregateYieldItem,
+  FdqlSourceRange,
   FdqlValue,
 } from '../types.ts';
 import type { ResolvedAliasValue } from './aliases.ts';
-import { compilerError, duplicateStage } from './diagnostics.ts';
+import {
+  compilerError,
+  diagnosticAtName,
+  diagnosticAtRange,
+  duplicateStage,
+} from './diagnostics.ts';
 import { validateExpressionAliases, validateStageProvider } from './expression-validation.ts';
 import { resolveProviderStageSource } from './provider-source.ts';
 import { parseCacheTtlMs } from './settings.ts';
@@ -38,10 +44,10 @@ export function compileProviderAggregateStage(
   if (!sourceAlias) return null;
   if (sourceAlias.source.provider !== stage.provider) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtName(
         'FDQL_PROVIDER_MISMATCH',
         `Aggregate provider ${stage.provider} does not match source provider ${sourceAlias.source.provider}.`,
-        stage.line,
+        stage.providerRef,
       ),
     );
     return null;
@@ -60,36 +66,53 @@ export function compileProviderAggregateStage(
 
   for (const clause of stage.clauses) {
     if (
-      !validateStageProvider(clause.provider, stage.provider, providers, diagnostics, clause.line)
+      !validateStageProvider(
+        clause.provider,
+        stage.provider,
+        providers,
+        diagnostics,
+        clause.line,
+        clause.providerRef?.range,
+      )
     ) {
       continue;
     }
     if (clause.kind === 'providerOrderBy') {
       if (providerOrderByLine !== undefined) {
         diagnostics.push(
-          duplicateStage(`${clause.provider} order by`, providerOrderByLine, clause.line),
+          duplicateStage(
+            `${clause.provider} order by`,
+            providerOrderByLine,
+            clause.line,
+            clause.providerRef?.range,
+          ),
         );
       }
       providerOrderByLine = clause.line;
-      diagnostics.push(unsupportedProviderAggregateClause(clause.line));
+      diagnostics.push(unsupportedProviderAggregateClause(clause));
       continue;
     }
     if (clause.kind === 'providerLimit') {
       if (providerLimitLine !== undefined) {
         diagnostics.push(
-          duplicateStage(`${clause.provider} limit`, providerLimitLine, clause.line),
+          duplicateStage(
+            `${clause.provider} limit`,
+            providerLimitLine,
+            clause.line,
+            clause.providerRef?.range,
+          ),
         );
       }
       providerLimitLine = clause.line;
-      diagnostics.push(unsupportedProviderAggregateClause(clause.line));
+      diagnostics.push(unsupportedProviderAggregateClause(clause));
       continue;
     }
     if (!providerRowAlias) {
       diagnostics.push(
-        compilerError(
+        diagnosticAtRange(
           'FDQL_INVALID_PROVIDER_AGGREGATE',
           'Provider aggregate `where` needs a source row alias.',
-          clause.line,
+          clause.range,
         ),
       );
       continue;
@@ -195,6 +218,7 @@ export function compileProviderAggregatePlan(input: {
           outputAliases,
           input.diagnostics,
           yieldItem.item.line ?? input.line,
+          yieldItem.item.aliasRef?.range,
         )
       ) {
         if (!alias) missingYieldAlias(input, yieldItem.item);
@@ -211,15 +235,20 @@ export function compileProviderAggregatePlan(input: {
     const alias = yieldItem.alias;
     if (
       !alias
-      || !registerOutputAlias(alias, outputAliases, input.diagnostics, yieldItem.line ?? input.line)
+      || !registerOutputAlias(
+        alias,
+        outputAliases,
+        input.diagnostics,
+        yieldItem.line ?? input.line,
+        yieldItem.aliasRef?.range,
+      )
     ) {
       if (!alias) {
         input.diagnostics.push(
-          compilerError(
+          diagnosticAtRange(
             'FDQL_INVALID_PROVIDER_AGGREGATE_YIELD',
             'Provider aggregate object yield expressions need `as alias`.',
-            yieldItem.line ?? input.line,
-            yieldItem.column,
+            yieldItem.range,
           ),
         );
       }
@@ -236,6 +265,7 @@ export function compileProviderAggregatePlan(input: {
           fieldAliases,
           input.diagnostics,
           item.line ?? input.line,
+          item.aliasRef?.range,
         )
       ) {
         if (!fieldAlias) missingYieldAlias(input, item);
@@ -273,21 +303,20 @@ function compileAggregateProjectionItem(
 ): FdqlProviderAggregateItem | null {
   if (item.spread) {
     input.diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_SPREAD_PROJECTION',
         'Spread projections are only supported in `return`.',
-        item.line ?? input.line,
-        item.column,
+        item.range,
       ),
     );
     return null;
   }
   if (item.expression.kind !== 'call') {
     input.diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_UNSUPPORTED_PROVIDER_AGGREGATE',
         'Provider aggregate yield expressions must use provider aggregate functions.',
-        item.line ?? input.line,
+        item.expression.range ?? item.range,
       ),
     );
     return null;
@@ -296,30 +325,30 @@ function compileAggregateProjectionItem(
   const functionProvider = providerNamespaceFromCall(item.expression.name);
   if (functionProvider !== input.sourceProvider) {
     input.diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_PROVIDER_MISMATCH',
         `Aggregate function ${item.expression.name} does not match source provider ${input.sourceProvider}.`,
-        item.line ?? input.line,
+        item.expression.nameRange ?? item.expression.range,
       ),
     );
     return null;
   }
   if (!sourceDialect?.aggregateFunctions?.has(item.expression.name)) {
     input.diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_UNSUPPORTED_PROVIDER_AGGREGATE',
         `Unsupported provider aggregate function ${item.expression.name}.`,
-        item.line ?? input.line,
+        item.expression.nameRange ?? item.expression.range,
       ),
     );
     return null;
   }
   if (!input.providerRowAlias && item.expression.name !== `${input.sourceProvider}.count`) {
     input.diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_PROVIDER_AGGREGATE',
         'Provider aggregate field functions need a source row alias.',
-        item.line ?? input.line,
+        item.expression.nameRange ?? item.expression.range,
       ),
     );
     return null;
@@ -352,13 +381,24 @@ function registerOutputAlias(
   aliases: Set<string>,
   diagnostics: FdqlDiagnostic[],
   line: number,
+  range?: FdqlSourceRange | undefined,
 ): boolean {
   if (!aliases.has(alias)) {
     aliases.add(alias);
     return true;
   }
   diagnostics.push(
-    compilerError('FDQL_DUPLICATE_YIELD_ALIAS', `Duplicate aggregate yield alias ${alias}.`, line),
+    range
+      ? diagnosticAtRange(
+        'FDQL_DUPLICATE_YIELD_ALIAS',
+        `Duplicate aggregate yield alias ${alias}.`,
+        range,
+      )
+      : compilerError(
+        'FDQL_DUPLICATE_YIELD_ALIAS',
+        `Duplicate aggregate yield alias ${alias}.`,
+        line,
+      ),
   );
   return false;
 }
@@ -386,20 +426,25 @@ function missingYieldAlias(
   item: FdqlProjectionItem,
 ): void {
   input.diagnostics.push(
-    compilerError(
+    diagnosticAtRange(
       'FDQL_INVALID_PROVIDER_AGGREGATE_YIELD',
       'Provider aggregate yield expressions need `as alias`.',
-      item.line ?? input.line,
-      item.column,
+      item.range,
     ),
   );
 }
 
-function unsupportedProviderAggregateClause(line: number): FdqlDiagnostic {
-  return compilerError(
+function unsupportedProviderAggregateClause(
+  clause: {
+    readonly line: number;
+    readonly providerRef?: { readonly range: FdqlSourceRange; } | undefined;
+    readonly range: FdqlSourceRange;
+  },
+): FdqlDiagnostic {
+  return diagnosticAtRange(
     'FDQL_UNSUPPORTED_PROVIDER_AGGREGATE_CLAUSE',
     'Provider aggregate supports provider `where` clauses only.',
-    line,
+    clause.providerRef?.range ?? clause.range,
   );
 }
 
@@ -410,10 +455,10 @@ function resolveProviderAggregateCacheTtl(
   if (!stage.cacheTtlRaw) return undefined;
   if (stage.cache !== 'persistent') {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_LOOKUP_CACHE',
         'Provider aggregate cache TTL is only valid with `cache persistent`.',
-        stage.line,
+        stage.range,
       ),
     );
     return undefined;
@@ -421,10 +466,10 @@ function resolveProviderAggregateCacheTtl(
   const cacheTtlMs = parseCacheTtlMs(stage.cacheTtlRaw);
   if (!cacheTtlMs) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_LOOKUP_CACHE',
         'Invalid provider aggregate cache TTL.',
-        stage.line,
+        stage.range,
       ),
     );
   }

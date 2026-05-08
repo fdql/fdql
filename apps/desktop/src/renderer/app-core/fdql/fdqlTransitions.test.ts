@@ -44,6 +44,44 @@ describe('fdqlTransitions', () => {
     expect(state.results['tab-1']?.rows).toEqual([{ id: 'final' }]);
   });
 
+  it('keeps streamed row lineages lockstep with rows', () => {
+    const running = fdqlRunStarted(createInitialFdqlState(), {
+      connectionId: 'emu',
+      runId: 'run-1',
+      source: 'from $orders as o',
+      startedAt: 100,
+      tabId: 'tab-1',
+    });
+
+    const state = fdqlEventReceived(running, {
+      event: rowEvent('run-1', { id: 'streamed' }),
+      now: 110,
+      tabIsCurrent: () => true,
+    });
+
+    expect(state.results['tab-1']?.rows).toEqual([{ id: 'streamed' }]);
+    expect(state.results['tab-1']?.rowLineages).toHaveLength(1);
+  });
+
+  it('does not create row lineage state when row events omit lineage', () => {
+    const running = fdqlRunStarted(createInitialFdqlState(), {
+      connectionId: 'emu',
+      runId: 'run-1',
+      source: 'from $orders as o',
+      startedAt: 100,
+      tabId: 'tab-1',
+    });
+
+    const state = fdqlEventReceived(running, {
+      event: { row: { id: 'streamed' }, runId: 'run-1', type: 'row' },
+      now: 110,
+      tabIsCurrent: () => true,
+    });
+
+    expect(state.results['tab-1']?.rows).toEqual([{ id: 'streamed' }]);
+    expect(state.results['tab-1']?.rowLineages).toBeUndefined();
+  });
+
   it('clears runtime state without removing tab source', () => {
     const running = fdqlRunStarted(
       {
@@ -89,10 +127,25 @@ describe('fdqlTransitions', () => {
 function rowEvent(runId: string, row: Record<string, unknown>): FdqlRunEvent {
   return {
     lineage: {
-      provider: 'fs',
+      bindings: [{
+        binding: 'order',
+        sources: [{
+          provider: 'fs',
+          readContribution: 1,
+          rowPath: 'orders/ord_1',
+          source: '$orders',
+          stage: 'source',
+        }],
+      }],
+      mode: 'compact',
       readContribution: 1,
-      rowPath: 'orders/ord_1',
-      source: '$orders',
+      sources: [{
+        provider: 'fs',
+        readContribution: 1,
+        rowPath: 'orders/ord_1',
+        source: '$orders',
+        stage: 'source',
+      }],
     },
     row,
     runId,
@@ -120,6 +173,7 @@ function result(rows: readonly Record<string, unknown>[]): FdqlRunResult {
       reads: rows.length,
       rowsOutput: rows.length,
       rowsScanned: rows.length,
+      stageStats: [],
       stoppedReason: 'completed',
       unionBranches: 0,
     },

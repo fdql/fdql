@@ -614,13 +614,13 @@ function sortCompletions(items: readonly FdqlCompletionItem[]): readonly FdqlCom
 }
 
 function toLanguageDiagnostic(diagnostic: FdqlDiagnosticWithRange): FdqlLanguageDiagnostic {
-  const line = diagnostic.line ?? 1;
-  const column = diagnostic.column ?? 1;
+  const line = diagnostic.line ?? diagnostic.range?.startLine ?? 1;
+  const column = diagnostic.column ?? diagnostic.range?.startColumn ?? 1;
   return {
     ...diagnostic,
     column,
-    endColumn: diagnostic.endColumn ?? column + 1,
-    endLine: diagnostic.endLine ?? line,
+    endColumn: diagnostic.endColumn ?? diagnostic.range?.endColumn ?? column + 1,
+    endLine: diagnostic.endLine ?? diagnostic.range?.endLine ?? line,
     line,
   };
 }

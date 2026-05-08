@@ -8,6 +8,7 @@ import type {
   FdqlExecutionEvent,
   FdqlExecutionOptions,
   FdqlExpression,
+  FdqlLineageSource,
   FdqlProviderAggregatePlan,
   FdqlProviderAggregatePlanStage,
   FdqlProviderAggregateRequest,
@@ -18,6 +19,11 @@ import type {
   FdqlValue,
 } from '../types.ts';
 import { isMissingValue, mapValue, nullValue, numberValue } from '../value.ts';
+import {
+  aggregateLineageBindings,
+  lineageSourceForProviderSource,
+  lineageSourcesForRows,
+} from './lineage.ts';
 import { aggregateProvider, createAggregateRequest, providerDialects } from './provider-read.ts';
 import {
   freezeStats,
@@ -40,17 +46,22 @@ export async function executeProviderAggregateStage(
 ): Promise<{
   readonly diagnostic?: Extract<FdqlExecutionEvent, { readonly kind: 'failed'; }>['diagnostic'];
   readonly events: readonly FdqlExecutionEvent[];
+  readonly lineage: readonly {
+    readonly binding: string;
+    readonly sources: readonly FdqlLineageSource[];
+  }[];
   readonly row: RowRecord | null;
   readonly stopReason?: NonNullable<FdqlStats['stoppedReason']> | undefined;
 }> {
   const boundProvider = bindProviderReadPlan(stage, row, runtime);
   if (boundProvider.kind === 'failed') {
-    return { diagnostic: boundProvider.diagnostic, events: [], row };
+    return { diagnostic: boundProvider.diagnostic, events: [], lineage: [], row };
   }
   const defaults = defaultProviderAggregateValues(stage.aggregate);
   if (boundProvider.kind === 'skip') {
     return {
       events: [],
+      lineage: aggregateLineageBindings(stage.aggregate, []),
       row: { ...row, ...providerAggregateOutputRow(stage.aggregate, defaults) },
     };
   }
@@ -63,10 +74,11 @@ export async function executeProviderAggregateStage(
     'pipelineAggregate',
   );
   const beforeReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
-  if (beforeReadStop) return { events: [], row, stopReason: beforeReadStop };
+  if (beforeReadStop) return { events: [], lineage: [], row, stopReason: beforeReadStop };
   if (aggregateHasMissingCorrelatedValue(request, runtime)) {
     return {
       events: [],
+      lineage: aggregateLineageBindings(stage.aggregate, []),
       row: { ...row, ...providerAggregateOutputRow(stage.aggregate, defaults) },
     };
   }
@@ -79,6 +91,10 @@ export async function executeProviderAggregateStage(
     stats.cacheHits += 1;
     return {
       events: [{ kind: 'stats', stats: freezeStats(stats) }],
+      lineage: aggregateLineageBindings(
+        stage.aggregate,
+        lineageSourcesForRows(cachedRows, 'providerAggregate', 0),
+      ),
       row: {
         ...row,
         ...providerAggregateOutputRow(
@@ -96,6 +112,10 @@ export async function executeProviderAggregateStage(
       stats.cacheBytes += hit.sizeBytes;
       return {
         events: [{ kind: 'stats', stats: freezeStats(stats) }],
+        lineage: aggregateLineageBindings(
+          stage.aggregate,
+          lineageSourcesForRows(hit.rows, 'providerAggregate', 0),
+        ),
         row: {
           ...row,
           ...providerAggregateOutputRow(
@@ -118,10 +138,19 @@ export async function executeProviderAggregateStage(
     recordRead(document, readRequestForAggregate(request), stats, true)
   );
   const afterReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
-  if (afterReadStop) return { events, row, stopReason: afterReadStop };
+  if (afterReadStop) return { events, lineage: [], row, stopReason: afterReadStop };
 
   const values = { ...defaults, ...result.values };
   const cacheRows = aggregateRowsForCache(stage, request, values);
+  const lineageSources = (result.documentReads?.length ?? 0) > 0
+    ? lineageSourcesForRows(result.documentReads ?? [], 'providerAggregate')
+    : [
+      lineageSourceForProviderSource(
+        request.source,
+        'providerAggregate',
+        result.aggregateReads,
+      ),
+    ];
   if (cachePolicy.kind === 'run') lookupCache.set(cachePolicy.key.canonicalJson, cacheRows);
   if (cachePolicy.kind === 'persistent' && options.persistentCache) {
     const nowMs = options.now?.() ?? Date.now();
@@ -137,6 +166,7 @@ export async function executeProviderAggregateStage(
   }
   return {
     events,
+    lineage: aggregateLineageBindings(stage.aggregate, lineageSources),
     row: { ...row, ...providerAggregateOutputRow(stage.aggregate, values) },
   };
 }

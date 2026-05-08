@@ -1408,6 +1408,7 @@ set fdql.readBudget = 5000
 set fdql.timeout = 60s
 set fdql.cache = persistent
 set fdql.cacheTtl = 24h
+set fdql.lineage = compact
 set fdql.allowUnboundedReads = false
 
 alias $events = fs.collection("events")
@@ -1424,14 +1425,14 @@ Rules:
 - `set` must be declared before aliases and before the pipeline.
 - `set` cannot appear after `from`, `then`, `lookup`, `unwind`, `aggregate`, `return`, or a write command.
 - Supported `set` keys are namespace-defined.
-- Initial read keys: `fdql.readBudget`, `fdql.timeout`, `fdql.cache`, `fdql.cacheTtl`, `fdql.allowUnboundedReads`, `fs.projectId`, and `fs.databaseId`.
+- Initial read keys: `fdql.readBudget`, `fdql.timeout`, `fdql.cache`, `fdql.cacheTtl`, `fdql.lineage`, `fdql.allowUnboundedReads`, `fs.projectId`, and `fs.databaseId`.
 - Initial write keys: `fdql.writeBudget`, `fdql.writeBatchSize`, `fdql.writeMode`, and `fdql.stopOnWriteError`.
 - Unknown `set` keys are diagnostics, not ignored.
 - Unscoped `set` keys are invalid; use `namespace.key`.
 - `set` values do not need `$` prefixes because they are not aliases.
 - Read budget, timeout, cache mode, and provider scan permissions are internal execution context values.
 - Read budget stops execution and returns partial results with a clear stopped state.
-- Stats must show reads, rows scanned, rows output, lookup counts, cache hits/misses/writes/evictions, and stop reason.
+- Stats must show reads, rows scanned, rows output, stage stats, lookup counts, cache hits/misses/writes/evictions, and stop reason.
 
 ## Cache
 
@@ -1530,9 +1531,28 @@ Rules:
 
 ## Result Lineage
 
-FDQL execution keeps lineage while results are in memory.
+FDQL execution can keep lineage while results are in memory.
 
-Lineage should include:
+Lineage mode is explicit:
+
+```sql
+set fdql.lineage = compact
+set fdql.lineage = trace
+set fdql.lineage = off
+```
+
+Rules:
+
+- Default mode is `compact`.
+- `compact` keeps final output-row source/binding lineage only.
+- `trace` keeps compact lineage plus row-stage transitions for emitted rows.
+- `off` keeps no per-row lineage, but still keeps rows, diagnostics, and execution stats.
+- Lineage modes are bare keywords, not strings.
+- Stage stats are always collected because they are aggregate counters, not row lineage.
+- Lineage is run-memory data only and is not persisted with workspace state.
+- Lineage must not copy source document data; it stores ids, paths, aliases, provider/source/stage metadata, and read contribution.
+
+Lineage can include:
 
 - provider source
 - document path/id
@@ -1543,7 +1563,7 @@ Lineage should include:
 - read contribution
 - cache hit/miss
 
-For aggregate groups, source exploration should be on demand to avoid retaining all pre-aggregate rows.
+For aggregate groups, detailed source exploration should use `trace` or on-demand source actions to avoid retaining all pre-aggregate rows by default.
 
 ## Non-Goals
 

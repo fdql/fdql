@@ -30,10 +30,25 @@ describe('FDQL IPC schemas', () => {
     expect(
       FdqlRunEventSchema.safeParse({
         lineage: {
-          provider: 'fs',
+          bindings: [{
+            binding: 'order',
+            sources: [{
+              provider: 'fs',
+              readContribution: 1,
+              rowPath: 'orders/ord_1',
+              source: '$orders',
+              stage: 'source',
+            }],
+          }],
+          mode: 'compact',
           readContribution: 1,
-          rowPath: 'orders/ord_1',
-          source: '$orders',
+          sources: [{
+            provider: 'fs',
+            readContribution: 1,
+            rowPath: 'orders/ord_1',
+            source: '$orders',
+            stage: 'source',
+          }],
         },
         row: { id: 'ord_1' },
         runId: 'run_1',

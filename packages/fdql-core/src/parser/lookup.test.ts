@@ -47,6 +47,30 @@ describe('FDQL parser lookup', () => {
     });
   });
 
+  it('parses multiline lookup headers and provider clauses', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    const result = parseLookup(
+      createSourceLines(`then lookup one
+  $drivers
+  as driver
+  cache run
+  mem
+    where
+    mem.id(driver) = eventDriver.steamId`),
+      0,
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(result.stage).toMatchObject({
+      cache: 'run',
+      clauses: [expect.objectContaining({ kind: 'providerWhere' })],
+      mode: 'one',
+      rowAlias: 'driver',
+      sourceAlias: '$drivers',
+    });
+  });
+
   it('rejects malformed cache suffixes and invalid required modes', () => {
     const invalidCache: FdqlDiagnostic[] = [];
     parseLookup(

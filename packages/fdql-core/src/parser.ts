@@ -1,14 +1,13 @@
-import { parseExpression } from './expression.ts';
 import { isUnionAst, parserError } from './parser/helpers.ts';
 import { parseLookup } from './parser/lookup.ts';
 import { parseAlias, parseSet } from './parser/preamble.ts';
 import { collectProjection, parseProjectionItems } from './parser/projection.ts';
 import {
-  createSourceLines,
-  expressionSlice,
-  sharedPreamble,
-  splitUnionAll,
-} from './parser/source-text.ts';
+  collectStatementBlock,
+  expressionBlockSlice,
+  parseExpressionBlock,
+} from './parser/source-block.ts';
+import { createSourceLines, sharedPreamble, splitUnionAll } from './parser/source-text.ts';
 import {
   parseAggregateFrom,
   parseAggregateStage,
@@ -99,7 +98,7 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
       continue;
     }
     seenPipeline = true;
-    if (text.startsWith('from ')) {
+    if (text === 'from' || text.startsWith('from ')) {
       if (from) {
         diagnostics.push(
           parserError('FDQL_MULTIPLE_FROM', 'A pipeline can only have one `from`.', line, column),
@@ -112,36 +111,51 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
         index = aggregateFrom.nextIndex;
         continue;
       }
-      from = parseFrom(text, line, column, range, diagnostics);
+      const block = collectStatementBlock(lines, index);
+      from = parseFrom(block, diagnostics);
+      index = block.nextIndex;
       continue;
     }
-    const providerClause = parseProviderClause({ column, line, range, text }, diagnostics);
+    const providerBlock = collectStatementBlock(lines, index);
+    const providerClause = parseProviderClause(providerBlock, diagnostics);
     if (providerClause) {
       stages.push(providerClause);
+      index = providerBlock.nextIndex;
       continue;
     }
-    if (text.startsWith('then filter ')) {
-      const expressionSource = expressionSlice(text, column, 'then filter '.length);
-      const parsed = parseExpression(expressionSource.text, line, expressionSource.column);
+    if (text === 'then filter' || text.startsWith('then filter ')) {
+      const block = collectStatementBlock(lines, index);
+      const parsed = parseExpressionBlock(expressionBlockSlice(block, 'then filter '.length));
       diagnostics.push(...parsed.diagnostics);
       if (parsed.expression) {
-        stages.push({ column, expression: parsed.expression, kind: 'filter', line, range });
+        stages.push({
+          column,
+          expression: parsed.expression,
+          kind: 'filter',
+          line,
+          range: block.range,
+        });
       }
+      index = block.nextIndex;
       continue;
     }
-    if (text.startsWith('then take ')) {
+    if (text === 'then take' || text.startsWith('then take ')) {
+      const block = collectStatementBlock(lines, index);
       stages.push({
         column,
         kind: 'take',
         line,
-        range,
-        value: Number(text.slice('then take '.length).trim()),
+        range: block.range,
+        value: Number(block.text.slice('then take '.length).trim()),
       });
+      index = block.nextIndex;
       continue;
     }
-    if (text.startsWith('then sort by ')) {
-      const parsed = parseSortBy(text, line, column, range, diagnostics);
+    if (text === 'then sort by' || text.startsWith('then sort by ')) {
+      const block = collectStatementBlock(lines, index);
+      const parsed = parseSortBy(block, diagnostics);
       if (parsed) stages.push(parsed);
+      index = block.nextIndex;
       continue;
     }
     if (text === 'then aggregate' || text.startsWith('then aggregate ')) {
@@ -150,21 +164,23 @@ function parseFdqlPipeline(source: string): FdqlParseResult {
       stages.push(aggregate.stage);
       continue;
     }
-    if (/^then\s+[A-Za-z_][A-Za-z0-9_]*\.aggregate\s+/i.test(text)) {
+    if (/^then\s+[A-Za-z_][A-Za-z0-9_]*\.aggregate\b/i.test(text)) {
       const aggregate = parseProviderAggregateStage(lines, index, diagnostics);
       index = aggregate.nextIndex;
       if (aggregate.stage) stages.push(aggregate.stage);
       continue;
     }
-    if (text.startsWith('then lookup ')) {
+    if (text === 'then lookup' || text.startsWith('then lookup ')) {
       const lookup = parseLookup(lines, index, diagnostics);
       index = lookup.nextIndex;
       if (lookup.stage) stages.push(lookup.stage);
       continue;
     }
-    if (text.startsWith('then unwind ')) {
-      const unwind = parseUnwind(text, line, column, range, diagnostics);
+    if (text === 'then unwind' || text.startsWith('then unwind ')) {
+      const block = collectStatementBlock(lines, index);
+      const unwind = parseUnwind(block, diagnostics);
       if (unwind) stages.push(unwind);
+      index = block.nextIndex;
       continue;
     }
     if (text === 'then with' || text.startsWith('then with ')) {

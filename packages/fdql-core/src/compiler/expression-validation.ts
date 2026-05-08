@@ -4,10 +4,11 @@ import type {
   FdqlDiagnostic,
   FdqlExpression,
   FdqlProjectionItem,
+  FdqlSourceRange,
   FdqlStage,
   FdqlValue,
 } from '../types.ts';
-import { compilerError } from './diagnostics.ts';
+import { compilerError, diagnosticAtRange } from './diagnostics.ts';
 
 const supportedExpressionCalls = new Set([
   'bytes',
@@ -28,20 +29,37 @@ export function validateStageProvider(
   providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
   line: number,
+  range?: FdqlSourceRange | undefined,
 ): boolean {
   if (!providers[stageProvider]) {
     diagnostics.push(
-      compilerError('FDQL_UNKNOWN_NAMESPACE', `Unknown provider namespace ${stageProvider}.`, line),
+      range
+        ? diagnosticAtRange(
+          'FDQL_UNKNOWN_NAMESPACE',
+          `Unknown provider namespace ${stageProvider}.`,
+          range,
+        )
+        : compilerError(
+          'FDQL_UNKNOWN_NAMESPACE',
+          `Unknown provider namespace ${stageProvider}.`,
+          line,
+        ),
     );
     return false;
   }
   if (sourceProvider && stageProvider !== sourceProvider) {
     diagnostics.push(
-      compilerError(
-        'FDQL_PROVIDER_MISMATCH',
-        `Provider clause ${stageProvider} does not match source provider ${sourceProvider}.`,
-        line,
-      ),
+      range
+        ? diagnosticAtRange(
+          'FDQL_PROVIDER_MISMATCH',
+          `Provider clause ${stageProvider} does not match source provider ${sourceProvider}.`,
+          range,
+        )
+        : compilerError(
+          'FDQL_PROVIDER_MISMATCH',
+          `Provider clause ${stageProvider} does not match source provider ${sourceProvider}.`,
+          line,
+        ),
     );
     return false;
   }
@@ -205,16 +223,20 @@ export function validateExpressionAliases(
   aliases: Readonly<Record<string, unknown>>,
   providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
-  line: number,
+  _line: number,
 ): void {
   walkExpression(expression, (node) => {
     if (node.kind === 'alias' && !(node.name in aliases)) {
       diagnostics.push(
-        compilerError('FDQL_UNDECLARED_ALIAS', `Alias ${node.name} is not declared.`, line),
+        diagnosticAtRange(
+          'FDQL_UNDECLARED_ALIAS',
+          `Alias ${node.name} is not declared.`,
+          node.range,
+        ),
       );
     }
     if (node.kind === 'call') {
-      validateExpressionCall(node.name, providers, diagnostics, line);
+      validateExpressionCall(node, providers, diagnostics);
     }
   });
 }
@@ -275,13 +297,27 @@ function validateExpressionRowBindings(
     seen.add(root);
     const diagnosticLine = node.range?.startLine ?? line;
     const diagnosticColumn = node.range?.startColumn ?? column;
+    const rootRange = node.range
+      ? {
+        endColumn: node.range.startColumn + root.length,
+        endLine: node.range.startLine,
+        startColumn: node.range.startColumn,
+        startLine: node.range.startLine,
+      }
+      : undefined;
     diagnostics.push({
-      ...compilerError(
-        'FDQL_UNKNOWN_ROW_BINDING',
-        `Unknown row binding ${root}. Use a current row alias or projected binding such as stats.total.`,
-        diagnosticLine,
-        diagnosticColumn,
-      ),
+      ...(rootRange
+        ? diagnosticAtRange(
+          'FDQL_UNKNOWN_ROW_BINDING',
+          `Unknown row binding ${root}. Use a current row alias or projected binding such as stats.total.`,
+          rootRange,
+        )
+        : compilerError(
+          'FDQL_UNKNOWN_ROW_BINDING',
+          `Unknown row binding ${root}. Use a current row alias or projected binding such as stats.total.`,
+          diagnosticLine,
+          diagnosticColumn,
+        )),
       ...(diagnosticColumn
         ? { endColumn: diagnosticColumn + root.length, endLine: diagnosticLine }
         : {}),
@@ -297,21 +333,19 @@ function validateProjectionSpread(
   if (!item.spread) return;
   if (!allowSpread) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_SPREAD_PROJECTION',
         'Spread projections are only supported in `return`.',
-        item.line,
-        item.column,
+        item.range,
       ),
     );
   }
   if (item.alias) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_SPREAD_PROJECTION',
         'Spread return projections cannot use `as alias`.',
-        item.line,
-        item.column,
+        item.aliasRef?.range ?? item.range,
       ),
     );
   }
@@ -324,22 +358,32 @@ function labelFor(expression: FdqlExpression, fallback: string): string {
 }
 
 function validateExpressionCall(
-  name: string,
+  expression: Extract<FdqlExpression, { readonly kind: 'call'; }>,
   providers: FdqlProviderDialectRegistry,
   diagnostics: FdqlDiagnostic[],
-  line: number,
 ): void {
+  const name = expression.name;
   if (supportedExpressionCalls.has(name)) return;
   const namespace = providerNamespaceFromCall(name);
   if (namespace) {
     const provider = providers[namespace];
     if (!provider) {
       diagnostics.push(
-        compilerError('FDQL_UNKNOWN_NAMESPACE', `Unknown provider namespace ${namespace}.`, line),
+        diagnosticAtRange(
+          'FDQL_UNKNOWN_NAMESPACE',
+          `Unknown provider namespace ${namespace}.`,
+          expression.nameRange ?? expression.range,
+        ),
       );
       return;
     }
     if (provider.valueFunctions.has(name)) return;
   }
-  diagnostics.push(compilerError('FDQL_UNKNOWN_FUNCTION', `Unknown FDQL function ${name}.`, line));
+  diagnostics.push(
+    diagnosticAtRange(
+      'FDQL_UNKNOWN_FUNCTION',
+      `Unknown FDQL function ${name}.`,
+      expression.nameRange ?? expression.range,
+    ),
+  );
 }

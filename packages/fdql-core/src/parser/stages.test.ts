@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FdqlDiagnostic } from '../types.ts';
+import { collectStatementBlock } from './source-block.ts';
 import { createSourceLines } from './source-text.ts';
 import {
   parseAggregateFrom,
@@ -11,16 +12,14 @@ import {
   parseUnwind,
 } from './stages.ts';
 
-const range = { endColumn: 1, endLine: 1, startColumn: 1, startLine: 1 };
-
 describe('FDQL parser stages', () => {
   it('parses provider clauses and local sort stages', () => {
     const diagnostics: FdqlDiagnostic[] = [];
     const where = parseProviderClause(
-      { column: 1, line: 1, range, text: 'mem where d.active = true' },
+      statement('mem where d.active = true'),
       diagnostics,
     );
-    const sort = parseSortBy('then sort by d.createdAt desc', 2, 1, range, diagnostics);
+    const sort = parseSortBy(statement('then sort by d.createdAt desc'), diagnostics);
 
     expect(diagnostics).toEqual([]);
     expect(where).toMatchObject({ kind: 'providerWhere', provider: 'mem' });
@@ -30,17 +29,81 @@ describe('FDQL parser stages', () => {
   it('parses unwind and from stages', () => {
     const diagnostics: FdqlDiagnostic[] = [];
     const unwind = parseUnwind(
-      'then unwind entries(d.roundsById) as round',
-      1,
-      1,
-      range,
+      statement('then unwind entries(d.roundsById) as round'),
       diagnostics,
     );
-    const from = parseFrom('from $drivers as d', 2, 1, range, diagnostics);
+    const from = parseFrom(statement('from $drivers as d'), diagnostics);
 
     expect(diagnostics).toEqual([]);
     expect(unwind).toMatchObject({ kind: 'unwind', rowAlias: 'round' });
     expect(from).toMatchObject({ kind: 'from', rowAlias: 'd', sourceAlias: '$drivers' });
+  });
+
+  it('locates malformed from diagnostics on the missing or bad token', () => {
+    const sourceOnlyDiagnostics: FdqlDiagnostic[] = [];
+    parseFrom(statement('from $events'), sourceOnlyDiagnostics);
+
+    const badAliasDiagnostics: FdqlDiagnostic[] = [];
+    parseFrom(statement('from $events as 12'), badAliasDiagnostics);
+
+    expect(sourceOnlyDiagnostics).toEqual([
+      expect.objectContaining({
+        code: 'FDQL_PARSE_ERROR',
+        column: 13,
+        endColumn: 13,
+        line: 1,
+      }),
+    ]);
+    expect(badAliasDiagnostics).toEqual([
+      expect.objectContaining({
+        code: 'FDQL_PARSE_ERROR',
+        column: 17,
+        endColumn: 19,
+        line: 1,
+      }),
+    ]);
+  });
+
+  it('parses multiline statement headers and provider clauses', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+    const from = parseFrom(
+      statement(`from $events
+  as event`),
+      diagnostics,
+    );
+    const where = parseProviderClause(
+      statement(`mem where
+  event.active = true`),
+      diagnostics,
+    );
+    const order = parseProviderClause(
+      statement(`mem order by
+  event.createdAt desc`),
+      diagnostics,
+    );
+    const limit = parseProviderClause(
+      statement(`mem limit
+  20`),
+      diagnostics,
+    );
+    const filter = parseSortBy(
+      statement(`then sort by
+  event.createdAt desc`),
+      diagnostics,
+    );
+    const unwind = parseUnwind(
+      statement(`then unwind
+  entries(event.entriesById) as entry`),
+      diagnostics,
+    );
+
+    expect(diagnostics).toEqual([]);
+    expect(from).toMatchObject({ rowAlias: 'event', sourceAlias: '$events' });
+    expect(where).toMatchObject({ kind: 'providerWhere' });
+    expect(order).toMatchObject({ direction: 'desc', kind: 'providerOrderBy' });
+    expect(limit).toMatchObject({ kind: 'providerLimit', value: 20 });
+    expect(filter).toMatchObject({ direction: 'desc', kind: 'sortBy' });
+    expect(unwind).toMatchObject({ kind: 'unwind', rowAlias: 'entry' });
   });
 
   it('parses local aggregate by and yield blocks', () => {
@@ -95,7 +158,9 @@ describe('FDQL parser stages', () => {
     const diagnostics: FdqlDiagnostic[] = [];
     const parsed = parseAggregateFrom(
       createSourceLines(`from fs.aggregate $orders as o
-  fs where o.status = "paid"
+  fs
+    where
+    o.status = "paid"
   yield fs.count() as total`),
       0,
       diagnostics,
@@ -114,7 +179,9 @@ describe('FDQL parser stages', () => {
     const diagnostics: FdqlDiagnostic[] = [];
     const parsed = parseProviderAggregateStage(
       createSourceLines(`then fs.aggregate $items of order as item cache run
-  fs where item.status = "paid"
+  fs
+    where
+    item.status = "paid"
   yield { fs.count() as itemCount, fs.sum(item.price) as itemTotal } as itemStats`),
       0,
       diagnostics,
@@ -141,3 +208,7 @@ describe('FDQL parser stages', () => {
     });
   });
 });
+
+function statement(source: string) {
+  return collectStatementBlock(createSourceLines(source), 0);
+}

@@ -153,6 +153,64 @@ return p.name`,
     );
   });
 
+  it('locates undeclared source aliases on the source token', () => {
+    const result = compileSingleFdqlRead(
+      `from $pepole as p
+mem limit 1
+return p.name`,
+      options,
+    );
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_UNDECLARED_ALIAS',
+        column: 6,
+        endColumn: 13,
+        endLine: 1,
+        line: 1,
+      }),
+    );
+  });
+
+  it('locates diagnostics on multiline statement header tokens', () => {
+    const undeclared = compileSingleFdqlRead(
+      `from
+  $pepole
+  as p
+mem limit 1
+return p.name`,
+      options,
+    );
+    const unknownBinding = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+then filter
+  pepole.active = true
+return p.name`,
+      options,
+    );
+
+    expect(undeclared.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_UNDECLARED_ALIAS',
+        column: 3,
+        endColumn: 10,
+        endLine: 2,
+        line: 2,
+      }),
+    );
+    expect(unknownBinding.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_UNKNOWN_ROW_BINDING',
+        column: 3,
+        endColumn: 9,
+        endLine: 5,
+        line: 5,
+      }),
+    );
+  });
+
   it('blocks unbounded reads and duplicate singleton stages', () => {
     const unbounded = compileSingleFdqlRead(
       `alias $people = mem.collection("people")

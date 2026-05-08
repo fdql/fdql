@@ -8,7 +8,7 @@ import {
 } from '../provider.ts';
 import type { FdqlAliasDeclaration, FdqlDiagnostic, FdqlExpression, FdqlValue } from '../types.ts';
 import { arrayValue, literalToValue, mapValue, missingValue } from '../value.ts';
-import { compilerError } from './diagnostics.ts';
+import { diagnosticAtName, diagnosticAtRange } from './diagnostics.ts';
 import { validateExpressionAliases } from './expression-validation.ts';
 
 export type ResolvedAliasValue = FdqlResolvedAliasValue;
@@ -23,9 +23,10 @@ export function resolveAliases(
   for (const declaration of declarations) {
     if (!/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(declaration.name)) {
       diagnostics.push(
-        compilerError(
+        diagnosticAtName(
           'FDQL_INVALID_ALIAS_NAME',
           'Alias names must start with `$`.',
+          declaration.nameRef,
           declaration.line,
         ),
       );
@@ -33,9 +34,10 @@ export function resolveAliases(
     }
     if (aliases[declaration.name]) {
       diagnostics.push(
-        compilerError(
+        diagnosticAtName(
           'FDQL_INVALID_ALIAS_NAME',
           `Alias ${declaration.name} is already declared.`,
+          declaration.nameRef,
           declaration.line,
         ),
       );
@@ -78,9 +80,10 @@ function resolveSourceAlias(
   const provider = providers[namespace];
   if (!provider) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_UNKNOWN_NAMESPACE',
         `Unknown provider namespace ${namespace}.`,
+        declaration.value.nameRange ?? declaration.value.range,
         declaration.line,
       ),
     );

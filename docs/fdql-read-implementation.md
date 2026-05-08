@@ -84,6 +84,7 @@ set fdql.readBudget = 5000
 set fdql.timeout = 60s
 set fdql.cache = persistent
 set fdql.cacheTtl = 24h
+set fdql.lineage = compact
 set fdql.allowUnboundedReads = false
 
 alias $drivers = fs.project("prod").db("db2").collection("drivers", ["firstName", "teamId", "metadata"])
@@ -251,11 +252,11 @@ These block the read implementation from being honest at production scale.
 | Provider adapters   | Done                       | Firestore values normalize/encode in provider repos; core FDQL has no Firestore-shaped runtime API.                                          |
 | Type inference      | Missing                    | Compiler does not infer expression, stage, or result column types.                                                                           |
 | Row-shape analysis  | Partial                    | Compiler validates root row bindings; nested unknown fields are runtime missing values and compiler does not prove row shape.                |
-| Lineage UI          | Partial                    | Events carry provider-neutral row lineage, but UI does not expose source exploration.                                                        |
+| Lineage UI          | Done                       | FDQL supports `compact`, `trace`, and `off` lineage modes, stores row lineages lockstep with rows, and exposes stage stats/source origins.   |
 | More E2E            | Partial                    | Covers main read paths plus nested map/array lookup cache, field-path fidelity, and issue-click navigation. Still needs named DB coverage.   |
 | Generated scripts   | Not planned for current UI | Spec mentions generated scripts, but current product slice intentionally has no JS snippet panel. Revisit before implementing.               |
 
 ## Suggested Next Order
 
 1. Improve context-aware editor assistance.
-2. Add lineage/source exploration for aggregate and expanded rows.
+2. Add named database E2E coverage.

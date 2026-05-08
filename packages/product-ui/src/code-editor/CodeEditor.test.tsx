@@ -333,7 +333,11 @@ return fs.id(o) as id`}
       'fdql',
       expect.arrayContaining([
         expect.objectContaining({
+          endColumn: 15,
+          endLineNumber: 1,
           source: 'FDQL_INVALID_SET_KEY',
+          startColumn: 5,
+          startLineNumber: 1,
         }),
       ]),
     );
@@ -377,8 +381,12 @@ return o.total`}
       'fdql',
       expect.arrayContaining([
         expect.objectContaining({
+          endColumn: 15,
+          endLineNumber: 4,
           severity: monacoApiMock.MarkerSeverity.Warning,
           source: 'FDQL_FIELD_NOT_IN_MASK',
+          startColumn: 10,
+          startLineNumber: 4,
         }),
       ]),
     );

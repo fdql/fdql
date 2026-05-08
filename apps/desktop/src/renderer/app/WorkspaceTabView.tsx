@@ -223,6 +223,7 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
         runId={fdql.runId}
         source={fdql.source}
         onCancel={fdql.onCancel}
+        onOpenDocumentInNewTab={props.firestore.onOpenDocumentInNewTab}
         onRun={fdql.onRun}
         onSourceChange={fdql.onSourceChange}
       />

@@ -401,6 +401,7 @@ function createExpressionParser(
   function parseIdentifierExpression(): FdqlExpression {
     const start = consume();
     let end = start;
+    let nameEnd = start;
     const parts = [start?.image ?? ''];
     let args: FdqlExpression[] | null = null;
     if (match(LParen)) {
@@ -411,6 +412,7 @@ function createExpressionParser(
     while (match(Dot)) {
       const next = consumeExpected(Identifier);
       end = next ?? end;
+      nameEnd = next ?? nameEnd;
       parts.push(next?.image ?? '');
       if (match(LParen)) {
         const parsedArgs = parseCallArgs();
@@ -419,7 +421,13 @@ function createExpressionParser(
       }
     }
     if (args) {
-      return { args, kind: 'call', name: parts.join('.'), ...rangeProp(tokenRange(start, end)) };
+      return {
+        args,
+        kind: 'call',
+        name: parts.join('.'),
+        ...rangeProp(tokenRange(start, end)),
+        ...(tokenRange(start, nameEnd) ? { nameRange: tokenRange(start, nameEnd) } : {}),
+      };
     }
     return { kind: 'field', path: parts, ...rangeProp(tokenRange(start, end)) };
   }

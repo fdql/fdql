@@ -8,7 +8,7 @@ import type {
   FdqlValue,
 } from '../types.ts';
 import type { ResolvedAliasValue } from './aliases.ts';
-import { compilerError, duplicateStage } from './diagnostics.ts';
+import { diagnosticAtRange, duplicateStage } from './diagnostics.ts';
 import { validateExpressionAliases, validateStageProvider } from './expression-validation.ts';
 import { resolveProviderStageSource } from './provider-source.ts';
 import { parseCacheTtlMs } from './settings.ts';
@@ -33,10 +33,10 @@ export function compileLookupStage(
   if (!sourceAlias) return null;
   if (stage.required && stage.mode !== 'one') {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_LOOKUP_REQUIRED',
         '`lookup required` is only valid with `one`.',
-        stage.line,
+        stage.range,
       ),
     );
     return null;
@@ -55,7 +55,14 @@ export function compileLookupStage(
 
   for (const clause of stage.clauses) {
     if (
-      !validateStageProvider(clause.provider, sourceProvider, providers, diagnostics, clause.line)
+      !validateStageProvider(
+        clause.provider,
+        sourceProvider,
+        providers,
+        diagnostics,
+        clause.line,
+        clause.providerRef?.range,
+      )
     ) {
       continue;
     }
@@ -83,7 +90,12 @@ export function compileLookupStage(
     } else if (clause.kind === 'providerOrderBy') {
       if (providerOrderByLine !== undefined) {
         diagnostics.push(
-          duplicateStage(`lookup ${clause.provider} order by`, providerOrderByLine, clause.line),
+          duplicateStage(
+            `lookup ${clause.provider} order by`,
+            providerOrderByLine,
+            clause.line,
+            clause.providerRef?.range,
+          ),
         );
         continue;
       }
@@ -105,16 +117,21 @@ export function compileLookupStage(
     } else if (clause.kind === 'providerLimit') {
       if (providerLimitLine !== undefined) {
         diagnostics.push(
-          duplicateStage(`lookup ${clause.provider} limit`, providerLimitLine, clause.line),
+          duplicateStage(
+            `lookup ${clause.provider} limit`,
+            providerLimitLine,
+            clause.line,
+            clause.providerRef?.range,
+          ),
         );
         continue;
       }
       if (!Number.isInteger(clause.value) || clause.value <= 0) {
         diagnostics.push(
-          compilerError(
+          diagnosticAtRange(
             'FDQL_PARSE_ERROR',
             `\`${clause.provider} limit\` must be a positive integer.`,
-            clause.line,
+            clause.range,
           ),
         );
       }
@@ -164,10 +181,10 @@ function resolveLookupCacheTtl(
   if (!stage.cacheTtlRaw) return undefined;
   if (stage.cache !== 'persistent') {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_LOOKUP_CACHE',
         'Lookup cache TTL is only valid with `cache persistent`.',
-        stage.line,
+        stage.range,
       ),
     );
     return undefined;
@@ -175,7 +192,7 @@ function resolveLookupCacheTtl(
   const cacheTtlMs = parseCacheTtlMs(stage.cacheTtlRaw);
   if (!cacheTtlMs) {
     diagnostics.push(
-      compilerError('FDQL_INVALID_LOOKUP_CACHE', 'Invalid lookup cache TTL.', stage.line),
+      diagnosticAtRange('FDQL_INVALID_LOOKUP_CACHE', 'Invalid lookup cache TTL.', stage.range),
     );
   }
   return cacheTtlMs;

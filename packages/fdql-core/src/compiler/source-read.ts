@@ -20,7 +20,13 @@ import type {
 } from '../types.ts';
 import { resolveAliases, type ResolvedAliasValue, scalarAliases } from './aliases.ts';
 import { isReservedCommand } from './command.ts';
-import { compilerError, duplicateStage } from './diagnostics.ts';
+import {
+  compilerError,
+  diagnosticAtName,
+  diagnosticAtRange,
+  diagnosticAtStage,
+  duplicateStage,
+} from './diagnostics.ts';
 import {
   validateExpressionAliases,
   validateProjectionReferences,
@@ -92,17 +98,21 @@ export function compileSingleFdqlRead(
 
   const sourceAlias = aliases[program.from.sourceAlias];
   if (!sourceAlias) {
-    diagnostics.push(compilerError(
-      'FDQL_UNDECLARED_ALIAS',
-      `Source alias ${program.from.sourceAlias} is not declared.`,
-      program.from.line,
-    ));
+    diagnostics.push(
+      diagnosticAtName(
+        'FDQL_UNDECLARED_ALIAS',
+        `Source alias ${program.from.sourceAlias} is not declared.`,
+        program.from.sourceAliasRef,
+      ),
+    );
   } else if (sourceAlias.kind !== 'source') {
-    diagnostics.push(compilerError(
-      'FDQL_UNDECLARED_ALIAS',
-      `Alias ${program.from.sourceAlias} is not a provider source.`,
-      program.from.line,
-    ));
+    diagnostics.push(
+      diagnosticAtName(
+        'FDQL_UNDECLARED_ALIAS',
+        `Alias ${program.from.sourceAlias} is not a provider source.`,
+        program.from.sourceAliasRef,
+      ),
+    );
   }
 
   const sourceProvider = sourceAlias?.kind === 'source' ? sourceAlias.source.provider : undefined;
@@ -123,7 +133,14 @@ export function compileSingleFdqlRead(
     switch (stage.kind) {
       case 'providerWhere':
         if (
-          !validateStageProvider(stage.provider, sourceProvider, providers, diagnostics, stage.line)
+          !validateStageProvider(
+            stage.provider,
+            sourceProvider,
+            providers,
+            diagnostics,
+            stage.line,
+            stage.providerRef?.range,
+          )
         ) break;
         validateExpressionAliases(
           stage.expression,
@@ -148,11 +165,23 @@ export function compileSingleFdqlRead(
         break;
       case 'providerOrderBy':
         if (
-          !validateStageProvider(stage.provider, sourceProvider, providers, diagnostics, stage.line)
+          !validateStageProvider(
+            stage.provider,
+            sourceProvider,
+            providers,
+            diagnostics,
+            stage.line,
+            stage.providerRef?.range,
+          )
         ) break;
         if (providerOrderByLine !== undefined) {
           diagnostics.push(
-            duplicateStage(`${stage.provider} order by`, providerOrderByLine, stage.line),
+            duplicateStage(
+              `${stage.provider} order by`,
+              providerOrderByLine,
+              stage.line,
+              stage.providerRef?.range,
+            ),
           );
           break;
         }
@@ -174,20 +203,32 @@ export function compileSingleFdqlRead(
         break;
       case 'providerLimit':
         if (
-          !validateStageProvider(stage.provider, sourceProvider, providers, diagnostics, stage.line)
+          !validateStageProvider(
+            stage.provider,
+            sourceProvider,
+            providers,
+            diagnostics,
+            stage.line,
+            stage.providerRef?.range,
+          )
         ) break;
         if (providerLimitLine !== undefined) {
           diagnostics.push(
-            duplicateStage(`${stage.provider} limit`, providerLimitLine, stage.line),
+            duplicateStage(
+              `${stage.provider} limit`,
+              providerLimitLine,
+              stage.line,
+              stage.providerRef?.range,
+            ),
           );
           break;
         }
         if (!Number.isInteger(stage.value) || stage.value <= 0) {
           diagnostics.push(
-            compilerError(
+            diagnosticAtRange(
               'FDQL_PARSE_ERROR',
               `\`${stage.provider} limit\` must be a positive integer.`,
-              stage.line,
+              stage.range,
             ),
           );
         }
@@ -256,7 +297,7 @@ export function compileSingleFdqlRead(
       }
       case 'return':
         if (returnLine !== undefined) {
-          diagnostics.push(duplicateStage('return', returnLine, stage.line));
+          diagnostics.push(duplicateStage('return', returnLine, stage.line, stage.range));
           break;
         }
         validateProjectionReferences(
@@ -271,7 +312,13 @@ export function compileSingleFdqlRead(
         break;
       case 'unsupported':
         diagnostics.push(
-          compilerError('FDQL_UNKNOWN_STAGE', `Unsupported FDQL stage: ${stage.text}.`, stage.line),
+          diagnosticAtStage(
+            'FDQL_UNKNOWN_STAGE',
+            `Unsupported FDQL stage: ${stage.text}.`,
+            stage.range,
+            stage.line,
+            stage.column,
+          ),
         );
         break;
     }
@@ -279,10 +326,10 @@ export function compileSingleFdqlRead(
 
   if (!returnStage) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_MISSING_RETURN',
         'Read pipelines need an explicit `return`.',
-        program.from.line,
+        program.from.range,
       ),
     );
   }
@@ -303,20 +350,22 @@ export function compileSingleFdqlRead(
     !providerLimit && !preamble.settings.allowUnboundedReads
     && !sourceDialect?.hasBoundedPredicate?.(providerPredicate, rowAlias)
   ) {
-    diagnostics.push(compilerError(
-      'FDQL_UNBOUNDED_PROVIDER_READ',
-      'Add provider limit, query by document id, or set fdql.allowUnboundedReads = true.',
-      program.from.line,
-    ));
+    diagnostics.push(
+      diagnosticAtRange(
+        'FDQL_UNBOUNDED_PROVIDER_READ',
+        'Add provider limit, query by document id, or set fdql.allowUnboundedReads = true.',
+        program.from.range,
+      ),
+    );
   }
 
   const sourceValue = sourceAlias?.kind === 'source' ? sourceAlias : undefined;
   if (sourceValue?.binding) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_FROM_SOURCE',
         'Parent-bound subcollection sources can only be used in lookup.',
-        program.from.line,
+        program.from.sourceAliasRef?.range ?? program.from.range,
       ),
     );
   }
@@ -386,26 +435,27 @@ function compileAggregateSourceRead(input: {
         input.providers,
         input.diagnostics,
         clause.line,
+        clause.providerRef?.range,
       )
     ) {
       continue;
     }
     if (clause.kind !== 'providerWhere') {
       input.diagnostics.push(
-        compilerError(
+        diagnosticAtRange(
           'FDQL_UNSUPPORTED_PROVIDER_AGGREGATE_CLAUSE',
           'Provider aggregate sources support provider `where` clauses only.',
-          clause.line,
+          clause.providerRef?.range ?? clause.range,
         ),
       );
       continue;
     }
     if (!providerRowAlias) {
       input.diagnostics.push(
-        compilerError(
+        diagnosticAtRange(
           'FDQL_INVALID_PROVIDER_AGGREGATE',
           'Provider aggregate `where` needs a source row alias.',
-          clause.line,
+          clause.range,
         ),
       );
       continue;
@@ -459,10 +509,10 @@ function compileAggregateSourceRead(input: {
       case 'providerOrderBy':
       case 'providerLimit':
         input.diagnostics.push(
-          compilerError(
+          diagnosticAtRange(
             'FDQL_UNSUPPORTED_PROVIDER_AGGREGATE_CLAUSE',
             'Provider aggregate source clauses must be inside the aggregate source block.',
-            stage.line,
+            stage.providerRef?.range ?? stage.range,
           ),
         );
         break;
@@ -500,7 +550,7 @@ function compileAggregateSourceRead(input: {
       }
       case 'return':
         if (returnLine !== undefined) {
-          input.diagnostics.push(duplicateStage('return', returnLine, stage.line));
+          input.diagnostics.push(duplicateStage('return', returnLine, stage.line, stage.range));
           break;
         }
         validateProjectionReferences(
@@ -515,7 +565,13 @@ function compileAggregateSourceRead(input: {
         break;
       case 'unsupported':
         input.diagnostics.push(
-          compilerError('FDQL_UNKNOWN_STAGE', `Unsupported FDQL stage: ${stage.text}.`, stage.line),
+          diagnosticAtStage(
+            'FDQL_UNKNOWN_STAGE',
+            `Unsupported FDQL stage: ${stage.text}.`,
+            stage.range,
+            stage.line,
+            stage.column,
+          ),
         );
         break;
     }
@@ -523,10 +579,10 @@ function compileAggregateSourceRead(input: {
 
   if (!returnStage) {
     input.diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_MISSING_RETURN',
         'Read pipelines need an explicit `return`.',
-        from.line,
+        from.range,
       ),
     );
   }
@@ -574,20 +630,20 @@ function resolveAggregateSource(
   if (!sourceAlias) return null;
   if (sourceAlias.source.provider !== from.provider) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtName(
         'FDQL_PROVIDER_MISMATCH',
         `Aggregate source provider ${from.provider} does not match source provider ${sourceAlias.source.provider}.`,
-        from.line,
+        from.providerRef,
       ),
     );
     return null;
   }
   if (sourceAlias.binding) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_FROM_SOURCE',
         'Parent-bound subcollection sources cannot be used in top-level provider aggregate sources.',
-        from.line,
+        from.sourceAliasRef?.range ?? from.range,
       ),
     );
     return null;
@@ -603,20 +659,20 @@ function resolveAggregateSourceAlias(
   const sourceAlias = aliases[from.sourceAlias];
   if (!sourceAlias) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtName(
         'FDQL_UNDECLARED_ALIAS',
         `Source alias ${from.sourceAlias} is not declared.`,
-        from.line,
+        from.sourceAliasRef,
       ),
     );
     return null;
   }
   if (sourceAlias.kind !== 'source') {
     diagnostics.push(
-      compilerError(
+      diagnosticAtName(
         'FDQL_UNDECLARED_ALIAS',
         `Alias ${from.sourceAlias} is not a provider source.`,
-        from.line,
+        from.sourceAliasRef,
       ),
     );
     return null;
@@ -634,10 +690,10 @@ function resolveAggregateSourceExpression(
   const expression = from.sourceExpression;
   if (!expression || expression.kind !== 'call') {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_FROM_SOURCE',
         'Provider aggregate source must use a source alias or provider source call.',
-        from.line,
+        from.sourceAliasRef?.range ?? from.range,
       ),
     );
     return null;
@@ -645,10 +701,10 @@ function resolveAggregateSourceExpression(
   const namespace = providerNamespaceFromCall(expression.name);
   if (namespace !== from.provider) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_PROVIDER_MISMATCH',
         `Aggregate source provider ${from.provider} does not match source expression ${expression.name}.`,
-        from.line,
+        expression.nameRange ?? expression.range,
       ),
     );
     return null;
@@ -656,10 +712,10 @@ function resolveAggregateSourceExpression(
   const provider = providers[namespace];
   if (!provider?.resolveSourceExpression) {
     diagnostics.push(
-      compilerError(
+      diagnosticAtRange(
         'FDQL_INVALID_FROM_SOURCE',
         `Provider ${namespace} does not support inline aggregate sources.`,
-        from.line,
+        expression.nameRange ?? expression.range,
       ),
     );
     return null;

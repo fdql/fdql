@@ -30,6 +30,11 @@ return mem.id(p) as id, p.name`,
       reads: 2,
       rowsOutput: 1,
       rowsScanned: 2,
+      stageStats: expect.arrayContaining([
+        expect.objectContaining({ outputRows: 2, reads: 2, stage: 'source' }),
+        expect.objectContaining({ inputRows: 2, outputRows: 1, stage: 'filter' }),
+        expect.objectContaining({ inputRows: 1, outputRows: 1, stage: 'return' }),
+      ]),
       stoppedReason: 'completed',
     });
   });
@@ -100,13 +105,68 @@ return mem.id(p)`,
       expect.objectContaining({
         kind: 'row',
         lineage: {
-          provider: 'mem',
+          bindings: [{
+            binding: 'p',
+            sources: [{
+              provider: 'mem',
+              readContribution: 1,
+              rowId: 'p1',
+              rowPath: 'people/p1',
+              source: '$people',
+              stage: 'source',
+            }],
+          }],
+          mode: 'compact',
           readContribution: 1,
-          rowPath: 'people/p1',
-          source: '$people',
+          sources: [{
+            provider: 'mem',
+            readContribution: 1,
+            rowId: 'p1',
+            rowPath: 'people/p1',
+            source: '$people',
+            stage: 'source',
+          }],
         },
       }),
     );
+  });
+
+  it('omits row lineage when lineage is off', async () => {
+    const events = await run(
+      `set fdql.lineage = off
+alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+return mem.id(p)`,
+      createTestProviderRuntime({ people: { p1: { name: 'Vini' } } }),
+    );
+
+    const row = events.find((event) => event.kind === 'row');
+    expect(row).toEqual({ kind: 'row', row: { id: 'p1' } });
+  });
+
+  it('emits trace lineage when requested', async () => {
+    const events = await run(
+      `set fdql.lineage = trace
+alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+then filter p.name = "Vini"
+return mem.id(p)`,
+      createTestProviderRuntime({ people: { p1: { name: 'Vini' } } }),
+    );
+    const row = events.find((event) => event.kind === 'row');
+
+    expect(row).toMatchObject({
+      kind: 'row',
+      lineage: {
+        mode: 'trace',
+        trace: expect.arrayContaining([
+          expect.objectContaining({ action: 'source', stage: 'source' }),
+          expect.objectContaining({ action: 'output', stage: 'return' }),
+        ]),
+      },
+    });
   });
 
   it('preserves provider failure context', async () => {
