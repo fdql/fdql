@@ -15,10 +15,10 @@
   "devDependencies": {
     "@firebase-desk/config-oxlint": "workspace:*",
     "@firebase-desk/config-tsconfig": "workspace:*",
-    "@playwright/test": "1.59.1",
-    "@types/node": "24.12.2",
-    "electron": "41.5.0",
-    "oxlint": "1.62.0",
+    "@playwright/test": "1.60.0",
+    "@types/node": "24.12.4",
+    "electron": "41.7.0",
+    "oxlint": "1.66.0",
     "typescript": "6.0.3"
   }
 }
