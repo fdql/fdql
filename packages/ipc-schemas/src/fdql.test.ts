@@ -100,4 +100,45 @@ describe('FDQL IPC schemas', () => {
       }).success,
     ).toBe(true);
   });
+
+  it('accepts run results with timed stage stats', () => {
+    expect(
+      FdqlRunResultSchema.safeParse({
+        diagnostics: [],
+        durationMs: 20,
+        rows: [{ id: 'drv_1' }],
+        stats: {
+          aggregateReads: 0,
+          aggregateSourceRows: 0,
+          cacheBytes: 0,
+          cacheEvictions: 0,
+          cacheHits: 0,
+          cacheMisses: 0,
+          cacheWrites: 0,
+          lookupReads: 0,
+          providerAggregateReads: {},
+          providerReads: { fs: 1 },
+          readBudget: 5000,
+          reads: 1,
+          rowsOutput: 1,
+          rowsScanned: 1,
+          stageStats: [{
+            aggregateReads: 0,
+            droppedRows: 0,
+            durationMs: 12,
+            endedAtMs: 112,
+            inputRows: 0,
+            outputRows: 1,
+            provider: 'fs',
+            reads: 1,
+            source: '$drivers',
+            stage: 'source',
+            startedAtMs: 100,
+          }],
+          stoppedReason: 'completed',
+          unionBranches: 0,
+        },
+      }).success,
+    ).toBe(true);
+  });
 });

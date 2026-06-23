@@ -107,6 +107,7 @@ return fs.id(v) as id, v.version`,
       await page.getByRole('tab', { name: 'JSON' }).click();
       await expect(page.getByLabel('FDQL JSON results')).toHaveValue(/"version": 3166/);
       await page.getByRole('tab', { name: 'Lineage' }).click();
+      await expect(page.getByText(/0 in · 1 out · 0 dropped · \d+ms · 1 reads/)).toBeVisible();
       await expect(page.getByText('fs · $versions')).toBeVisible();
       await expect(page.getByText('public-versions/version')).toBeVisible();
       await page.getByRole('tab', { name: 'Results' }).click();
@@ -143,6 +144,7 @@ return fs.id(v) as id`,
 
       await page.getByRole('tab', { name: 'Lineage' }).click();
       await expect(page.getByText('Lineage disabled for this run.')).toBeVisible();
+      await expect(page.getByText(/0 in · 1 out · 0 dropped · \d+ms · 1 reads/)).toBeVisible();
     });
 
     await test.step('native Firestore predicates support common read operators', async () => {

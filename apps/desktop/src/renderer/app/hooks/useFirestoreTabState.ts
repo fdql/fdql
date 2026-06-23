@@ -25,15 +25,22 @@ import {
 } from '../../app-core/firestore/query/firestoreQuerySelectors.ts';
 import {
   createInitialFirestoreQueryRuntimeState,
+  defaultFirestoreInspectorUiState,
+  type FirestoreInspectorSectionId,
+  type FirestoreInspectorUiState,
   type FirestoreQueryRuntimeState,
   type FirestoreResultView,
 } from '../../app-core/firestore/query/firestoreQueryState.ts';
 import {
   firestoreDocumentSelected,
   firestoreDraftChanged,
+  firestoreInspectorOverviewCollapsedChanged,
+  firestoreInspectorSectionChanged,
   firestoreResultsMarkedStale,
   firestoreResultsRefreshed,
+  firestoreResultTreeExpandedIdsChanged,
   firestoreResultViewChanged,
+  firestoreSelectionPreviewExpandedPathsChanged,
   firestoreTabCleared,
   firestoreTabDuplicated,
 } from '../../app-core/firestore/query/firestoreQueryTransitions.ts';
@@ -45,6 +52,9 @@ interface UseFirestoreTabStateInput {
   readonly activeProject: ProjectSummary | null;
   readonly activeTab: WorkspaceTab | undefined;
   readonly initialDrafts?: Readonly<Record<string, FirestoreQueryDraft>> | undefined;
+  readonly initialInspectorUi?:
+    | Readonly<Record<string, FirestoreInspectorUiState>>
+    | undefined;
   readonly onQueryActivity?: ((input: ActivityLogAppendInput) => void) | undefined;
   readonly selectedTreeItemId: string | null;
 }
@@ -52,7 +62,9 @@ interface UseFirestoreTabStateInput {
 export interface FirestoreTabState {
   readonly activeLoadedPageCount: number;
   readonly drafts: Readonly<Record<string, FirestoreQueryDraft>>;
+  readonly inspectorUi: Readonly<Record<string, FirestoreInspectorUiState>>;
   readonly activeDraft: FirestoreQueryDraft;
+  readonly activeInspectorUi: FirestoreInspectorUiState;
   readonly activeQueryIsDocument: boolean;
   readonly activeQueryPath: string | null;
   readonly activeQueryRunId: number | null;
@@ -76,8 +88,23 @@ export interface FirestoreTabState {
   readonly runQuery: () => string | null;
   readonly selectDocument: (tabId: string, path: string | null) => void;
   readonly setDraft: (draft: FirestoreQueryDraft) => void;
+  readonly setInspectorOverviewCollapsed: (tabId: string, collapsed: boolean) => void;
+  readonly setInspectorSectionOpen: (
+    tabId: string,
+    section: FirestoreInspectorSectionId,
+    open: boolean,
+  ) => void;
+  readonly setResultTreeExpandedIds: (
+    tabId: string,
+    expandedIds: ReadonlyArray<string>,
+  ) => void;
   readonly setResultView: (tabId: string, resultView: FirestoreResultView) => void;
   readonly setResultsStale: (tabId: string, stale: boolean) => void;
+  readonly setSelectionPreviewExpandedPaths: (
+    tabId: string,
+    documentPath: string,
+    expandedPaths: ReadonlyArray<string>,
+  ) => void;
 }
 
 export function useFirestoreTabState(
@@ -85,13 +112,17 @@ export function useFirestoreTabState(
     activeProject,
     activeTab,
     initialDrafts,
+    initialInspectorUi,
     onQueryActivity,
     selectedTreeItemId,
   }: UseFirestoreTabStateInput,
 ): FirestoreTabState {
   const repositories = useRepositories();
   const [queryState, setQueryState] = useState(() =>
-    createInitialFirestoreQueryRuntimeState({ drafts: initialDrafts })
+    createInitialFirestoreQueryRuntimeState({
+      drafts: initialDrafts,
+      inspectorUiByTab: initialInspectorUi,
+    })
   );
   const queryStateRef = useRef(queryState);
   queryStateRef.current = queryState;
@@ -109,9 +140,12 @@ export function useFirestoreTabState(
   }
 
   useEffect(() => {
-    if (!initialDrafts) return;
-    updateQueryState(createInitialFirestoreQueryRuntimeState({ drafts: initialDrafts }));
-  }, [initialDrafts]);
+    if (!initialDrafts && !initialInspectorUi) return;
+    updateQueryState(createInitialFirestoreQueryRuntimeState({
+      drafts: initialDrafts,
+      inspectorUiByTab: initialInspectorUi,
+    }));
+  }, [initialDrafts, initialInspectorUi]);
 
   const queryCommandStore = {
     get: () => queryStateRef.current,
@@ -134,6 +168,9 @@ export function useFirestoreTabState(
     DEFAULT_FIRESTORE_DRAFT,
     activeTab ? activePath(activeTab) : '',
   );
+  const activeInspectorUi = activeTab?.kind === 'firestore-query'
+    ? queryState.inspectorUiByTab[activeTab.id] ?? defaultFirestoreInspectorUiState()
+    : defaultFirestoreInspectorUiState();
   const activeQueryRequest = selectFirestoreActiveQueryRequest(
     queryState,
     activeTab,
@@ -158,6 +195,36 @@ export function useFirestoreTabState(
   function setDraft(draft: FirestoreQueryDraft) {
     if (!activeTab) return;
     updateQueryState((current) => firestoreDraftChanged(current, activeTab.id, draft));
+  }
+
+  function setInspectorOverviewCollapsed(tabId: string, collapsed: boolean) {
+    updateQueryState((current) =>
+      firestoreInspectorOverviewCollapsedChanged(current, tabId, collapsed)
+    );
+  }
+
+  function setInspectorSectionOpen(
+    tabId: string,
+    section: FirestoreInspectorSectionId,
+    open: boolean,
+  ) {
+    updateQueryState((current) => firestoreInspectorSectionChanged(current, tabId, section, open));
+  }
+
+  function setSelectionPreviewExpandedPaths(
+    tabId: string,
+    documentPath: string,
+    expandedPaths: ReadonlyArray<string>,
+  ) {
+    updateQueryState((current) =>
+      firestoreSelectionPreviewExpandedPathsChanged(current, tabId, documentPath, expandedPaths)
+    );
+  }
+
+  function setResultTreeExpandedIds(tabId: string, expandedIds: ReadonlyArray<string>) {
+    updateQueryState((current) =>
+      firestoreResultTreeExpandedIdsChanged(current, tabId, expandedIds)
+    );
   }
 
   function resetDraft() {
@@ -290,7 +357,9 @@ export function useFirestoreTabState(
   return {
     activeLoadedPageCount,
     drafts: queryState.drafts,
+    inspectorUi: queryState.inspectorUiByTab,
     activeDraft,
+    activeInspectorUi,
     activeQueryIsDocument: queryRequestIsDocument,
     activeQueryPath: submittedQuery?.path ?? null,
     activeQueryRunId: activeQueryRequest?.runId ?? null,
@@ -314,8 +383,12 @@ export function useFirestoreTabState(
     runQuery,
     selectDocument,
     setDraft,
+    setInspectorOverviewCollapsed,
+    setInspectorSectionOpen,
+    setResultTreeExpandedIds,
     setResultView,
     setResultsStale,
+    setSelectionPreviewExpandedPaths,
   };
 
   function isTabLoading(tabId: string): boolean {

@@ -28,6 +28,7 @@ import { executeLookup } from './lookup.ts';
 import { projectItems } from './projection.ts';
 import { executeProviderAggregateStage } from './provider-aggregate.ts';
 import { contextFor } from './provider-read.ts';
+import { finishStage, startStage } from './stage-timing.ts';
 import type { LookupCache, MutableStats, RowRecord } from './types.ts';
 
 export async function* applyLocalStages(
@@ -52,12 +53,32 @@ export async function* applyLocalStages(
 > {
   let rows = [...sourceRows];
   const takeCounts = new Map<number, number>();
+  const now = options.now ?? (() => Date.now());
 
   // oxlint-disable no-await-in-loop -- Local stages are ordered and lookup depends on current row values.
   for (const stage of plan.localStages) {
     const inputRows = rows;
     const readsBefore = stats.reads;
     const aggregateReadsBefore = stats.aggregateReads;
+    const stageTimer = startStage(now);
+    const providerMetadata = stage.kind === 'lookup' || stage.kind === 'providerAggregate'
+      ? {
+        provider: stage.provider.source.provider,
+        source: stage.provider.source.sourceAlias,
+      }
+      : {};
+    const recordCurrentStage = (outputRows: number) =>
+      lineage.stage(
+        finishStage(stageTimer, now, {
+          aggregateReads: stats.aggregateReads - aggregateReadsBefore,
+          droppedRows: Math.max(0, inputRows.length - outputRows),
+          inputRows: inputRows.length,
+          outputRows,
+          ...providerMetadata,
+          reads: stats.reads - readsBefore,
+          stage: stage.kind,
+        }),
+      );
     if (stage.kind === 'filter') {
       rows = filterRows(stage, plan, rows, runtime);
       for (const row of inputRows) {
@@ -77,8 +98,14 @@ export async function* applyLocalStages(
           lookupCache,
         );
         for (const event of lookup.events) yield event;
-        if (lookup.diagnostic) return { diagnostic: lookup.diagnostic, kind: 'failed' };
-        if (lookup.stopReason) return { kind: 'stopped', reason: lookup.stopReason };
+        if (lookup.diagnostic) {
+          recordCurrentStage(nextRows.length);
+          return { diagnostic: lookup.diagnostic, kind: 'failed' };
+        }
+        if (lookup.stopReason) {
+          recordCurrentStage(nextRows.length);
+          return { kind: 'stopped', reason: lookup.stopReason };
+        }
         if (lookup.row) {
           nextRows.push(lookup.row);
           lineage.derive({ from: row, stage: 'lookup', to: lookup.row });
@@ -104,8 +131,14 @@ export async function* applyLocalStages(
           lookupCache,
         );
         for (const event of aggregate.events) yield event;
-        if (aggregate.diagnostic) return { diagnostic: aggregate.diagnostic, kind: 'failed' };
-        if (aggregate.stopReason) return { kind: 'stopped', reason: aggregate.stopReason };
+        if (aggregate.diagnostic) {
+          recordCurrentStage(nextRows.length);
+          return { diagnostic: aggregate.diagnostic, kind: 'failed' };
+        }
+        if (aggregate.stopReason) {
+          recordCurrentStage(nextRows.length);
+          return { kind: 'stopped', reason: aggregate.stopReason };
+        }
         if (aggregate.row) {
           nextRows.push(aggregate.row);
           lineage.derive({ from: row, stage: 'providerAggregate', to: aggregate.row });
@@ -144,14 +177,7 @@ export async function* applyLocalStages(
         if (!rows.includes(row)) lineage.drop({ reason: 'taken', row, stage: 'take' });
       }
     }
-    lineage.stage({
-      aggregateReads: stats.aggregateReads - aggregateReadsBefore,
-      droppedRows: Math.max(0, inputRows.length - rows.length),
-      inputRows: inputRows.length,
-      outputRows: rows.length,
-      reads: stats.reads - readsBefore,
-      stage: stage.kind,
-    });
+    recordCurrentStage(rows.length);
     if (rows.length === 0) break;
   }
   // oxlint-enable no-await-in-loop

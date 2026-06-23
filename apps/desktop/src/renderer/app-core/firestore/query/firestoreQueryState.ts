@@ -7,6 +7,26 @@ import type {
 
 export type FirestoreResultView = 'json' | 'table' | 'tree';
 
+export type FirestoreInspectorSectionId =
+  | 'fieldsInResults'
+  | 'jsonContext'
+  | 'selectionPreview';
+
+export interface FirestoreInspectorSectionState {
+  readonly fieldsInResults: boolean;
+  readonly jsonContext: boolean;
+  readonly selectionPreview: boolean;
+}
+
+export interface FirestoreInspectorUiState {
+  readonly overviewCollapsed: boolean;
+  readonly resultTreeExpandedIds: ReadonlyArray<string> | null;
+  readonly sections: FirestoreInspectorSectionState;
+  readonly selectionPreviewExpandedPathsByDocumentPath: Readonly<
+    Record<string, ReadonlyArray<string>>
+  >;
+}
+
 export interface SubmittedFirestoreQuery {
   readonly limit: number;
   readonly query: FirestoreQuery;
@@ -30,6 +50,7 @@ export interface FirestoreQueryResultState {
 
 export interface FirestoreQueryRuntimeState {
   readonly drafts: Readonly<Record<string, FirestoreQueryDraft>>;
+  readonly inspectorUiByTab: Readonly<Record<string, FirestoreInspectorUiState>>;
   readonly nextRunId: number;
   readonly pendingPageReloads: Readonly<Record<string, number>>;
   readonly queryRequests: Readonly<Record<string, SubmittedFirestoreQuery | null>>;
@@ -40,6 +61,9 @@ export interface FirestoreQueryRuntimeState {
 
 export interface CreateFirestoreQueryRuntimeStateInput {
   readonly drafts?: Readonly<Record<string, FirestoreQueryDraft>> | undefined;
+  readonly inspectorUiByTab?:
+    | Readonly<Record<string, FirestoreInspectorUiState>>
+    | undefined;
 }
 
 export function createInitialFirestoreQueryRuntimeState(
@@ -47,12 +71,26 @@ export function createInitialFirestoreQueryRuntimeState(
 ): FirestoreQueryRuntimeState {
   return {
     drafts: input.drafts ?? {},
+    inspectorUiByTab: input.inspectorUiByTab ?? {},
     nextRunId: 1,
     pendingPageReloads: {},
     queryRequests: {},
     recordedQueryCompletions: {},
     resultsByTab: {},
     selectedDocumentPaths: {},
+  };
+}
+
+export function defaultFirestoreInspectorUiState(): FirestoreInspectorUiState {
+  return {
+    overviewCollapsed: false,
+    resultTreeExpandedIds: null,
+    sections: {
+      fieldsInResults: false,
+      jsonContext: true,
+      selectionPreview: true,
+    },
+    selectionPreviewExpandedPathsByDocumentPath: {},
   };
 }
 

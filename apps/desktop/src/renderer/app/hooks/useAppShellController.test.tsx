@@ -179,6 +179,7 @@ describe('useAppShellController', () => {
         activeProject: scenario.project,
         activeTab: tab,
         initialDrafts: scenario.persistedWorkspace.snapshot?.drafts,
+        initialInspectorUi: scenario.persistedWorkspace.snapshot?.firestoreInspectorUi,
         onQueryActivity: scenario.activity.record,
         selectedTreeItemId: scenario.selection.treeItemId,
       }),
@@ -205,6 +206,7 @@ describe('useAppShellController', () => {
         authFilter: 'ada',
         drafts: scenario.firestoreTab.drafts,
         fdqlSources: scenario.fdqlTab.sources,
+        firestoreInspectorUi: scenario.firestoreTab.inspectorUi,
         scripts: scenario.jsTab.scripts,
         sqlContexts: scenario.sqlTab.contexts,
         sqlSources: scenario.sqlTab.sources,
@@ -217,7 +219,7 @@ describe('useAppShellController', () => {
     );
   });
 
-  it('wires sidebar width persistence through settings', () => {
+  it('collapses narrow sidebar resizes and persists wider sidebar widths', async () => {
     const save = vi.fn();
     const scenario = createScenario({
       repositories: createRepositories({ save }),
@@ -229,7 +231,12 @@ describe('useAppShellController', () => {
 
     input.layout.onSidebarResize(10);
 
-    const width = clampSidebarWidth(10);
+    await waitFor(() => expect(lastControllerInput().layout.sidebarCollapsed).toBe(true));
+    expect(save).not.toHaveBeenCalled();
+
+    input.layout.onSidebarResize(220);
+
+    const width = clampSidebarWidth(220);
     expect(document.documentElement.style.getPropertyValue('--sidebar-width')).toBe(`${width}px`);
     expect(save).toHaveBeenCalledWith({ sidebarWidth: width });
   });
@@ -330,6 +337,7 @@ interface Scenario {
       readonly authFilter: string;
       readonly drafts: Record<string, unknown>;
       readonly fdqlSources: Record<string, string>;
+      readonly firestoreInspectorUi: Record<string, unknown>;
       readonly scripts: Record<string, string>;
       readonly sqlContexts: Record<string, unknown>;
       readonly sqlSources: Record<string, string>;
@@ -385,11 +393,18 @@ function expectControllerInput(): AppShellOrchestratorInput {
   return call[0] as AppShellOrchestratorInput;
 }
 
+function lastControllerInput(): AppShellOrchestratorInput {
+  const call = mocks.createAppShellController.mock.calls.at(-1);
+  if (!call) throw new Error('Expected createAppShellController call.');
+  return call[0] as AppShellOrchestratorInput;
+}
+
 function createScenario(
   {
     authFilter = '',
     drafts = {},
     fdqlSources = {},
+    firestoreInspectorUi = {},
     repositories = createRepositories(),
     scripts = {},
     sqlContexts = {},
@@ -403,6 +418,7 @@ function createScenario(
     readonly authFilter?: string;
     readonly drafts?: Record<string, unknown>;
     readonly fdqlSources?: Record<string, string>;
+    readonly firestoreInspectorUi?: Record<string, unknown>;
     readonly repositories?: RepositorySet;
     readonly scripts?: Record<string, string>;
     readonly sqlContexts?: Record<string, unknown>;
@@ -431,7 +447,15 @@ function createScenario(
     jobs: createJobs(),
     persistedWorkspace: {
       restored: true,
-      snapshot: { authFilter, drafts, fdqlSources, scripts, sqlContexts, sqlSources },
+      snapshot: {
+        authFilter,
+        drafts,
+        fdqlSources,
+        firestoreInspectorUi,
+        scripts,
+        sqlContexts,
+        sqlSources,
+      },
     },
     project,
     projectCommands: createProjectCommands(),
@@ -568,6 +592,16 @@ function createFirestoreTab(
       sortDirection: 'desc',
       limit: 25,
     },
+    activeInspectorUi: {
+      overviewCollapsed: false,
+      resultTreeExpandedIds: null,
+      sections: {
+        fieldsInResults: false,
+        jsonContext: true,
+        selectionPreview: true,
+      },
+      selectionPreviewExpandedPathsByDocumentPath: {},
+    },
     clearTab: vi.fn(),
     duplicateTab: vi.fn(),
     drafts,
@@ -589,8 +623,13 @@ function createFirestoreTab(
     selectedDocument: null,
     selectedDocumentPath: null,
     setDraft: vi.fn(),
+    setInspectorOverviewCollapsed: vi.fn(),
+    setInspectorSectionOpen: vi.fn(),
     setResultView: vi.fn(),
+    setResultTreeExpandedIds: vi.fn(),
     setResultsStale: vi.fn(),
+    setSelectionPreviewExpandedPaths: vi.fn(),
+    inspectorUi: {},
   };
 }
 

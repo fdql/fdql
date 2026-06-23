@@ -14,6 +14,7 @@ import {
   createReadRequest,
   readProvider,
 } from './executor/provider-read.ts';
+import { finishStage, startStage } from './executor/stage-timing.ts';
 import {
   createStats,
   freezeStats,
@@ -94,6 +95,7 @@ async function* executeReadBranch(
   let readStopReason: NonNullable<FdqlStats['stoppedReason']> | undefined;
   const sourceReadsBefore = stats.reads;
   const sourceAggregatesBefore = stats.aggregateReads;
+  const now = options.now ?? (() => Date.now());
 
   const beforeReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
   if (beforeReadStop) {
@@ -102,6 +104,20 @@ async function* executeReadBranch(
     return 'stopped';
   }
 
+  const sourceStage = startStage(now);
+  const recordSourceStage = () =>
+    lineage.stage(
+      finishStage(sourceStage, now, {
+        aggregateReads: stats.aggregateReads - sourceAggregatesBefore,
+        droppedRows: 0,
+        inputRows: 0,
+        outputRows: sourceRows.length,
+        provider: plan.provider.source.provider,
+        reads: stats.reads - sourceReadsBefore,
+        source: plan.provider.source.sourceAlias,
+        stage: plan.providerAggregate ? 'sourceAggregate' : 'source',
+      }),
+    );
   if (plan.providerAggregate) {
     const aggregateRequest = createAggregateRequest(
       plan.provider,
@@ -147,6 +163,7 @@ async function* executeReadBranch(
       const beforeRowStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
       if (beforeRowStop) {
         stats.stoppedReason = beforeRowStop;
+        recordSourceStage();
         for (const event of stopEvents(stats, beforeRowStop)) yield event;
         return 'stopped';
       }
@@ -160,16 +177,7 @@ async function* executeReadBranch(
       }
     }
   }
-  lineage.stage({
-    aggregateReads: stats.aggregateReads - sourceAggregatesBefore,
-    droppedRows: 0,
-    inputRows: 0,
-    outputRows: sourceRows.length,
-    provider: plan.provider.source.provider,
-    reads: stats.reads - sourceReadsBefore,
-    source: plan.provider.source.sourceAlias,
-    stage: plan.providerAggregate ? 'sourceAggregate' : 'source',
-  });
+  recordSourceStage();
 
   const afterReadStop = stopReasonFor(plan, stats, startedAt, options, 'beforeRow');
   if (afterReadStop) {
@@ -199,6 +207,7 @@ async function* executeReadBranch(
   }
 
   const outputRowsBefore = stats.rowsOutput;
+  const returnStage = startStage(now);
   for (const row of localResult.rows) {
     const projected = projectItems(plan.returnStage.items, plan, row, runtime, 'external');
     stats.rowsOutput += 1;
@@ -216,18 +225,30 @@ async function* executeReadBranch(
     const rowStopReason = stopReasonFor(plan, stats, startedAt, options, 'afterRow');
     if (rowStopReason && rowStopReason !== 'budget') {
       stats.stoppedReason = rowStopReason;
+      localResult.lineage.stage(
+        finishStage(returnStage, now, {
+          aggregateReads: 0,
+          droppedRows: 0,
+          inputRows: localResult.rows.length,
+          outputRows: stats.rowsOutput - outputRowsBefore,
+          reads: 0,
+          stage: 'return',
+        }),
+      );
       for (const event of stopEvents(stats, rowStopReason)) yield event;
       return 'stopped';
     }
   }
-  localResult.lineage.stage({
-    aggregateReads: 0,
-    droppedRows: 0,
-    inputRows: localResult.rows.length,
-    outputRows: stats.rowsOutput - outputRowsBefore,
-    reads: 0,
-    stage: 'return',
-  });
+  localResult.lineage.stage(
+    finishStage(returnStage, now, {
+      aggregateReads: 0,
+      droppedRows: 0,
+      inputRows: localResult.rows.length,
+      outputRows: stats.rowsOutput - outputRowsBefore,
+      reads: 0,
+      stage: 'return',
+    }),
+  );
 
   if (readStopReason) {
     stats.stoppedReason = readStopReason;

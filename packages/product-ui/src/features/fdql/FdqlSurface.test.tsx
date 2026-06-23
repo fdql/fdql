@@ -101,13 +101,16 @@ const result: FdqlRunResult = {
     rowsScanned: 1,
     stageStats: [{
       aggregateReads: 0,
+      durationMs: 42,
       droppedRows: 0,
+      endedAtMs: 142,
       inputRows: 0,
       outputRows: 1,
       provider: 'fs',
       reads: 1,
       source: '$versions',
       stage: 'source',
+      startedAtMs: 100,
     }],
     stoppedReason: 'completed',
     unionBranches: 0,
@@ -145,8 +148,9 @@ describe('FdqlSurface', () => {
       ctrlKey: false,
     });
 
-    expect(screen.getByText('source')).toBeTruthy();
-    expect(screen.getByText('0 in · 1 out · 0 dropped · 1 reads')).toBeTruthy();
+    expect(screen.getByText('source · $versions')).toBeTruthy();
+    expect(screen.getByText('0 in · 1 out · 0 dropped · 42ms · 1 reads')).toBeTruthy();
+    expect(screen.getByText('slowest')).toBeTruthy();
     expect(screen.getByText('fs · $versions')).toBeTruthy();
     expect(screen.getByText('public-versions/current')).toBeTruthy();
 

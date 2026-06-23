@@ -21,6 +21,10 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { type FieldEditTarget } from './fieldEditModel.ts';
+import type {
+  FirestoreInspectorSectionId,
+  FirestoreInspectorSectionState,
+} from './inspectorState.ts';
 import { NestedValueTree } from './NestedValueTree.tsx';
 import {
   fieldCatalogForRows,
@@ -39,8 +43,16 @@ export interface ResultContextPanelProps {
   readonly onOpenDocumentInNewTab?: ((documentPath: string) => void) | undefined;
   readonly onSetFieldValue?: ((target: FieldEditTarget, value: unknown) => void) | undefined;
   readonly onSetFieldNull?: ((target: FieldEditTarget) => void) | undefined;
+  readonly onSectionOpenChange?:
+    | ((section: FirestoreInspectorSectionId, open: boolean) => void)
+    | undefined;
+  readonly onSelectionPreviewExpandedPathsChange?:
+    | ((expandedPaths: ReadonlySet<string>) => void)
+    | undefined;
   readonly resultView: FirestoreResultView;
   readonly rows: ReadonlyArray<FirestoreDocumentResult>;
+  readonly sections?: FirestoreInspectorSectionState | undefined;
+  readonly selectionPreviewExpandedPaths?: ReadonlySet<string> | undefined;
   readonly selectedDocument: FirestoreDocumentResult | null;
 }
 
@@ -52,10 +64,14 @@ export function ResultContextPanel(
     onEditDocument,
     onEditField,
     onOpenDocumentInNewTab,
+    onSectionOpenChange,
+    onSelectionPreviewExpandedPathsChange,
     onSetFieldValue,
     onSetFieldNull,
     resultView,
     rows,
+    sections,
+    selectionPreviewExpandedPaths,
     selectedDocument,
   }: ResultContextPanelProps,
 ) {
@@ -84,21 +100,15 @@ export function ResultContextPanel(
         </span>
       </PanelHeader>
       <PanelBody className='min-h-0 p-0'>
-        <InspectorSection
-          defaultOpen
-          icon={<Table2 size={14} aria-hidden='true' />}
-          meta={`${fieldCatalog.length} fields`}
-          title='Fields in results'
-        >
-          <FieldCatalogTable fields={fieldCatalog} rowCount={rows.length} />
-        </InspectorSection>
         {showSelectionPreview
           ? (
             <InspectorSection
               defaultOpen
               icon={<FileText size={14} aria-hidden='true' />}
               meta={selectedDocument?.id ?? 'none'}
+              open={sections?.selectionPreview}
               title='Selection preview'
+              onOpenChange={(open) => onSectionOpenChange?.('selectionPreview', open)}
             >
               <SelectionPreview
                 document={selectedDocument}
@@ -111,6 +121,8 @@ export function ResultContextPanel(
                 onDeleteField={onDeleteField}
                 onEditField={onEditField}
                 onOpenDocumentInNewTab={onOpenDocumentInNewTab}
+                expandedPaths={selectionPreviewExpandedPaths}
+                onExpandedPathsChange={onSelectionPreviewExpandedPathsChange}
                 onSetFieldValue={onSetFieldValue}
                 onSetFieldNull={onSetFieldNull}
               />
@@ -121,11 +133,23 @@ export function ResultContextPanel(
               defaultOpen
               icon={<FileJson size={14} aria-hidden='true' />}
               meta={resultView}
+              open={sections?.jsonContext}
               title='JSON context'
+              onOpenChange={(open) => onSectionOpenChange?.('jsonContext', open)}
             >
               <ResultViewFacts resultView={resultView} rows={rows} />
             </InspectorSection>
           )}
+        <InspectorSection
+          defaultOpen={false}
+          icon={<Table2 size={14} aria-hidden='true' />}
+          meta={`${fieldCatalog.length} fields`}
+          open={sections?.fieldsInResults}
+          title='Fields in results'
+          onOpenChange={(open) => onSectionOpenChange?.('fieldsInResults', open)}
+        >
+          <FieldCatalogTable fields={fieldCatalog} rowCount={rows.length} />
+        </InspectorSection>
       </PanelBody>
     </Panel>
   );
@@ -190,15 +214,19 @@ interface SelectionPreviewProps {
   readonly onOpenDocumentInNewTab?: ((documentPath: string) => void) | undefined;
   readonly onSetFieldValue?: ((target: FieldEditTarget, value: unknown) => void) | undefined;
   readonly onSetFieldNull?: ((target: FieldEditTarget) => void) | undefined;
+  readonly expandedPaths?: ReadonlySet<string> | undefined;
+  readonly onExpandedPathsChange?: ((expandedPaths: ReadonlySet<string>) => void) | undefined;
 }
 
 function SelectionPreview(
   {
     document,
+    expandedPaths,
     onDelete,
     onDeleteField,
     onEdit,
     onEditField,
+    onExpandedPathsChange,
     onOpenDocumentInNewTab,
     onSetFieldValue,
     onSetFieldNull,
@@ -244,9 +272,11 @@ function SelectionPreview(
       </div>
       <NestedValueTree
         document={document}
+        expandedPaths={expandedPaths}
         value={document.data}
         onDeleteField={onDeleteField}
         onEditField={onEditField}
+        onExpandedPathsChange={onExpandedPathsChange}
         onSetFieldValue={onSetFieldValue}
         onSetFieldNull={onSetFieldNull}
       />

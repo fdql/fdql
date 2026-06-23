@@ -3,7 +3,7 @@ import { compileFdqlRead } from './compiler.ts';
 import { executeFdql } from './executor.ts';
 import type { FdqlProviderRuntimeRegistry } from './provider.ts';
 import { createTestProviderRuntime, testProviderDialect } from './test-helpers/provider.ts';
-import type { FdqlExecutionEvent } from './types.ts';
+import type { FdqlExecutionEvent, FdqlExecutionOptions } from './types.ts';
 
 const compileOptions = { providers: [testProviderDialect] };
 
@@ -31,9 +31,24 @@ return mem.id(p) as id, p.name`,
       rowsOutput: 1,
       rowsScanned: 2,
       stageStats: expect.arrayContaining([
-        expect.objectContaining({ outputRows: 2, reads: 2, stage: 'source' }),
-        expect.objectContaining({ inputRows: 2, outputRows: 1, stage: 'filter' }),
-        expect.objectContaining({ inputRows: 1, outputRows: 1, stage: 'return' }),
+        expect.objectContaining({
+          durationMs: expect.any(Number),
+          outputRows: 2,
+          reads: 2,
+          stage: 'source',
+        }),
+        expect.objectContaining({
+          durationMs: expect.any(Number),
+          inputRows: 2,
+          outputRows: 1,
+          stage: 'filter',
+        }),
+        expect.objectContaining({
+          durationMs: expect.any(Number),
+          inputRows: 1,
+          outputRows: 1,
+          stage: 'return',
+        }),
       ]),
       stoppedReason: 'completed',
     });
@@ -143,6 +158,16 @@ return mem.id(p)`,
 
     const row = events.find((event) => event.kind === 'row');
     expect(row).toEqual({ kind: 'row', row: { id: 'p1' } });
+    expect(completed(events).stageStats).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          durationMs: expect.any(Number),
+          endedAtMs: expect.any(Number),
+          stage: 'source',
+          startedAtMs: expect.any(Number),
+        }),
+      ]),
+    );
   });
 
   it('emits trace lineage when requested', async () => {
@@ -220,13 +245,14 @@ return p.name`,
 async function run(
   source: string,
   runtime: FdqlProviderRuntimeRegistry,
+  options: FdqlExecutionOptions = {},
 ): Promise<readonly FdqlExecutionEvent[]> {
   const result = compileFdqlRead(source, compileOptions);
   if (!result.ok) {
     throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join('\n'));
   }
   const events: FdqlExecutionEvent[] = [];
-  for await (const event of executeFdql(result.plan, runtime)) events.push(event);
+  for await (const event of executeFdql(result.plan, runtime, options)) events.push(event);
   return events;
 }
 

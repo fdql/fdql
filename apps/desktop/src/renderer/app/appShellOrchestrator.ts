@@ -36,6 +36,10 @@ import type {
 } from '@firebase-desk/repo-contracts/jobs';
 import type { Badge, IconButton } from '@firebase-desk/ui';
 import type { ComponentProps } from 'react';
+import type {
+  FirestoreInspectorSectionId,
+  FirestoreInspectorUiState,
+} from '../app-core/firestore/query/firestoreQueryState.ts';
 import { createCommandPaletteModel } from './commandPaletteModel.ts';
 import type { DestructiveAction } from './hooks/useDestructiveActionController.ts';
 import type { SelectionState } from './stores/selectionStore.ts';
@@ -47,8 +51,8 @@ import type {
 } from './stores/tabsStore.ts';
 import { activePath } from './stores/tabsStore.ts';
 import {
+  COLLAPSED_SIDEBAR_WIDTH,
   DEFAULT_FIRESTORE_DRAFT,
-  MAX_SIDEBAR_WIDTH,
   MIN_SIDEBAR_WIDTH,
   parseTreeId,
   treeItemIdForTab,
@@ -129,7 +133,7 @@ export interface AppShellController {
   readonly layout: {
     readonly sidebarCollapsed: boolean;
     readonly sidebarDefaultWidth: number;
-    readonly sidebarMaxSize: string;
+    readonly sidebarMaxSize?: string | undefined;
     readonly sidebarMinSize: string;
     readonly onSidebarResize: (size: number) => void;
   };
@@ -326,6 +330,7 @@ export interface AppShellUiActions {
   readonly setEditingProjectId: (id: string | null) => void;
   readonly setLastAction: (message: string) => void;
   readonly setSidebarCollapsed: (collapsed: boolean) => void;
+  readonly setTabInspectorWidth: (tabId: string, width: number) => void;
   readonly setTabsState: (state: TabsState) => void;
   readonly updateActiveTabConnection: (tabId: string, connectionId: string) => void;
 }
@@ -569,6 +574,7 @@ export interface AppShellFirestoreTabFacade {
   readonly queryRows: ReadonlyArray<FirestoreDocumentResult>;
   readonly refreshQuery: () => string | null;
   readonly resetDraft: () => void;
+  readonly activeInspectorUi: FirestoreInspectorUiState;
   readonly resultView: FirestoreResultView;
   readonly resultsStale: boolean;
   readonly runQuery: () => string | null;
@@ -576,8 +582,23 @@ export interface AppShellFirestoreTabFacade {
   readonly selectedDocument: FirestoreDocumentResult | null;
   readonly selectedDocumentPath: string | null;
   readonly setDraft: (draft: FirestoreQueryDraft) => void;
+  readonly setInspectorOverviewCollapsed: (tabId: string, collapsed: boolean) => void;
+  readonly setInspectorSectionOpen: (
+    tabId: string,
+    section: FirestoreInspectorSectionId,
+    open: boolean,
+  ) => void;
+  readonly setResultTreeExpandedIds: (
+    tabId: string,
+    expandedIds: ReadonlyArray<string>,
+  ) => void;
   readonly setResultView: (tabId: string, resultView: FirestoreResultView) => void;
   readonly setResultsStale: (tabId: string, stale: boolean) => void;
+  readonly setSelectionPreviewExpandedPaths: (
+    tabId: string,
+    documentPath: string,
+    expandedPaths: ReadonlyArray<string>,
+  ) => void;
 }
 
 export interface AppShellFirestoreWriteFacade {
@@ -1070,6 +1091,8 @@ export function createAppShellController(
         draft: input.firestoreTab.activeDraft,
         errorMessage: input.firestoreTab.errorMessage,
         hasMore: input.firestoreTab.hasMore,
+        inspectorUi: input.firestoreTab.activeInspectorUi,
+        inspectorWidth: input.activeTab?.inspectorWidth ?? 360,
         isFetchingMore: input.firestoreTab.isFetchingMore,
         isLoading: input.firestoreTab.isLoading,
         onCreateDocument: input.firestoreWrite.createDocument,
@@ -1102,12 +1125,39 @@ export function createAppShellController(
           input.ui.setLastAction(`Opened ${path} in new tab`);
         },
         onRefreshResults: handleRefreshResults,
+        onInspectorOverviewCollapsedChange: (collapsed) => {
+          if (input.activeTab) {
+            input.firestoreTab.setInspectorOverviewCollapsed(input.activeTab.id, collapsed);
+          }
+        },
+        onInspectorSectionOpenChange: (section, open) => {
+          if (input.activeTab) {
+            input.firestoreTab.setInspectorSectionOpen(input.activeTab.id, section, open);
+          }
+        },
+        onInspectorWidthChange: (width) => {
+          if (input.activeTab) input.ui.setTabInspectorWidth(input.activeTab.id, width);
+        },
         onResultViewChange: handleResultViewChange,
+        onResultTreeExpandedIdsChange: (expandedIds) => {
+          if (input.activeTab) {
+            input.firestoreTab.setResultTreeExpandedIds(input.activeTab.id, expandedIds);
+          }
+        },
         onResultsStaleChange: handleResultsStaleChange,
         onReset: input.firestoreTab.resetDraft,
         onRunQuery: handleRunQuery,
         onSaveDocument: input.firestoreWrite.saveDocument,
         onSelectDocument: (path) => input.firestoreTab.selectDocument(input.activeTab!.id, path),
+        onSelectionPreviewExpandedPathsChange: (documentPath, expandedPaths) => {
+          if (input.activeTab) {
+            input.firestoreTab.setSelectionPreviewExpandedPaths(
+              input.activeTab.id,
+              documentPath,
+              expandedPaths,
+            );
+          }
+        },
         onStartCollectionJob: async (request) => {
           await input.jobs.start(request);
           if (!input.jobs.opened) input.jobs.toggle();
@@ -1258,8 +1308,10 @@ export function createAppShellController(
     layout: {
       sidebarCollapsed: input.sidebarCollapsed,
       sidebarDefaultWidth: input.layout.sidebarDefaultWidth,
-      sidebarMaxSize: input.sidebarCollapsed ? '40px' : `${MAX_SIDEBAR_WIDTH}px`,
-      sidebarMinSize: input.sidebarCollapsed ? '40px' : `${MIN_SIDEBAR_WIDTH}px`,
+      sidebarMaxSize: input.sidebarCollapsed ? `${COLLAPSED_SIDEBAR_WIDTH}px` : undefined,
+      sidebarMinSize: input.sidebarCollapsed
+        ? `${COLLAPSED_SIDEBAR_WIDTH}px`
+        : `${MIN_SIDEBAR_WIDTH}px`,
       onSidebarResize: input.layout.onSidebarResize,
     },
     sidebar: {

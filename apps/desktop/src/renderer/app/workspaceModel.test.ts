@@ -237,7 +237,7 @@ describe('workspaceModel', () => {
     expect(projectIdForConnection(' Client Dev ')).toBe('client-dev');
     expect(projectTargetForOption('production-service-account')).toBe('production');
     expect(projectTargetForOption('local-emulator')).toBe('emulator');
-    expect(clampSidebarWidth(999)).toBe(560);
+    expect(clampSidebarWidth(999)).toBe(999);
     expect(clampSidebarWidth(Number.NaN)).toBe(320);
   });
 });

@@ -32,7 +32,8 @@ Reserved namespaces have no semantics until a provider dialect defines them. Usi
 ## Current Read Direction
 
 The implemented read surface already includes bounded Firestore reads, lookups, subcollections,
-Firestore provider aggregates, local unwind, local aggregation, union all, cache, and execution stats.
+Firestore provider aggregates, local unwind, local aggregation, union all, cache, lineage, and
+timed execution stats.
 The next read work is ordered by product value and implementation risk:
 
 1. Add lineage/source exploration for lookup, unwind, union, and aggregate output.
@@ -1548,7 +1549,9 @@ Rules:
 - `trace` keeps compact lineage plus row-stage transitions for emitted rows.
 - `off` keeps no per-row lineage, but still keeps rows, diagnostics, and execution stats.
 - Lineage modes are bare keywords, not strings.
-- Stage stats are always collected because they are aggregate counters, not row lineage.
+- Stage stats are always collected because they are aggregate counters/timings, not row lineage.
+- Stage stats include wall-clock `durationMs`, `startedAtMs`, and `endedAtMs` so slow stages can be identified.
+- Provider stages include provider/source metadata when available.
 - Lineage is run-memory data only and is not persisted with workspace state.
 - Lineage must not copy source document data; it stores ids, paths, aliases, provider/source/stage metadata, and read contribution.
 

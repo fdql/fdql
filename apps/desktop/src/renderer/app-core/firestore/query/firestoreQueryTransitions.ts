@@ -1,13 +1,18 @@
 import type { FirestoreQueryDraft } from '@firebase-desk/repo-contracts';
 import type { FirestoreCollectionNode, FirestoreQuery } from '@firebase-desk/repo-contracts';
 import type {
+  FirestoreInspectorSectionId,
+  FirestoreInspectorUiState,
   FirestoreQueryPage,
   FirestoreQueryResultState,
   FirestoreQueryRuntimeState,
   FirestoreResultView,
   SubmittedFirestoreQuery,
 } from './firestoreQueryState.ts';
-import { emptyFirestoreQueryResultState } from './firestoreQueryState.ts';
+import {
+  defaultFirestoreInspectorUiState,
+  emptyFirestoreQueryResultState,
+} from './firestoreQueryState.ts';
 
 export function firestoreDraftChanged(
   state: FirestoreQueryRuntimeState,
@@ -191,6 +196,52 @@ export function firestoreDocumentSelected(
   };
 }
 
+export function firestoreInspectorOverviewCollapsedChanged(
+  state: FirestoreQueryRuntimeState,
+  tabId: string,
+  overviewCollapsed: boolean,
+): FirestoreQueryRuntimeState {
+  return updateTabInspectorUi(state, tabId, (current) => ({ ...current, overviewCollapsed }));
+}
+
+export function firestoreInspectorSectionChanged(
+  state: FirestoreQueryRuntimeState,
+  tabId: string,
+  section: FirestoreInspectorSectionId,
+  open: boolean,
+): FirestoreQueryRuntimeState {
+  return updateTabInspectorUi(state, tabId, (current) => ({
+    ...current,
+    sections: { ...current.sections, [section]: open },
+  }));
+}
+
+export function firestoreSelectionPreviewExpandedPathsChanged(
+  state: FirestoreQueryRuntimeState,
+  tabId: string,
+  documentPath: string,
+  expandedPaths: ReadonlyArray<string>,
+): FirestoreQueryRuntimeState {
+  return updateTabInspectorUi(state, tabId, (current) => ({
+    ...current,
+    selectionPreviewExpandedPathsByDocumentPath: {
+      ...current.selectionPreviewExpandedPathsByDocumentPath,
+      [documentPath]: expandedPaths,
+    },
+  }));
+}
+
+export function firestoreResultTreeExpandedIdsChanged(
+  state: FirestoreQueryRuntimeState,
+  tabId: string,
+  expandedIds: ReadonlyArray<string>,
+): FirestoreQueryRuntimeState {
+  return updateTabInspectorUi(state, tabId, (current) => ({
+    ...current,
+    resultTreeExpandedIds: expandedIds,
+  }));
+}
+
 export function firestoreSubcollectionsLoaded(
   state: FirestoreQueryRuntimeState,
   documentPath: string,
@@ -331,6 +382,20 @@ function updateTabResult(
   return {
     ...state,
     resultsByTab: { ...state.resultsByTab, [tabId]: nextResult },
+  };
+}
+
+function updateTabInspectorUi(
+  state: FirestoreQueryRuntimeState,
+  tabId: string,
+  update: (current: FirestoreInspectorUiState) => FirestoreInspectorUiState,
+): FirestoreQueryRuntimeState {
+  return {
+    ...state,
+    inspectorUiByTab: {
+      ...state.inspectorUiByTab,
+      [tabId]: update(state.inspectorUiByTab[tabId] ?? defaultFirestoreInspectorUiState()),
+    },
   };
 }
 

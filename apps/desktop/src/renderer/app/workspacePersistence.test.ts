@@ -71,6 +71,29 @@ describe('workspacePersistence', () => {
     await expect(loadPersistedWorkspaceState(settings)).resolves.toEqual(persistedWorkspace);
   });
 
+  it('loads Firestore inspector UI state for open tabs', async () => {
+    const workspace = {
+      ...persistedWorkspace,
+      firestoreInspectorUi: {
+        'tab-firestore-1': {
+          overviewCollapsed: true,
+          resultTreeExpandedIds: ['root:orders'],
+          sections: {
+            fieldsInResults: true,
+            jsonContext: true,
+            selectionPreview: false,
+          },
+          selectionPreviewExpandedPathsByDocumentPath: {
+            'orders/ord_1': ['["customer"]'],
+          },
+        },
+      },
+    } satisfies PersistedWorkspaceState;
+    const settings = settingsWithWorkspace(workspace);
+
+    await expect(loadPersistedWorkspaceState(settings)).resolves.toEqual(workspace);
+  });
+
   it('does not restore invalid workspace state', async () => {
     const settings = settingsWithWorkspace({
       ...persistedWorkspace,
@@ -182,6 +205,30 @@ describe('workspacePersistence', () => {
         },
       },
       scripts: { ...persistedWorkspace.scripts, 'closed-tab': 'return 2;' },
+      firestoreInspectorUi: {
+        'tab-firestore-1': {
+          overviewCollapsed: true,
+          resultTreeExpandedIds: ['root:orders'],
+          sections: {
+            fieldsInResults: true,
+            jsonContext: true,
+            selectionPreview: false,
+          },
+          selectionPreviewExpandedPathsByDocumentPath: {
+            'orders/ord_1': ['["customer"]'],
+          },
+        },
+        'closed-tab': {
+          overviewCollapsed: false,
+          resultTreeExpandedIds: null,
+          sections: {
+            fieldsInResults: false,
+            jsonContext: true,
+            selectionPreview: true,
+          },
+          selectionPreviewExpandedPathsByDocumentPath: {},
+        },
+      },
     })).resolves.toBeNull();
 
     const raw = JSON.stringify(settings.workspaceState);
@@ -190,6 +237,14 @@ describe('workspacePersistence', () => {
     expect(raw).not.toContain('closed-tab');
     expect(raw).not.toContain('queryRequests');
     expect(raw).not.toContain('scriptResults');
+    await expect(loadPersistedWorkspaceState(settings)).resolves.toMatchObject({
+      firestoreInspectorUi: {
+        'tab-firestore-1': {
+          overviewCollapsed: true,
+          resultTreeExpandedIds: ['root:orders'],
+        },
+      },
+    });
   });
 
   it('saves only open-tab interaction history', async () => {

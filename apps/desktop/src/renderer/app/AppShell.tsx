@@ -6,7 +6,11 @@ import { AppHeader } from './AppHeader.tsx';
 import { AppSidebar } from './AppSidebar.tsx';
 import { AppWorkspacePanel } from './AppWorkspacePanel.tsx';
 import { useAppShellController } from './hooks/useAppShellController.ts';
-import { DEFAULT_SIDEBAR_WIDTH, MIN_WORKSPACE_WIDTH } from './workspaceModel.ts';
+import {
+  COLLAPSED_SIDEBAR_WIDTH,
+  DEFAULT_SIDEBAR_WIDTH,
+  MIN_WORKSPACE_WIDTH,
+} from './workspaceModel.ts';
 import { WorkspaceTabView } from './WorkspaceTabView.tsx';
 
 export interface AppShellProps {
@@ -41,8 +45,10 @@ export function AppShell(
       <ResizablePanelGroup direction='horizontal' className='h-full min-h-0 overflow-hidden'>
         <ResizablePanel
           className='h-full overflow-hidden'
+          collapsedSize={`${COLLAPSED_SIDEBAR_WIDTH}px`}
+          collapsible
           defaultSize={controller.layout.sidebarCollapsed
-            ? '40px'
+            ? `${COLLAPSED_SIDEBAR_WIDTH}px`
             : `${controller.layout.sidebarDefaultWidth}px`}
           groupResizeBehavior='preserve-pixel-size'
           maxSize={controller.layout.sidebarMaxSize}

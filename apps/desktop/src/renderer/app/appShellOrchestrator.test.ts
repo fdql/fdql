@@ -1,6 +1,7 @@
 import type { ActivityLogEntry, FirestoreQueryDraft } from '@firebase-desk/repo-contracts';
 import { createProjectFixture } from '@firebase-desk/repo-mocks';
 import { describe, expect, it, vi } from 'vitest';
+import { defaultFirestoreInspectorUiState } from '../app-core/firestore/query/firestoreQueryState.ts';
 import { closeWorkspaceTabsCommand } from '../app-core/workspace/workspaceCommands.ts';
 import { createInitialTabsState } from '../app-core/workspace/workspaceState.ts';
 import {
@@ -346,6 +347,42 @@ describe('createAppShellController', () => {
       'json',
     );
   });
+
+  it('scopes inspector UI state to the active Firestore tab', () => {
+    const tab = firestoreTab({ id: 'tab-firestore-1', inspectorWidth: 444 });
+    const { input, mocks } = createInput({
+      activeTab: tab,
+      tabsState: tabsState([tab], tab.id),
+    });
+    const controller = createAppShellController(input);
+
+    expect(controller.tabView?.firestore.inspectorWidth).toBe(444);
+
+    controller.tabView?.firestore.onInspectorWidthChange(512);
+    controller.tabView?.firestore.onInspectorOverviewCollapsedChange(true);
+    controller.tabView?.firestore.onInspectorSectionOpenChange('fieldsInResults', true);
+    controller.tabView?.firestore.onSelectionPreviewExpandedPathsChange('orders/ord_1', [
+      '["customer"]',
+    ]);
+    controller.tabView?.firestore.onResultTreeExpandedIdsChange(['root:orders']);
+
+    expect(mocks.ui.setTabInspectorWidth).toHaveBeenCalledWith(tab.id, 512);
+    expect(mocks.firestoreTab.setInspectorOverviewCollapsed).toHaveBeenCalledWith(tab.id, true);
+    expect(mocks.firestoreTab.setInspectorSectionOpen).toHaveBeenCalledWith(
+      tab.id,
+      'fieldsInResults',
+      true,
+    );
+    expect(mocks.firestoreTab.setSelectionPreviewExpandedPaths).toHaveBeenCalledWith(
+      tab.id,
+      'orders/ord_1',
+      ['["customer"]'],
+    );
+    expect(mocks.firestoreTab.setResultTreeExpandedIds).toHaveBeenCalledWith(
+      tab.id,
+      ['root:orders'],
+    );
+  });
 });
 
 function createInput(
@@ -410,6 +447,7 @@ function createInput(
   };
   const firestoreTabFacade = {
     activeDraft: draft('orders'),
+    activeInspectorUi: defaultFirestoreInspectorUiState(),
     clearTab: vi.fn(),
     duplicateTab: vi.fn(),
     drafts: {},
@@ -431,8 +469,12 @@ function createInput(
     selectedDocument: null,
     selectedDocumentPath: null,
     setDraft: vi.fn(),
+    setInspectorOverviewCollapsed: vi.fn(),
+    setInspectorSectionOpen: vi.fn(),
     setResultView: vi.fn(),
+    setResultTreeExpandedIds: vi.fn(),
     setResultsStale: vi.fn(),
+    setSelectionPreviewExpandedPaths: vi.fn(),
   };
   const firestoreWriteFacade = {
     createDocument: vi.fn(),
@@ -500,6 +542,7 @@ function createInput(
     setEditingProjectId: vi.fn(),
     setLastAction: vi.fn(),
     setSidebarCollapsed: vi.fn(),
+    setTabInspectorWidth: vi.fn(),
     setTabsState: vi.fn(),
     updateActiveTabConnection: vi.fn(),
   };

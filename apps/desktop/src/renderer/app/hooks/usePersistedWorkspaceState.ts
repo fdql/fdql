@@ -1,6 +1,7 @@
 import type { FirestoreQueryDraft, FirestoreSqlContext } from '@firebase-desk/repo-contracts';
 import type { SettingsRepository } from '@firebase-desk/repo-contracts';
 import { useEffect, useRef, useState } from 'react';
+import type { FirestoreInspectorUiState } from '../../app-core/firestore/query/firestoreQueryState.ts';
 import { restoreWorkspaceTabsCommand } from '../../app-core/workspace/workspaceCommands.ts';
 import { selectionActions } from '../stores/selectionStore.ts';
 import { type TabsState, tabsStore } from '../stores/tabsStore.ts';
@@ -15,6 +16,9 @@ export interface PersistedWorkspaceSnapshot {
   readonly authFilter?: string | undefined;
   readonly drafts?: Readonly<Record<string, FirestoreQueryDraft>> | undefined;
   readonly fdqlSources?: Readonly<Record<string, string>> | undefined;
+  readonly firestoreInspectorUi?:
+    | Readonly<Record<string, FirestoreInspectorUiState>>
+    | undefined;
   readonly scripts?: Readonly<Record<string, string>> | undefined;
   readonly sqlContexts?: Readonly<Record<string, FirestoreSqlContext>> | undefined;
   readonly sqlSources?: Readonly<Record<string, string>> | undefined;
@@ -29,6 +33,9 @@ export interface WorkspacePersistenceSnapshot {
   readonly authFilter: string;
   readonly drafts: Readonly<Record<string, FirestoreQueryDraft>>;
   readonly fdqlSources?: Readonly<Record<string, string>> | undefined;
+  readonly firestoreInspectorUi?:
+    | Readonly<Record<string, FirestoreInspectorUiState>>
+    | undefined;
   readonly scripts: Readonly<Record<string, string>>;
   readonly sqlContexts?: Readonly<Record<string, FirestoreSqlContext>> | undefined;
   readonly sqlSources?: Readonly<Record<string, string>> | undefined;
@@ -50,13 +57,19 @@ export function usePersistedWorkspaceState(
 
   useEffect(() => {
     let cancelled = false;
+    const tabsStateAtLoadStart = tabsStore.state;
     void loadPersistedWorkspaceStateResult(settings).then((loadResult) => {
       if (cancelled) return;
       if (loadResult.error) onError?.(loadResult.error);
+      let restoredSnapshot: PersistedWorkspaceSnapshot | null = null;
       if (!restoredRef.current) {
         restoredRef.current = true;
         const persistedWorkspace = loadResult.snapshot;
-        if (persistedWorkspace) {
+        const shouldRestore = Boolean(persistedWorkspace)
+          && tabsStore.state === tabsStateAtLoadStart
+          && tabsStore.state.tabs.length === 0;
+        restoredSnapshot = shouldRestore ? persistedWorkspace : null;
+        if (persistedWorkspace && shouldRestore) {
           const restoreResult = restoreWorkspaceTabsCommand(persistedWorkspace.tabsState);
           tabsStore.setState(() => restoreResult.state);
           if (restoreResult.activeTab) {
@@ -64,7 +77,10 @@ export function usePersistedWorkspaceState(
           }
         }
       }
-      setResult({ restored: true, snapshot: loadResult.snapshot });
+      setResult({
+        restored: true,
+        snapshot: restoredSnapshot,
+      });
     });
     return () => {
       cancelled = true;
@@ -80,6 +96,7 @@ export function usePersistWorkspaceSnapshot(
     readonly debounceMs?: number | undefined;
     readonly enabled: boolean;
     readonly onError?: (error: WorkspacePersistenceFailure) => void;
+    readonly skipInitialSave?: boolean | undefined;
     readonly settings: Pick<SettingsRepository, 'save'>;
   },
 ): void {
@@ -108,13 +125,24 @@ export function usePersistWorkspaceSnapshot(
     const snapshotKey = JSON.stringify(snapshot);
     if (!skippedInitialSaveRef.current) {
       skippedInitialSaveRef.current = true;
-      lastQueuedSnapshotKeyRef.current = snapshotKey;
-      return;
+      if (options.skipInitialSave ?? true) {
+        lastQueuedSnapshotKeyRef.current = snapshotKey;
+        return;
+      }
     }
     if (lastQueuedSnapshotKeyRef.current === snapshotKey) return;
     lastQueuedSnapshotKeyRef.current = snapshotKey;
     pendingSnapshotRef.current = snapshot;
     clearPendingSave();
+    if (!snapshot.tabsState.tabs.length) {
+      const pendingSnapshot = pendingSnapshotRef.current;
+      pendingSnapshotRef.current = null;
+      if (!pendingSnapshot) return;
+      void savePersistedWorkspaceState(settings, pendingSnapshot).then((error) => {
+        if (error) latestSaveOptionsRef.current.onError?.(error);
+      });
+      return;
+    }
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null;
       const pendingSnapshot = pendingSnapshotRef.current;

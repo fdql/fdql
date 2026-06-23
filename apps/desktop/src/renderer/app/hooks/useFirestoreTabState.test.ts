@@ -299,6 +299,70 @@ describe('useFirestoreTabState', () => {
     expect(result.current.resultView).toBe('tree');
   });
 
+  it('keeps inspector UI state scoped to the query tab', () => {
+    const secondTab: WorkspaceTab = { ...tab, id: 'tab-firestore-query-2' };
+    const initialInspectorUi = {
+      [tab.id]: {
+        overviewCollapsed: true,
+        resultTreeExpandedIds: ['root:orders'],
+        sections: {
+          fieldsInResults: true,
+          jsonContext: true,
+          selectionPreview: false,
+        },
+        selectionPreviewExpandedPathsByDocumentPath: {
+          'orders/ord_1024': ['["customer"]'],
+        },
+      },
+    };
+    let activeTab = tab;
+    const { rerender, result } = renderHook(() =>
+      useFirestoreTabState({
+        activeProject: project,
+        activeTab,
+        initialInspectorUi,
+        selectedTreeItemId: 'collection:emu:orders',
+      })
+    );
+
+    expect(result.current.activeInspectorUi.overviewCollapsed).toBe(true);
+    expect(result.current.activeInspectorUi.sections.fieldsInResults).toBe(true);
+
+    activeTab = secondTab;
+    rerender();
+
+    expect(result.current.activeInspectorUi.overviewCollapsed).toBe(false);
+
+    act(() => result.current.setInspectorOverviewCollapsed(secondTab.id, true));
+    act(() => result.current.setInspectorSectionOpen(secondTab.id, 'selectionPreview', false));
+    act(() =>
+      result.current.setSelectionPreviewExpandedPaths(secondTab.id, 'orders/ord_1025', [
+        '["profile"]',
+      ])
+    );
+    act(() => result.current.setResultTreeExpandedIds(secondTab.id, ['root:customers']));
+
+    expect(result.current.activeInspectorUi).toMatchObject({
+      overviewCollapsed: true,
+      resultTreeExpandedIds: ['root:customers'],
+      sections: { selectionPreview: false },
+      selectionPreviewExpandedPathsByDocumentPath: {
+        'orders/ord_1025': ['["profile"]'],
+      },
+    });
+
+    activeTab = tab;
+    rerender();
+
+    expect(result.current.activeInspectorUi).toMatchObject({
+      overviewCollapsed: true,
+      resultTreeExpandedIds: ['root:orders'],
+      selectionPreviewExpandedPathsByDocumentPath: {
+        'orders/ord_1024': ['["customer"]'],
+      },
+    });
+  });
+
   it('keeps selected document scoped to current query rows', async () => {
     tabActions.restore({
       activeTabId: tab.id,

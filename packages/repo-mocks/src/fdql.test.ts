@@ -20,6 +20,14 @@ return fs.id(o) as id, o.status`,
     unsubscribe();
     expect(result.rows).toEqual([{ id: 'ord_1024', status: 'paid' }]);
     expect(result.stats).toMatchObject({ reads: 1, rowsOutput: 1 });
+    expect(result.stats?.stageStats).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          durationMs: expect.any(Number),
+          stage: 'source',
+        }),
+      ]),
+    );
     expect(events).toEqual(
       expect.arrayContaining(['started', 'read', 'row', 'stats', 'completed']),
     );

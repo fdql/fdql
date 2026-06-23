@@ -76,10 +76,13 @@ function documentRow(): FdqlProviderRow {
 function stageStat(stage: string): FdqlStageStats {
   return {
     aggregateReads: 0,
+    durationMs: 5,
     droppedRows: 0,
+    endedAtMs: 15,
     inputRows: 0,
     outputRows: 1,
     reads: 1,
     stage,
+    startedAtMs: 10,
   };
 }

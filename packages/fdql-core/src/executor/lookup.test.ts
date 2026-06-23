@@ -37,6 +37,18 @@ return o.status, team.name as teamName`);
 
     expect(rows(events)).toEqual([{ status: 'paid', teamName: 'Orange' }]);
     expect(completed(events)).toMatchObject({ lookupReads: 1, reads: 2, rowsOutput: 1 });
+    expect(completed(events).stageStats).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          durationMs: expect.any(Number),
+          endedAtMs: expect.any(Number),
+          provider: 'mem',
+          source: '$teams',
+          stage: 'lookup',
+          startedAtMs: expect.any(Number),
+        }),
+      ]),
+    );
   });
 
   it('keeps optional lookup rows when correlated values are missing or unmatched', async () => {

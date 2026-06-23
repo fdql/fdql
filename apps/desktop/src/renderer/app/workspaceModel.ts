@@ -32,8 +32,8 @@ export type ConnectionTargetOption =
   | 'production-service-account';
 
 export const DEFAULT_SIDEBAR_WIDTH = 320;
-export const MAX_SIDEBAR_WIDTH = 560;
-export const MIN_SIDEBAR_WIDTH = 280;
+export const COLLAPSED_SIDEBAR_WIDTH = 40;
+export const MIN_SIDEBAR_WIDTH = 180;
 export const MIN_WORKSPACE_WIDTH = 360;
 export const initialTreeCache: TreeCache = { roots: {}, tools: {} };
 const TREE_NODE_KIND = {
@@ -312,7 +312,7 @@ export function toggleSet(values: ReadonlySet<string>, value: string): ReadonlyS
 
 export function clampSidebarWidth(width: number): number {
   if (!Number.isFinite(width)) return DEFAULT_SIDEBAR_WIDTH;
-  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width)));
+  return Math.max(MIN_SIDEBAR_WIDTH, Math.round(width));
 }
 
 function appendCollection(

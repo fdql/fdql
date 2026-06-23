@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { NestedValueTree } from './NestedValueTree.tsx';
 
 describe('NestedValueTree', () => {
@@ -45,5 +45,25 @@ describe('NestedValueTree', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
 
     expect(screen.getByText('field_124')).toBeTruthy();
+  });
+
+  it('uses controlled expanded paths when provided', () => {
+    const onExpandedPathsChange = vi.fn();
+    render(
+      <NestedValueTree
+        expandedPaths={new Set(['["customer"]'])}
+        value={{ customer: { profile: { name: 'Ada' } } }}
+        onExpandedPathsChange={onExpandedPathsChange}
+      />,
+    );
+
+    expect(screen.getByText('profile')).toBeTruthy();
+    expect(screen.queryByText('name')).toBeNull();
+
+    fireEvent.click(screen.getByText('profile').closest('button')!);
+
+    expect(onExpandedPathsChange).toHaveBeenCalledWith(
+      new Set(['["customer"]', '["customer","profile"]']),
+    );
   });
 });

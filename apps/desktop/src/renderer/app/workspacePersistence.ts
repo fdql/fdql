@@ -6,6 +6,7 @@ import type {
   SettingsRepository,
 } from '@firebase-desk/repo-contracts';
 import { z } from 'zod';
+import type { FirestoreInspectorUiState } from '../app-core/firestore/query/firestoreQueryState.ts';
 import { tabsRestored } from '../app-core/workspace/workspaceTransitions.ts';
 import {
   type InteractionHistoryEntry,
@@ -91,10 +92,39 @@ const FirestoreQueryDraftSchema = z.object({
   limit: draft.limit,
 }));
 
+const FirestoreInspectorSectionStateSchema = z.object({
+  fieldsInResults: z.boolean().optional(),
+  jsonContext: z.boolean().optional(),
+  selectionPreview: z.boolean().optional(),
+}).transform((sections): FirestoreInspectorUiState['sections'] => ({
+  fieldsInResults: sections.fieldsInResults ?? false,
+  jsonContext: sections.jsonContext ?? true,
+  selectionPreview: sections.selectionPreview ?? true,
+}));
+
+const FirestoreInspectorUiStateSchema = z.object({
+  overviewCollapsed: z.boolean().optional(),
+  resultTreeExpandedIds: z.array(z.string()).nullable().optional(),
+  sections: FirestoreInspectorSectionStateSchema.optional(),
+  selectionPreviewExpandedPathsByDocumentPath: z.record(z.string(), z.array(z.string()))
+    .optional(),
+}).transform((state): FirestoreInspectorUiState => ({
+  overviewCollapsed: state.overviewCollapsed ?? false,
+  resultTreeExpandedIds: state.resultTreeExpandedIds ?? null,
+  sections: state.sections ?? {
+    fieldsInResults: false,
+    jsonContext: true,
+    selectionPreview: true,
+  },
+  selectionPreviewExpandedPathsByDocumentPath: state.selectionPreviewExpandedPathsByDocumentPath
+    ?? {},
+}));
+
 export const PersistedWorkspaceStateSchema = z.object({
   version: z.literal(1),
   authFilter: z.string(),
   drafts: z.record(z.string(), FirestoreQueryDraftSchema),
+  firestoreInspectorUi: z.record(z.string(), FirestoreInspectorUiStateSchema).optional(),
   scripts: z.record(z.string(), z.string()),
   fdqlSources: z.record(z.string(), z.string()).optional(),
   sqlContexts: z.record(
@@ -110,6 +140,11 @@ export const PersistedWorkspaceStateSchema = z.object({
   const tabIds = new Set(state.tabsState.tabs.map((tab) => tab.id));
   for (const tabId of Object.keys(state.drafts)) {
     if (!tabIds.has(tabId)) context.addIssue({ code: 'custom', message: 'Draft tab is not open' });
+  }
+  for (const tabId of Object.keys(state.firestoreInspectorUi ?? {})) {
+    if (!tabIds.has(tabId)) {
+      context.addIssue({ code: 'custom', message: 'Inspector UI tab is not open' });
+    }
   }
   for (const tabId of Object.keys(state.scripts)) {
     if (!tabIds.has(tabId)) context.addIssue({ code: 'custom', message: 'Script tab is not open' });
@@ -205,6 +240,7 @@ async function persistWorkspaceState(
     version: 1,
     authFilter: state.authFilter,
     drafts: pickTabRecord(state.drafts, tabIds),
+    firestoreInspectorUi: pickTabRecord(state.firestoreInspectorUi ?? {}, tabIds),
     scripts: pickTabRecord(state.scripts, tabIds),
     fdqlSources: pickTabRecord(state.fdqlSources ?? {}, tabIds),
     sqlContexts: pickTabRecord(state.sqlContexts ?? {}, tabIds),

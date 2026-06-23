@@ -669,13 +669,16 @@ export interface FdqlStats {
 
 export interface FdqlStageStats {
   readonly aggregateReads: number;
+  readonly durationMs: number;
   readonly droppedRows: number;
+  readonly endedAtMs: number;
   readonly inputRows: number;
   readonly outputRows: number;
   readonly provider?: string | undefined;
   readonly reads: number;
   readonly source?: string | undefined;
   readonly stage: string;
+  readonly startedAtMs: number;
 }
 
 export interface FdqlLineageSource {

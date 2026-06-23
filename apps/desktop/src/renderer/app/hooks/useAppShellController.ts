@@ -13,7 +13,13 @@ import { type AppShellController, createAppShellController } from '../appShellOr
 import { type RepositorySet, useRepositories } from '../RepositoryProvider.tsx';
 import { selectionActions, selectionStore } from '../stores/selectionStore.ts';
 import { tabActions, tabsStore, type WorkspaceTabKind } from '../stores/tabsStore.ts';
-import { clampSidebarWidth, DEFAULT_SIDEBAR_WIDTH, resolveProject } from '../workspaceModel.ts';
+import {
+  clampSidebarWidth,
+  COLLAPSED_SIDEBAR_WIDTH,
+  DEFAULT_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  resolveProject,
+} from '../workspaceModel.ts';
 import type { WorkspacePersistenceFailure } from '../workspacePersistence.ts';
 import { useAppShellHotkeys } from './useAppShellHotkeys.ts';
 import { useAuthTabState } from './useAuthTabState.ts';
@@ -160,6 +166,7 @@ export function useAppShellController(
     activeProject,
     activeTab,
     initialDrafts: persistedWorkspace.snapshot?.drafts,
+    initialInspectorUi: persistedWorkspace.snapshot?.firestoreInspectorUi,
     onQueryActivity: recordActivity,
     selectedTreeItemId: selection.treeItemId,
   });
@@ -249,6 +256,7 @@ export function useAppShellController(
     authFilter: authTab.authFilter,
     drafts: firestoreTab.drafts,
     fdqlSources: fdqlTab.sources,
+    firestoreInspectorUi: firestoreTab.inspectorUi,
     scripts: jsTab.scripts,
     sqlContexts: sqlTab.contexts,
     sqlSources: sqlTab.sources,
@@ -257,6 +265,7 @@ export function useAppShellController(
     authTab.authFilter,
     fdqlTab.sources,
     firestoreTab.drafts,
+    firestoreTab.inspectorUi,
     jsTab.scripts,
     sqlTab.contexts,
     sqlTab.sources,
@@ -267,6 +276,7 @@ export function useAppShellController(
   usePersistWorkspaceSnapshot(workspaceSnapshot, {
     enabled: persistedWorkspace.restored,
     onError: setWorkspacePersistenceError,
+    skipInitialSave: Boolean(persistedWorkspace.snapshot),
     settings: repositories.settings,
   });
   useEffect(() => {
@@ -332,7 +342,15 @@ export function useAppShellController(
     layout: {
       sidebarCollapsed,
       sidebarDefaultWidth,
-      onSidebarResize: (size) => persistSidebarWidth(repositories, size),
+      onSidebarResize: (size) => {
+        if (size <= COLLAPSED_SIDEBAR_WIDTH + 1) {
+          setSidebarCollapsed(true);
+          return;
+        }
+        if (size < MIN_SIDEBAR_WIDTH) return;
+        if (sidebarCollapsed) setSidebarCollapsed(false);
+        persistSidebarWidth(repositories, size);
+      },
     },
     nextCreateDocumentRequestId: () => nextCreateDocumentRequestId.current++,
     collectionJobRequest,
@@ -388,6 +406,7 @@ export function useAppShellController(
       setEditingProjectId,
       setLastAction,
       setSidebarCollapsed,
+      setTabInspectorWidth: tabActions.setInspectorWidth,
       setTabsState: (state) => tabsStore.setState(() => state),
       updateActiveTabConnection: tabActions.updateConnection,
     },

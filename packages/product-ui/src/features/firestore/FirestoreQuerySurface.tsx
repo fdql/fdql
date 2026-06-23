@@ -38,6 +38,7 @@ import {
   validateFirestoreValue,
 } from './fieldEditModel.ts';
 import { FirestoreDocumentBrowser } from './FirestoreDocumentBrowser.tsx';
+import type { FirestoreInspectorSectionId, FirestoreInspectorUiState } from './inspectorState.ts';
 import { QueryBuilder } from './QueryBuilder.tsx';
 import { findDocumentByPath, isCollectionPath } from './resultModel.tsx';
 import type { FirestoreResultView } from './types.ts';
@@ -57,6 +58,8 @@ export interface FirestoreQuerySurfaceProps {
   readonly density?: DensityName | undefined;
   readonly errorMessage?: string | null;
   readonly hasMore: boolean;
+  readonly inspectorUi?: FirestoreInspectorUiState | undefined;
+  readonly inspectorWidth?: number | undefined;
   readonly isFetchingMore?: boolean;
   readonly isLoading?: boolean;
   readonly onCreateDocument?: (
@@ -84,10 +87,18 @@ export interface FirestoreQuerySurfaceProps {
   readonly onLoadSubcollections?: (
     documentPath: string,
   ) => Promise<ReadonlyArray<FirestoreCollectionNode>>;
+  readonly onInspectorOverviewCollapsedChange?: ((collapsed: boolean) => void) | undefined;
+  readonly onInspectorSectionOpenChange?:
+    | ((section: FirestoreInspectorSectionId, open: boolean) => void)
+    | undefined;
+  readonly onInspectorWidthChange?: ((width: number) => void) | undefined;
   readonly onOpenDocumentInNewTab: (documentPath: string) => void;
   readonly onReset: () => void;
   readonly onRefreshResults?: () => void;
   readonly onResultViewChange?: ResultViewChangeHandler | undefined;
+  readonly onResultTreeExpandedIdsChange?:
+    | ((expandedIds: ReadonlyArray<string>) => void)
+    | undefined;
   readonly onResultsStaleChange?: ((stale: boolean, scopeKey?: string) => void) | undefined;
   readonly onRun: () => void;
   readonly onSaveDocument?: (
@@ -104,6 +115,9 @@ export interface FirestoreQuerySurfaceProps {
     | FirestoreUpdateDocumentFieldsResult
     | void;
   readonly onSelectDocument: (documentPath: string) => void;
+  readonly onSelectionPreviewExpandedPathsChange?:
+    | ((documentPath: string, expandedPaths: ReadonlyArray<string>) => void)
+    | undefined;
   readonly onStartCollectionJob?:
     | ((request: FirestoreCollectionJobRequest) => Promise<void> | void)
     | undefined;
@@ -158,6 +172,8 @@ export function FirestoreQuerySurface(
     density,
     errorMessage = null,
     hasMore,
+    inspectorUi,
+    inspectorWidth,
     isFetchingMore = false,
     isLoading = false,
     onCreateDocument,
@@ -170,15 +186,20 @@ export function FirestoreQuerySurface(
     onPickCollectionJobImportFile,
     onLoadMore,
     onLoadSubcollections,
+    onInspectorOverviewCollapsedChange,
+    onInspectorSectionOpenChange,
+    onInspectorWidthChange,
     onOpenDocumentInNewTab,
     onReset,
     onRefreshResults,
     onResultViewChange,
+    onResultTreeExpandedIdsChange,
     onResultsStaleChange,
     onRun,
     onSaveDocument,
     onUpdateDocumentFields,
     onSelectDocument,
+    onSelectionPreviewExpandedPathsChange,
     onStartCollectionJob,
     projects = [],
     rows,
@@ -536,6 +557,8 @@ export function FirestoreQuerySurface(
         isLoading={isLoading}
         actionErrorMessage={actionErrorMessage}
         actionNoticeMessage={actionNoticeMessage}
+        inspectorUi={inspectorUi}
+        inspectorWidth={inspectorWidth}
         queryPath={draft.path}
         resultView={effectiveResultView}
         resultsScopeKey={resultsScopeKey}
@@ -563,14 +586,19 @@ export function FirestoreQuerySurface(
           : undefined}
         onLoadMore={onLoadMore}
         onLoadSubcollections={onLoadSubcollections}
+        onInspectorOverviewCollapsedChange={onInspectorOverviewCollapsedChange}
+        onInspectorSectionOpenChange={onInspectorSectionOpenChange}
+        onInspectorWidthChange={onInspectorWidthChange}
         onOpenDocumentInNewTab={onOpenDocumentInNewTab}
         onResultViewChange={setResultViewState}
+        onResultTreeExpandedIdsChange={onResultTreeExpandedIdsChange}
         onRefreshResults={refreshResults}
         onSettingsError={setActionErrorMessage}
         onCreateDocument={onCreateDocument && onGenerateDocumentId
           ? openCreateDocument
           : undefined}
         onSelectDocument={onSelectDocument}
+        onSelectionPreviewExpandedPathsChange={onSelectionPreviewExpandedPathsChange}
         onSetFieldValue={fieldActionsEnabled ? setFieldValue : undefined}
         onSetFieldNull={fieldActionsEnabled ? setFieldNull : undefined}
       />

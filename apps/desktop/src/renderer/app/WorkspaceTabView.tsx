@@ -33,6 +33,10 @@ import type {
   FirestoreCollectionJobRequest,
   FirestoreExportFormat,
 } from '@firebase-desk/repo-contracts/jobs';
+import type {
+  FirestoreInspectorSectionId,
+  FirestoreInspectorUiState,
+} from '../app-core/firestore/query/firestoreQueryState.ts';
 import type { WorkspaceTab } from './stores/tabsStore.ts';
 
 export interface WorkspaceTabViewProps {
@@ -70,6 +74,8 @@ export interface FirestoreTabSurfaceModel {
   readonly collectionJobRequest: FirestoreCollectionJobDialogRequest | null;
   readonly errorMessage: string | null;
   readonly hasMore: boolean;
+  readonly inspectorUi: FirestoreInspectorUiState;
+  readonly inspectorWidth: number;
   readonly isFetchingMore: boolean;
   readonly isLoading: boolean;
   readonly onCreateDocument: (
@@ -93,10 +99,17 @@ export interface FirestoreTabSurfaceModel {
   readonly onLoadSubcollections: (
     documentPath: string,
   ) => Promise<ReadonlyArray<FirestoreCollectionNode>>;
+  readonly onInspectorOverviewCollapsedChange: (collapsed: boolean) => void;
+  readonly onInspectorSectionOpenChange: (
+    section: FirestoreInspectorSectionId,
+    open: boolean,
+  ) => void;
+  readonly onInspectorWidthChange: (width: number) => void;
   readonly onOpenDocumentInNewTab: (documentPath: string) => void;
   readonly onReset: () => void;
   readonly onRefreshResults: () => void;
   readonly onResultViewChange: (resultView: FirestoreResultView, scopeKey?: string) => void;
+  readonly onResultTreeExpandedIdsChange: (expandedIds: ReadonlyArray<string>) => void;
   readonly onResultsStaleChange: (stale: boolean, scopeKey?: string) => void;
   readonly onRunQuery: () => void;
   readonly onSaveDocument: (
@@ -113,6 +126,10 @@ export interface FirestoreTabSurfaceModel {
     | FirestoreUpdateDocumentFieldsResult
     | void;
   readonly onSelectDocument: (documentPath: string) => void;
+  readonly onSelectionPreviewExpandedPathsChange: (
+    documentPath: string,
+    expandedPaths: ReadonlyArray<string>,
+  ) => void;
   readonly onStartCollectionJob: (request: FirestoreCollectionJobRequest) => Promise<void> | void;
   readonly projects: ReadonlyArray<ProjectSummary>;
   readonly resultView: FirestoreResultView;
@@ -239,6 +256,8 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
       density={props.density}
       errorMessage={props.firestore.errorMessage}
       hasMore={props.firestore.hasMore}
+      inspectorUi={props.firestore.inspectorUi}
+      inspectorWidth={props.firestore.inspectorWidth}
       isFetchingMore={props.firestore.isFetchingMore}
       isLoading={props.firestore.isLoading}
       rows={props.firestore.rows}
@@ -255,6 +274,9 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
       onDraftChange={props.firestore.onDraftChange}
       onDeleteDocument={props.firestore.onDeleteDocument}
       onGenerateDocumentId={props.firestore.onGenerateDocumentId}
+      onInspectorOverviewCollapsedChange={props.firestore.onInspectorOverviewCollapsedChange}
+      onInspectorSectionOpenChange={props.firestore.onInspectorSectionOpenChange}
+      onInspectorWidthChange={props.firestore.onInspectorWidthChange}
       onPickCollectionJobExportFile={props.firestore.onPickCollectionJobExportFile}
       onPickCollectionJobImportFile={props.firestore.onPickCollectionJobImportFile}
       onLoadMore={props.firestore.onLoadMore}
@@ -263,11 +285,13 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
       onReset={props.firestore.onReset}
       onRefreshResults={props.firestore.onRefreshResults}
       onResultViewChange={props.firestore.onResultViewChange}
+      onResultTreeExpandedIdsChange={props.firestore.onResultTreeExpandedIdsChange}
       onResultsStaleChange={props.firestore.onResultsStaleChange}
       onRun={props.firestore.onRunQuery}
       onSaveDocument={props.firestore.onSaveDocument}
       onUpdateDocumentFields={props.firestore.onUpdateDocumentFields}
       onSelectDocument={props.firestore.onSelectDocument}
+      onSelectionPreviewExpandedPathsChange={props.firestore.onSelectionPreviewExpandedPathsChange}
       onStartCollectionJob={props.firestore.onStartCollectionJob}
     />
   );

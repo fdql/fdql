@@ -33,7 +33,7 @@ Current priority order:
 | Area            | Status  | Notes                                                                                                                                                          |
 | --------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | FDQL tab        | Done    | Dedicated tab, Run/Cancel, source persistence, Results/Issues.                                                                                                 |
-| Result views    | Done    | Table, Tree, lazy JSON, rows/reads/scanned/elapsed stats.                                                                                                      |
+| Result views    | Done    | Table, Tree, lazy JSON, rows/reads/scanned/elapsed stats, and timed stage stats.                                                                               |
 | IPC             | Done    | `fdql.compile`, `fdql.run`, `fdql.cancel`, event stream.                                                                                                       |
 | Mock repository | Done    | Uses existing fixture collections through a Firestore mock runtime owned by `repo-mocks`.                                                                      |
 | Live repository | Done    | Uses paged Admin SDK reads for collections, collection groups, static/dynamic subcollection paths, field masks, where/order/limit, named DBs, cancel/timeout.  |
@@ -242,19 +242,19 @@ These block the read implementation from being honest at production scale.
 
 ## P3 Product/Quality Gaps
 
-| Area                | Status                     | Notes                                                                                                                                        |
-| ------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full grammar        | Partial                    | Parser now uses source-located statements, but expression and pipeline grammar still need broader syntax coverage.                           |
-| Source-located AST  | Done                       | Top-level declarations and stages carry source columns/ranges; parser expression diagnostics use source columns.                             |
-| Execution locations | Done                       | Execution diagnostics preserve line/column and provider/source/row/stage context; Issues can focus the editor position.                      |
-| Editor language     | Done                       | FDQL has reusable language service plus Monaco language id, highlighting, bracket/comment rules, context-aware completions, and diagnostics. |
-| FDQL type model     | Done                       | Core/runtime values are tagged internally and encoded at output.                                                                             |
-| Provider adapters   | Done                       | Firestore values normalize/encode in provider repos; core FDQL has no Firestore-shaped runtime API.                                          |
-| Type inference      | Missing                    | Compiler does not infer expression, stage, or result column types.                                                                           |
-| Row-shape analysis  | Partial                    | Compiler validates root row bindings; nested unknown fields are runtime missing values and compiler does not prove row shape.                |
-| Lineage UI          | Done                       | FDQL supports `compact`, `trace`, and `off` lineage modes, stores row lineages lockstep with rows, and exposes stage stats/source origins.   |
-| More E2E            | Partial                    | Covers main read paths plus nested map/array lookup cache, field-path fidelity, and issue-click navigation. Still needs named DB coverage.   |
-| Generated scripts   | Not planned for current UI | Spec mentions generated scripts, but current product slice intentionally has no JS snippet panel. Revisit before implementing.               |
+| Area                | Status                     | Notes                                                                                                                                            |
+| ------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Full grammar        | Partial                    | Parser now uses source-located statements, but expression and pipeline grammar still need broader syntax coverage.                               |
+| Source-located AST  | Done                       | Top-level declarations and stages carry source columns/ranges; parser expression diagnostics use source columns.                                 |
+| Execution locations | Done                       | Execution diagnostics preserve line/column and provider/source/row/stage context; Issues can focus the editor position.                          |
+| Editor language     | Done                       | FDQL has reusable language service plus Monaco language id, highlighting, bracket/comment rules, context-aware completions, and diagnostics.     |
+| FDQL type model     | Done                       | Core/runtime values are tagged internally and encoded at output.                                                                                 |
+| Provider adapters   | Done                       | Firestore values normalize/encode in provider repos; core FDQL has no Firestore-shaped runtime API.                                              |
+| Type inference      | Missing                    | Compiler does not infer expression, stage, or result column types.                                                                               |
+| Row-shape analysis  | Partial                    | Compiler validates root row bindings; nested unknown fields are runtime missing values and compiler does not prove row shape.                    |
+| Lineage UI          | Done                       | FDQL supports `compact`, `trace`, and `off` lineage modes, stores row lineages lockstep with rows, and exposes timed stage stats/source origins. |
+| More E2E            | Partial                    | Covers main read paths plus nested map/array lookup cache, field-path fidelity, and issue-click navigation. Still needs named DB coverage.       |
+| Generated scripts   | Not planned for current UI | Spec mentions generated scripts, but current product slice intentionally has no JS snippet panel. Revisit before implementing.                   |
 
 ## Suggested Next Order
 

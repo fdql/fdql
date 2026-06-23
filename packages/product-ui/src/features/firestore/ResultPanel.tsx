@@ -57,10 +57,14 @@ export interface ResultPanelProps {
   readonly onResultViewChange: (view: FirestoreResultView) => void;
   readonly onSelectDocument?: ((documentPath: string) => void) | undefined;
   readonly onRefreshResults?: (() => void) | undefined;
+  readonly onResultTreeExpandedIdsChange?:
+    | ((expandedIds: ReadonlyArray<string>) => void)
+    | undefined;
   readonly onSettingsError?: ((message: string) => void) | undefined;
   readonly onSetFieldNull?: ((target: FieldEditTarget) => void) | undefined;
   readonly queryPath: string;
   readonly resultView: FirestoreResultView;
+  readonly resultTreeExpandedIds?: ReadonlyArray<string> | null | undefined;
   readonly resultsScopeKey?: string | undefined;
   readonly rows: ReadonlyArray<FirestoreDocumentResult>;
   readonly selectedDocumentPath: string | null;
@@ -89,11 +93,13 @@ export function ResultPanel(
     onOpenDocumentInNewTab,
     onResultViewChange,
     onRefreshResults,
+    onResultTreeExpandedIdsChange,
     onSelectDocument,
     onSettingsError,
     onSetFieldNull,
     queryPath,
     resultView,
+    resultTreeExpandedIds,
     resultsScopeKey,
     rows,
     selectedDocumentPath,
@@ -111,26 +117,29 @@ export function ResultPanel(
   const [expandedTreeIds, setExpandedTreeIds] = useState<ReadonlySet<string>>(
     () => defaultExpandedTreeIds,
   );
+  const resolvedExpandedTreeIds = resultTreeExpandedIds === undefined
+    ? expandedTreeIds
+    : new Set(resultTreeExpandedIds ?? defaultExpandedTreeIds);
   const [treeValueChildLimits, setTreeValueChildLimits] = useState<ReadonlyMap<string, number>>(
     () => new Map(),
   );
 
   useEffect(() => {
+    if (resultTreeExpandedIds !== undefined) return;
     setExpandedTreeIds(defaultExpandedTreeIds);
     setTreeValueChildLimits(new Map());
-  }, [defaultExpandedTreeIds]);
+  }, [defaultExpandedTreeIds, resultTreeExpandedIds]);
 
   function toggleTreeNode(id: string) {
     const document = findDocumentByTreeNodeId(rows, id);
-    const willExpand = !expandedTreeIds.has(id);
-    setExpandedTreeIds((current) => {
-      const next = new Set(toggleSet(current, id));
-      if (willExpand && document) {
-        next.add(`${id}:fields`);
-        next.add(`${id}:subcollections`);
-      }
-      return next;
-    });
+    const willExpand = !resolvedExpandedTreeIds.has(id);
+    const next = new Set(toggleSet(resolvedExpandedTreeIds, id));
+    if (willExpand && document) {
+      next.add(`${id}:fields`);
+      next.add(`${id}:subcollections`);
+    }
+    if (resultTreeExpandedIds === undefined) setExpandedTreeIds(next);
+    onResultTreeExpandedIdsChange?.(Array.from(next));
     if (!willExpand || !onLoadSubcollections || !document) return;
     const state = subcollectionStates[document.path];
     if (
@@ -289,7 +298,7 @@ export function ResultPanel(
                     density={density}
                     queryPath={queryPath}
                     scrollRestorationKey={resultsScopeKey ? `${resultsScopeKey}:tree` : undefined}
-                    expandedIds={expandedTreeIds}
+                    expandedIds={resolvedExpandedTreeIds}
                     hasMore={showPagination}
                     isFetchingMore={isFetchingMore}
                     rows={rows}

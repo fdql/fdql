@@ -9,6 +9,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useMediaQuery } from '../../hooks/useMediaQuery.ts';
 import { messageFromError } from '../../shared/errors.ts';
 import { type FieldEditTarget } from './fieldEditModel.ts';
+import type { FirestoreInspectorSectionId, FirestoreInspectorUiState } from './inspectorState.ts';
 import {
   findDocumentByPath,
   mergeLoadedSubcollections,
@@ -22,8 +23,18 @@ type CollectionJobKind = 'copy' | 'delete' | 'duplicate' | 'export' | 'import';
 
 const DEFAULT_INSPECTOR_WIDTH = 360;
 const COLLAPSED_INSPECTOR_WIDTH = 42;
-const MIN_INSPECTOR_WIDTH = 280;
-const MAX_INSPECTOR_WIDTH = 520;
+const MIN_INSPECTOR_WIDTH = 220;
+const MIN_RESULTS_WIDTH = 360;
+const defaultInspectorUi: FirestoreInspectorUiState = {
+  overviewCollapsed: false,
+  resultTreeExpandedIds: null,
+  sections: {
+    fieldsInResults: false,
+    jsonContext: true,
+    selectionPreview: true,
+  },
+  selectionPreviewExpandedPathsByDocumentPath: {},
+};
 
 export interface FirestoreDocumentBrowserProps {
   readonly className?: string;
@@ -35,6 +46,8 @@ export interface FirestoreDocumentBrowserProps {
   readonly isLoading?: boolean;
   readonly actionErrorMessage?: string | null;
   readonly actionNoticeMessage?: string | null;
+  readonly inspectorUi?: FirestoreInspectorUiState | undefined;
+  readonly inspectorWidth?: number | undefined;
   readonly onCreateDocument?: ((collectionPath: string) => void) | undefined;
   readonly onCollectionJob?:
     | ((kind: CollectionJobKind, collectionPath: string) => void)
@@ -49,10 +62,21 @@ export interface FirestoreDocumentBrowserProps {
       (documentPath: string) => Promise<ReadonlyArray<FirestoreCollectionNode>>
     )
     | undefined;
+  readonly onInspectorOverviewCollapsedChange?: ((collapsed: boolean) => void) | undefined;
+  readonly onInspectorSectionOpenChange?:
+    | ((section: FirestoreInspectorSectionId, open: boolean) => void)
+    | undefined;
+  readonly onInspectorWidthChange?: ((width: number) => void) | undefined;
   readonly onOpenDocumentInNewTab?: ((documentPath: string) => void) | undefined;
   readonly onResultViewChange: (view: FirestoreResultView) => void;
+  readonly onResultTreeExpandedIdsChange?:
+    | ((expandedIds: ReadonlyArray<string>) => void)
+    | undefined;
   readonly onRefreshResults?: (() => void) | undefined;
   readonly onSelectDocument?: ((documentPath: string) => void) | undefined;
+  readonly onSelectionPreviewExpandedPathsChange?:
+    | ((documentPath: string, expandedPaths: ReadonlyArray<string>) => void)
+    | undefined;
   readonly onSettingsError?: ((message: string) => void) | undefined;
   readonly onSetFieldValue?: ((target: FieldEditTarget, value: unknown) => void) | undefined;
   readonly onSetFieldNull?: ((target: FieldEditTarget) => void) | undefined;
@@ -75,6 +99,8 @@ export function FirestoreDocumentBrowser(
     header,
     actionErrorMessage = null,
     actionNoticeMessage = null,
+    inspectorUi,
+    inspectorWidth: controlledInspectorWidth,
     isFetchingMore = false,
     isLoading = false,
     onCreateDocument,
@@ -85,10 +111,15 @@ export function FirestoreDocumentBrowser(
     onEditField,
     onLoadMore,
     onLoadSubcollections,
+    onInspectorOverviewCollapsedChange,
+    onInspectorSectionOpenChange,
+    onInspectorWidthChange,
     onOpenDocumentInNewTab,
     onResultViewChange,
     onRefreshResults,
     onSelectDocument,
+    onResultTreeExpandedIdsChange,
+    onSelectionPreviewExpandedPathsChange,
     onSettingsError,
     onSetFieldValue,
     onSetFieldNull,
@@ -102,9 +133,20 @@ export function FirestoreDocumentBrowser(
     settings,
   }: FirestoreDocumentBrowserProps,
 ) {
-  const [overviewCollapsed, setOverviewCollapsed] = useState(false);
-  const [inspectorWidth, setInspectorWidth] = useState(DEFAULT_INSPECTOR_WIDTH);
+  const resolvedInspectorUi = inspectorUi ?? defaultInspectorUi;
+  const overviewCollapsed = resolvedInspectorUi.overviewCollapsed;
+  const [uncontrolledInspectorWidth, setUncontrolledInspectorWidth] = useState(
+    DEFAULT_INSPECTOR_WIDTH,
+  );
+  const inspectorWidth = clampInspectorWidth(
+    controlledInspectorWidth ?? uncontrolledInspectorWidth,
+  );
+  const [uncontrolledOverviewCollapsed, setUncontrolledOverviewCollapsed] = useState(false);
+  const effectiveOverviewCollapsed = inspectorUi
+    ? overviewCollapsed
+    : uncontrolledOverviewCollapsed;
   const [inspectorLayoutRevision, setInspectorLayoutRevision] = useState(0);
+  const inspectorPanelElementRef = useRef<HTMLDivElement | null>(null);
   const inspectorInteractionVersion = useRef(0);
   const [subcollectionStates, setSubcollectionStates] = useState<
     Readonly<Record<string, SubcollectionLoadState>>
@@ -125,8 +167,8 @@ export function FirestoreDocumentBrowser(
   }, [rowsWithSubcollections, selectedDocument, selectedDocumentPath, subcollectionStates]);
 
   useEffect(() => {
+    if (controlledInspectorWidth !== undefined) return;
     if (!settings) {
-      setInspectorWidth(DEFAULT_INSPECTOR_WIDTH);
       setInspectorLayoutRevision((revision) => revision + 1);
       return;
     }
@@ -134,7 +176,7 @@ export function FirestoreDocumentBrowser(
     const loadInteractionVersion = inspectorInteractionVersion.current;
     settings.load().then((snapshot) => {
       if (cancelled || inspectorInteractionVersion.current !== loadInteractionVersion) return;
-      setInspectorWidth(clampInspectorWidth(snapshot.inspectorWidth));
+      setUncontrolledInspectorWidth(clampInspectorWidth(snapshot.inspectorWidth));
       setInspectorLayoutRevision((revision) => revision + 1);
     }).catch((caught) => {
       if (!cancelled) {
@@ -144,7 +186,7 @@ export function FirestoreDocumentBrowser(
     return () => {
       cancelled = true;
     };
-  }, [onSettingsError, settings]);
+  }, [controlledInspectorWidth, onInspectorWidthChange, onSettingsError, settings]);
 
   async function loadSubcollections(documentPath: string) {
     if (!onLoadSubcollections) return;
@@ -172,11 +214,33 @@ export function FirestoreDocumentBrowser(
   function saveInspectorWidth(width: number) {
     const nextWidth = clampInspectorWidth(width);
     inspectorInteractionVersion.current += 1;
-    setInspectorWidth(nextWidth);
-    if (!settings) return;
-    void settings.save({ inspectorWidth: nextWidth }).catch((caught) => {
-      onSettingsError?.(messageFromError(caught, 'Could not save inspector layout settings.'));
-    });
+    if (controlledInspectorWidth === undefined) setUncontrolledInspectorWidth(nextWidth);
+    onInspectorWidthChange?.(nextWidth);
+  }
+
+  function setOverviewCollapsed(collapsed: boolean) {
+    if (inspectorUi) onInspectorOverviewCollapsedChange?.(collapsed);
+    else setUncontrolledOverviewCollapsed(collapsed);
+    setInspectorLayoutRevision((revision) => revision + 1);
+  }
+
+  function saveInspectorWidthFromLayout() {
+    if (effectiveOverviewCollapsed) return;
+    const width = inspectorPanelElementRef.current?.getBoundingClientRect().width ?? 0;
+    if (width <= COLLAPSED_INSPECTOR_WIDTH + 1) return;
+    saveInspectorWidth(width);
+  }
+
+  function setInspectorSectionOpen(section: FirestoreInspectorSectionId, open: boolean) {
+    onInspectorSectionOpenChange?.(section, open);
+  }
+
+  function setSelectionPreviewExpandedPaths(expandedPaths: ReadonlySet<string>) {
+    if (!selectedDocumentWithSubcollections) return;
+    onSelectionPreviewExpandedPathsChange?.(
+      selectedDocumentWithSubcollections.path,
+      Array.from(expandedPaths),
+    );
   }
 
   const mainColumn = (
@@ -195,6 +259,7 @@ export function FirestoreDocumentBrowser(
         actionErrorMessage={actionErrorMessage}
         actionNoticeMessage={actionNoticeMessage}
         queryPath={queryPath}
+        resultTreeExpandedIds={inspectorUi ? resolvedInspectorUi.resultTreeExpandedIds : undefined}
         resultView={resultView}
         resultsScopeKey={resultsScopeKey ?? queryPath}
         resultsStale={resultsStale}
@@ -214,29 +279,47 @@ export function FirestoreDocumentBrowser(
         onResultViewChange={onResultViewChange}
         onRefreshResults={onRefreshResults}
         onSelectDocument={onSelectDocument}
+        onResultTreeExpandedIdsChange={onResultTreeExpandedIdsChange}
         onSettingsError={onSettingsError}
         onSetFieldNull={onSetFieldNull}
       />
     </div>
   );
 
-  const overviewPanel = overviewCollapsed
-    ? <OverviewCollapseStrip onExpand={() => setOverviewCollapsed(false)} />
-    : (
-      <ResultContextPanel
-        resultView={resultView}
-        rows={rowsWithSubcollections}
-        selectedDocument={selectedDocumentWithSubcollections}
-        onCollapse={() => setOverviewCollapsed(true)}
-        onDeleteDocument={onDeleteDocument}
-        onDeleteField={onDeleteField}
-        onEditDocument={onEditDocument}
-        onEditField={onEditField}
-        onOpenDocumentInNewTab={onOpenDocumentInNewTab}
-        onSetFieldValue={onSetFieldValue}
-        onSetFieldNull={onSetFieldNull}
-      />
-    );
+  const savedSelectionPreviewExpandedPaths = selectedDocumentWithSubcollections
+    ? resolvedInspectorUi.selectionPreviewExpandedPathsByDocumentPath[
+      selectedDocumentWithSubcollections.path
+    ]
+    : undefined;
+  const selectedPreviewExpandedPaths = savedSelectionPreviewExpandedPaths === undefined
+    ? undefined
+    : new Set(savedSelectionPreviewExpandedPaths);
+  const controlledSections = inspectorUi ? resolvedInspectorUi.sections : undefined;
+  const controlledSelectedPreviewExpandedPaths = inspectorUi
+    ? selectedPreviewExpandedPaths
+    : undefined;
+  const expandedOverviewPanel = (
+    <ResultContextPanel
+      resultView={resultView}
+      rows={rowsWithSubcollections}
+      sections={controlledSections}
+      selectedDocument={selectedDocumentWithSubcollections}
+      selectionPreviewExpandedPaths={controlledSelectedPreviewExpandedPaths}
+      onCollapse={() => setOverviewCollapsed(true)}
+      onDeleteDocument={onDeleteDocument}
+      onDeleteField={onDeleteField}
+      onEditDocument={onEditDocument}
+      onEditField={onEditField}
+      onOpenDocumentInNewTab={onOpenDocumentInNewTab}
+      onSectionOpenChange={setInspectorSectionOpen}
+      onSelectionPreviewExpandedPathsChange={setSelectionPreviewExpandedPaths}
+      onSetFieldValue={onSetFieldValue}
+      onSetFieldNull={onSetFieldNull}
+    />
+  );
+  const collapsedOverviewPanel = (
+    <OverviewCollapseStrip onExpand={() => setOverviewCollapsed(false)} />
+  );
 
   return (
     <div className={cn('h-full min-h-0', className)}>
@@ -244,39 +327,55 @@ export function FirestoreDocumentBrowser(
         ? (
           <ResizablePanelGroup
             key={`${
-              overviewCollapsed ? 'overview-collapsed' : 'overview-expanded'
+              effectiveOverviewCollapsed ? 'overview-collapsed' : 'overview-expanded'
             }:${inspectorLayoutRevision}`}
             direction='horizontal'
             className='h-full min-h-0'
+            onLayoutChanged={saveInspectorWidthFromLayout}
           >
-            <ResizablePanel className='flex h-full min-h-0 flex-col' minSize='420px'>
+            <ResizablePanel
+              className='flex h-full min-h-0 flex-col'
+              minSize={`${MIN_RESULTS_WIDTH}px`}
+            >
               {mainColumn}
             </ResizablePanel>
             <ResizableHandle className='mx-2 h-full w-px' />
-            <ResizablePanel
-              className='flex h-full min-h-0 flex-col'
-              defaultSize={overviewCollapsed
-                ? `${COLLAPSED_INSPECTOR_WIDTH}px`
-                : `${inspectorWidth}px`}
-              groupResizeBehavior='preserve-pixel-size'
-              maxSize={overviewCollapsed
-                ? `${COLLAPSED_INSPECTOR_WIDTH}px`
-                : `${MAX_INSPECTOR_WIDTH}px`}
-              minSize={overviewCollapsed
-                ? `${COLLAPSED_INSPECTOR_WIDTH}px`
-                : `${MIN_INSPECTOR_WIDTH}px`}
-              onResize={(size) => {
-                if (!overviewCollapsed) saveInspectorWidth(size.inPixels);
-              }}
-            >
-              {overviewPanel}
-            </ResizablePanel>
+            {effectiveOverviewCollapsed
+              ? (
+                <ResizablePanel
+                  className='flex h-full min-h-0 flex-col'
+                  defaultSize={`${COLLAPSED_INSPECTOR_WIDTH}px`}
+                  groupResizeBehavior='preserve-pixel-size'
+                  maxSize={`${COLLAPSED_INSPECTOR_WIDTH}px`}
+                  minSize={`${COLLAPSED_INSPECTOR_WIDTH}px`}
+                >
+                  {collapsedOverviewPanel}
+                </ResizablePanel>
+              )
+              : (
+                <ResizablePanel
+                  className='flex h-full min-h-0 flex-col'
+                  collapsedSize={`${COLLAPSED_INSPECTOR_WIDTH}px`}
+                  collapsible
+                  defaultSize={`${inspectorWidth}px`}
+                  elementRef={inspectorPanelElementRef}
+                  groupResizeBehavior='preserve-pixel-size'
+                  minSize={`${MIN_INSPECTOR_WIDTH}px`}
+                  onResize={(size) => {
+                    if (size.inPixels <= COLLAPSED_INSPECTOR_WIDTH + 1) {
+                      setOverviewCollapsed(true);
+                    }
+                  }}
+                >
+                  {expandedOverviewPanel}
+                </ResizablePanel>
+              )}
           </ResizablePanelGroup>
         )
         : (
           <div className='grid h-full min-h-0 grid-rows-[minmax(0,1fr)_minmax(220px,34%)] gap-2'>
             {mainColumn}
-            {overviewPanel}
+            {effectiveOverviewCollapsed ? collapsedOverviewPanel : expandedOverviewPanel}
           </div>
         )}
     </div>
@@ -285,5 +384,5 @@ export function FirestoreDocumentBrowser(
 
 function clampInspectorWidth(width: number): number {
   if (!Number.isFinite(width)) return DEFAULT_INSPECTOR_WIDTH;
-  return Math.min(MAX_INSPECTOR_WIDTH, Math.max(MIN_INSPECTOR_WIDTH, Math.round(width)));
+  return Math.max(MIN_INSPECTOR_WIDTH, Math.round(width));
 }

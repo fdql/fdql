@@ -467,6 +467,7 @@ function LineageView(
     readonly onOpenDocumentInNewTab?: ((documentPath: string) => void) | undefined;
   },
 ) {
+  const slowestStageIndex = slowestStage(stats);
   return (
     <PanelBody className='h-full min-h-0 space-y-3 overflow-auto text-xs'>
       <section className='space-y-1'>
@@ -479,9 +480,16 @@ function LineageView(
                   key={`${stage.stage}-${index}`}
                   className='grid grid-cols-[1fr_auto] gap-3 px-2 py-1.5'
                 >
-                  <span className='font-medium text-text-primary'>{stage.stage}</span>
+                  <span className='flex items-center gap-1 font-medium text-text-primary'>
+                    {stage.source ? `${stage.stage} · ${stage.source}` : stage.stage}
+                    {index === slowestStageIndex
+                      ? <Badge variant='warning'>slowest</Badge>
+                      : null}
+                  </span>
                   <span className='text-text-muted'>
                     {stage.inputRows} in · {stage.outputRows} out · {stage.droppedRows} dropped
+                    {' · '}
+                    {formatStageDuration(stage.durationMs)}
                     {stage.reads ? ` · ${stage.reads} reads` : ''}
                     {stage.aggregateReads ? ` · ${stage.aggregateReads} aggregates` : ''}
                   </span>
@@ -562,6 +570,23 @@ function LineageView(
       </section>
     </PanelBody>
   );
+}
+
+function slowestStage(stats: FdqlStats | null): number | null {
+  if (!stats?.stageStats.length) return null;
+  let slowestIndex: number | null = null;
+  let slowestDuration = 0;
+  for (const [index, stage] of stats.stageStats.entries()) {
+    if (stage.durationMs <= slowestDuration) continue;
+    slowestIndex = index;
+    slowestDuration = stage.durationMs;
+  }
+  return slowestDuration > 0 ? slowestIndex : null;
+}
+
+function formatStageDuration(durationMs: number): string {
+  if (durationMs < 1_000) return `${Math.round(durationMs)}ms`;
+  return `${(durationMs / 1_000).toFixed(1)}s`;
 }
 
 function IssuesView(

@@ -12,6 +12,8 @@ import { createInitialFirestoreQueryRuntimeState } from './firestoreQueryState.t
 import {
   firestoreDocumentSelected,
   firestoreDraftChanged,
+  firestoreInspectorOverviewCollapsedChanged,
+  firestoreInspectorSectionChanged,
   firestoreLoadMoreFailed,
   firestoreLoadMoreStarted,
   firestoreLoadMoreSucceeded,
@@ -24,7 +26,9 @@ import {
   firestoreRefreshSucceeded,
   firestoreResultsMarkedStale,
   firestoreResultsRefreshed,
+  firestoreResultTreeExpandedIdsChanged,
   firestoreResultViewChanged,
+  firestoreSelectionPreviewExpandedPathsChanged,
   firestoreSubcollectionsLoaded,
   firestoreTabCleared,
 } from './firestoreQueryTransitions.ts';
@@ -148,6 +152,42 @@ describe('firestore query transitions and selectors', () => {
     const clearedTab = firestoreTabCleared(recorded, 'tab-1');
     expect(clearedTab.selectedDocumentPaths['tab-1']).toBeUndefined();
     expect(clearedTab.recordedQueryCompletions['tab-1:1']).toBeUndefined();
+  });
+
+  it('keeps inspector UI state scoped by tab', () => {
+    const state = createInitialFirestoreQueryRuntimeState();
+
+    const collapsed = firestoreInspectorOverviewCollapsedChanged(state, 'tab-1', true);
+    const sectionChanged = firestoreInspectorSectionChanged(
+      collapsed,
+      'tab-1',
+      'fieldsInResults',
+      true,
+    );
+    const previewChanged = firestoreSelectionPreviewExpandedPathsChanged(
+      sectionChanged,
+      'tab-1',
+      'orders/ord_1',
+      ['["customer"]'],
+    );
+    const treeChanged = firestoreResultTreeExpandedIdsChanged(
+      previewChanged,
+      'tab-1',
+      ['root:orders'],
+    );
+
+    expect(treeChanged.inspectorUiByTab['tab-1']).toMatchObject({
+      overviewCollapsed: true,
+      resultTreeExpandedIds: ['root:orders'],
+      sections: {
+        fieldsInResults: true,
+        selectionPreview: true,
+      },
+      selectionPreviewExpandedPathsByDocumentPath: {
+        'orders/ord_1': ['["customer"]'],
+      },
+    });
+    expect(treeChanged.inspectorUiByTab['tab-2']).toBeUndefined();
   });
 
   it('merges loaded subcollections into matching result rows', () => {

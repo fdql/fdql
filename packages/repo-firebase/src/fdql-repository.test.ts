@@ -34,6 +34,14 @@ return fs.id(o) as id`,
       rows: [{ id: 'ord_1' }],
       stats: { reads: 1, rowsOutput: 1, rowsScanned: 1 },
     });
+    expect(result.stats?.stageStats).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          durationMs: expect.any(Number),
+          stage: 'source',
+        }),
+      ]),
+    );
   });
 
   it('maps common FDQL predicates to native Firestore filters', async () => {
