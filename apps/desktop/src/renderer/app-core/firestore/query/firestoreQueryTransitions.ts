@@ -1,5 +1,9 @@
 import type { FirestoreQueryDraft } from '@firebase-desk/repo-contracts';
-import type { FirestoreCollectionNode, FirestoreQuery } from '@firebase-desk/repo-contracts';
+import type {
+  FirestoreCollectionNode,
+  FirestoreDocumentResult,
+  FirestoreQuery,
+} from '@firebase-desk/repo-contracts';
 import type {
   FirestoreInspectorSectionId,
   FirestoreInspectorUiState,
@@ -261,6 +265,36 @@ export function firestoreSubcollectionsLoaded(
   };
 }
 
+export function firestoreResultDocumentSaved(
+  state: FirestoreQueryRuntimeState,
+  tabId: string,
+  document: FirestoreDocumentResult,
+): FirestoreQueryRuntimeState {
+  return updateTabResult(state, tabId, (current) => ({
+    ...current,
+    pages: replaceDocumentInPages(current.pages, document),
+  }));
+}
+
+export function firestoreResultDocumentDeleted(
+  state: FirestoreQueryRuntimeState,
+  tabId: string,
+  documentPath: string,
+): FirestoreQueryRuntimeState {
+  return {
+    ...updateTabResult(state, tabId, (current) => ({
+      ...current,
+      pages: removeDocumentFromPages(current.pages, documentPath),
+    })),
+    selectedDocumentPaths: shouldClearSelectedDocument(
+        state.selectedDocumentPaths[tabId] ?? null,
+        documentPath,
+      )
+      ? omitKey(state.selectedDocumentPaths, tabId)
+      : state.selectedDocumentPaths,
+  };
+}
+
 function mergeSubcollectionsIntoPages(
   pages: ReadonlyArray<FirestoreQueryPage>,
   documentPath: string,
@@ -272,6 +306,146 @@ function mergeSubcollectionsIntoPages(
     ),
     ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
   }));
+}
+
+function replaceDocumentInPages(
+  pages: ReadonlyArray<FirestoreQueryPage>,
+  replacement: FirestoreDocumentResult,
+): ReadonlyArray<FirestoreQueryPage> {
+  return pages.map((page) => ({
+    ...page,
+    items: replaceDocumentInRows(page.items, replacement),
+  }));
+}
+
+function replaceDocumentInRows(
+  documents: ReadonlyArray<FirestoreDocumentResult>,
+  replacement: FirestoreDocumentResult,
+): ReadonlyArray<FirestoreDocumentResult> {
+  return documents.map((document) => {
+    if (document.path === replacement.path) {
+      return mergeSavedDocument(document, replacement);
+    }
+    const subcollections = replaceDocumentInSubcollections(document.subcollections, replacement);
+    return subcollections === document.subcollections
+      ? document
+      : withSubcollections(document, subcollections);
+  });
+}
+
+function replaceDocumentInSubcollections(
+  subcollections: ReadonlyArray<FirestoreCollectionNode> | undefined,
+  replacement: FirestoreDocumentResult,
+): ReadonlyArray<FirestoreCollectionNode> | undefined {
+  if (!subcollections) return subcollections;
+  return subcollections.map((collection) => {
+    const documents = documentsForCollection(collection);
+    if (!documents) return collection;
+    const nextDocuments = replaceDocumentInRows(documents, replacement);
+    return nextDocuments === documents
+      ? collection
+      : withCollectionDocuments(collection, nextDocuments);
+  });
+}
+
+function mergeSavedDocument(
+  current: FirestoreDocumentResult,
+  replacement: FirestoreDocumentResult,
+): FirestoreDocumentResult {
+  if (!current.subcollections?.length) return replacement;
+  const replacementSubcollections = replacement.subcollections ?? [];
+  if (!replacementSubcollections.length) {
+    return {
+      ...replacement,
+      hasSubcollections: true,
+      subcollections: current.subcollections,
+    };
+  }
+  const loadedByPath = new Map(
+    current.subcollections
+      .filter((collection) => documentsForCollection(collection))
+      .map((collection) => [collection.path, collection]),
+  );
+  return {
+    ...replacement,
+    subcollections: replacementSubcollections.map((collection) => {
+      const loaded = loadedByPath.get(collection.path);
+      const documents = loaded ? documentsForCollection(loaded) : undefined;
+      return documents ? withCollectionDocuments(collection, documents) : collection;
+    }),
+  };
+}
+
+function removeDocumentFromPages(
+  pages: ReadonlyArray<FirestoreQueryPage>,
+  documentPath: string,
+): ReadonlyArray<FirestoreQueryPage> {
+  return pages.map((page) => ({
+    ...page,
+    items: removeDocumentFromRows(page.items, documentPath),
+  }));
+}
+
+function removeDocumentFromRows(
+  documents: ReadonlyArray<FirestoreDocumentResult>,
+  documentPath: string,
+): ReadonlyArray<FirestoreDocumentResult> {
+  return documents
+    .filter((document) => document.path !== documentPath)
+    .map((document) => {
+      const subcollections = removeDocumentFromSubcollections(
+        document.subcollections,
+        documentPath,
+      );
+      return subcollections === document.subcollections
+        ? document
+        : withSubcollections(document, subcollections);
+    });
+}
+
+function removeDocumentFromSubcollections(
+  subcollections: ReadonlyArray<FirestoreCollectionNode> | undefined,
+  documentPath: string,
+): ReadonlyArray<FirestoreCollectionNode> | undefined {
+  if (!subcollections) return subcollections;
+  return subcollections.map((collection) => {
+    const documents = documentsForCollection(collection);
+    if (!documents) return collection;
+    const nextDocuments = removeDocumentFromRows(documents, documentPath);
+    return nextDocuments === documents
+      ? collection
+      : withCollectionDocuments(collection, nextDocuments);
+  });
+}
+
+function documentsForCollection(
+  collection: FirestoreCollectionNode,
+): ReadonlyArray<FirestoreDocumentResult> | undefined {
+  return (collection as FirestoreCollectionNode & {
+    readonly documents?: ReadonlyArray<FirestoreDocumentResult>;
+  }).documents;
+}
+
+function withSubcollections(
+  document: FirestoreDocumentResult,
+  subcollections: ReadonlyArray<FirestoreCollectionNode> | undefined,
+): FirestoreDocumentResult {
+  return subcollections ? { ...document, subcollections } : document;
+}
+
+function withCollectionDocuments(
+  collection: FirestoreCollectionNode,
+  documents: ReadonlyArray<FirestoreDocumentResult>,
+): FirestoreCollectionNode & { readonly documents: ReadonlyArray<FirestoreDocumentResult>; } {
+  return { ...collection, documents };
+}
+
+function shouldClearSelectedDocument(
+  selectedDocumentPath: string | null,
+  deletedDocumentPath: string,
+): boolean {
+  return selectedDocumentPath === deletedDocumentPath
+    || Boolean(selectedDocumentPath?.startsWith(`${deletedDocumentPath}/`));
 }
 
 export function firestoreResultsMarkedStale(

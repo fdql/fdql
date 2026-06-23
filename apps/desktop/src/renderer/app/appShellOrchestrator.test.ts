@@ -461,6 +461,8 @@ function createInput(
     openTabInNewTab: vi.fn(() => 'tab-opened-new'),
     queryRows: [],
     refreshQuery: vi.fn(() => 'orders'),
+    removeResultDocument: vi.fn(),
+    replaceResultDocument: vi.fn(),
     resetDraft: vi.fn(),
     resultView: 'table' as const,
     resultsStale: false,

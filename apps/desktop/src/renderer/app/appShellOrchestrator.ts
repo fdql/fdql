@@ -581,6 +581,8 @@ export interface AppShellFirestoreTabFacade {
   readonly selectDocument: (tabId: string, path: string | null) => void;
   readonly selectedDocument: FirestoreDocumentResult | null;
   readonly selectedDocumentPath: string | null;
+  readonly removeResultDocument: (tabId: string, documentPath: string) => void;
+  readonly replaceResultDocument: (tabId: string, document: FirestoreDocumentResult) => void;
   readonly setDraft: (draft: FirestoreQueryDraft) => void;
   readonly setInspectorOverviewCollapsed: (tabId: string, collapsed: boolean) => void;
   readonly setInspectorSectionOpen: (
@@ -1145,6 +1147,16 @@ export function createAppShellController(
           }
         },
         onResultsStaleChange: handleResultsStaleChange,
+        onResultDocumentDeleted: (documentPath) => {
+          if (input.activeTab) {
+            input.firestoreTab.removeResultDocument(input.activeTab.id, documentPath);
+          }
+        },
+        onResultDocumentSaved: (document) => {
+          if (input.activeTab) {
+            input.firestoreTab.replaceResultDocument(input.activeTab.id, document);
+          }
+        },
         onReset: input.firestoreTab.resetDraft,
         onRunQuery: handleRunQuery,
         onSaveDocument: input.firestoreWrite.saveDocument,

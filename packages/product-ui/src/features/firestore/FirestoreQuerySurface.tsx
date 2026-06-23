@@ -100,6 +100,8 @@ export interface FirestoreQuerySurfaceProps {
     | ((expandedIds: ReadonlyArray<string>) => void)
     | undefined;
   readonly onResultsStaleChange?: ((stale: boolean, scopeKey?: string) => void) | undefined;
+  readonly onResultDocumentDeleted?: ((documentPath: string) => void) | undefined;
+  readonly onResultDocumentSaved?: ((document: FirestoreDocumentResult) => void) | undefined;
   readonly onRun: () => void;
   readonly onSaveDocument?: (
     documentPath: string,
@@ -195,6 +197,8 @@ export function FirestoreQuerySurface(
     onResultViewChange,
     onResultTreeExpandedIdsChange,
     onResultsStaleChange,
+    onResultDocumentDeleted,
+    onResultDocumentSaved,
     onRun,
     onSaveDocument,
     onUpdateDocumentFields,
@@ -313,7 +317,11 @@ export function FirestoreQuerySurface(
       setActionNoticeMessage(null);
       return false;
     }
-    setResultsStaleState(true);
+    if (result?.status === 'saved' && onResultDocumentSaved) {
+      onResultDocumentSaved(result.document);
+    } else {
+      setResultsStaleState(true);
+    }
     setActionErrorMessage(null);
     setActionNoticeMessage(null);
     conflictContext?.onResolve?.();
@@ -359,10 +367,15 @@ export function FirestoreQuerySurface(
       }
       return false;
     }
-    setResultsStaleState(true);
+    const syncedSavedDocument = result?.status === 'saved' && Boolean(onResultDocumentSaved);
+    if (result?.status === 'saved' && onResultDocumentSaved) {
+      onResultDocumentSaved(result.document);
+    } else {
+      setResultsStaleState(true);
+    }
     setActionErrorMessage(null);
     setActionNoticeMessage(
-      result?.status === 'saved' && result.documentChanged
+      !syncedSavedDocument && result?.status === 'saved' && result.documentChanged
         ? 'Saved field. Document changed elsewhere; refresh to view the latest data.'
         : null,
     );
@@ -435,7 +448,11 @@ export function FirestoreQuerySurface(
   async function deleteDocument(documentPath: string, options: DeleteDocumentOptions) {
     try {
       await onDeleteDocument?.(documentPath, options);
-      setResultsStaleState(true);
+      if (onResultDocumentDeleted) {
+        onResultDocumentDeleted(documentPath);
+      } else {
+        setResultsStaleState(true);
+      }
       setActionErrorMessage(null);
     } catch (caught) {
       setActionErrorMessage(messageFromError(caught, 'Could not delete document.'));

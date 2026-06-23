@@ -36,6 +36,8 @@ import {
   firestoreDraftChanged,
   firestoreInspectorOverviewCollapsedChanged,
   firestoreInspectorSectionChanged,
+  firestoreResultDocumentDeleted,
+  firestoreResultDocumentSaved,
   firestoreResultsMarkedStale,
   firestoreResultsRefreshed,
   firestoreResultTreeExpandedIdsChanged,
@@ -87,6 +89,8 @@ export interface FirestoreTabState {
   readonly resetDraft: () => void;
   readonly runQuery: () => string | null;
   readonly selectDocument: (tabId: string, path: string | null) => void;
+  readonly removeResultDocument: (tabId: string, documentPath: string) => void;
+  readonly replaceResultDocument: (tabId: string, document: FirestoreDocumentResult) => void;
   readonly setDraft: (draft: FirestoreQueryDraft) => void;
   readonly setInspectorOverviewCollapsed: (tabId: string, collapsed: boolean) => void;
   readonly setInspectorSectionOpen: (
@@ -328,6 +332,14 @@ export function useFirestoreTabState(
     updateQueryState((current) => firestoreDocumentSelected(current, tabId, path));
   }
 
+  function replaceResultDocument(tabId: string, document: FirestoreDocumentResult) {
+    updateQueryState((current) => firestoreResultDocumentSaved(current, tabId, document));
+  }
+
+  function removeResultDocument(tabId: string, documentPath: string) {
+    updateQueryState((current) => firestoreResultDocumentDeleted(current, tabId, documentPath));
+  }
+
   function setResultView(tabId: string, resultView: FirestoreResultView) {
     updateQueryState((current) => firestoreResultViewChanged(current, tabId, resultView));
   }
@@ -382,6 +394,8 @@ export function useFirestoreTabState(
     refreshQuery,
     runQuery,
     selectDocument,
+    removeResultDocument,
+    replaceResultDocument,
     setDraft,
     setInspectorOverviewCollapsed,
     setInspectorSectionOpen,

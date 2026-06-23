@@ -111,6 +111,8 @@ export interface FirestoreTabSurfaceModel {
   readonly onResultViewChange: (resultView: FirestoreResultView, scopeKey?: string) => void;
   readonly onResultTreeExpandedIdsChange: (expandedIds: ReadonlyArray<string>) => void;
   readonly onResultsStaleChange: (stale: boolean, scopeKey?: string) => void;
+  readonly onResultDocumentDeleted: (documentPath: string) => void;
+  readonly onResultDocumentSaved: (document: FirestoreDocumentResult) => void;
   readonly onRunQuery: () => void;
   readonly onSaveDocument: (
     documentPath: string,
@@ -287,6 +289,8 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
       onResultViewChange={props.firestore.onResultViewChange}
       onResultTreeExpandedIdsChange={props.firestore.onResultTreeExpandedIdsChange}
       onResultsStaleChange={props.firestore.onResultsStaleChange}
+      onResultDocumentDeleted={props.firestore.onResultDocumentDeleted}
+      onResultDocumentSaved={props.firestore.onResultDocumentSaved}
       onRun={props.firestore.onRunQuery}
       onSaveDocument={props.firestore.onSaveDocument}
       onUpdateDocumentFields={props.firestore.onUpdateDocumentFields}

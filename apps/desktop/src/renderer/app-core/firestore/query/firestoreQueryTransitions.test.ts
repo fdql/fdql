@@ -24,6 +24,8 @@ import {
   firestoreQuerySucceeded,
   firestoreRefreshStarted,
   firestoreRefreshSucceeded,
+  firestoreResultDocumentDeleted,
+  firestoreResultDocumentSaved,
   firestoreResultsMarkedStale,
   firestoreResultsRefreshed,
   firestoreResultTreeExpandedIdsChanged,
@@ -209,6 +211,110 @@ describe('firestore query transitions and selectors', () => {
     expect(resultFor(merged, 'tab-1').pages[0]?.items[1]?.subcollections).toBeUndefined();
   });
 
+  it('replaces a visible document and preserves loaded subcollection documents', () => {
+    const nested = document('orders/ord_1/events/evt_1', { type: 'created' });
+    const row = {
+      ...document('orders/ord_1', { status: 'draft' }),
+      hasSubcollections: true,
+      subcollections: [{
+        id: 'events',
+        path: 'orders/ord_1/events',
+        documents: [nested],
+      } as CollectionWithDocuments],
+      updateTime: '2026-01-01T00:00:00.000Z',
+    };
+    const state = firestoreQuerySucceeded(
+      createInitialFirestoreQueryRuntimeState(),
+      'tab-1',
+      [{ items: [row], nextCursor: { token: 'cursor-1' } }],
+      true,
+    );
+
+    const updated = firestoreResultDocumentSaved(state, 'tab-1', {
+      ...document('orders/ord_1', { status: 'paid' }),
+      updateTime: '2026-01-01T00:01:00.000Z',
+    });
+
+    const page = resultFor(updated, 'tab-1').pages[0]!;
+    expect(page.nextCursor).toEqual({ token: 'cursor-1' });
+    expect(resultFor(updated, 'tab-1').hasMore).toBe(true);
+    expect(page.items[0]).toMatchObject({
+      data: { status: 'paid' },
+      updateTime: '2026-01-01T00:01:00.000Z',
+      subcollections: [{
+        documents: [nested],
+        path: 'orders/ord_1/events',
+      }],
+    });
+  });
+
+  it('replaces and removes nested loaded subcollection documents', () => {
+    const row = {
+      ...document('orders/ord_1'),
+      hasSubcollections: true,
+      subcollections: [{
+        id: 'events',
+        path: 'orders/ord_1/events',
+        documents: [
+          document('orders/ord_1/events/evt_1', { type: 'created' }),
+          document('orders/ord_1/events/evt_2', { type: 'deleted' }),
+        ],
+      } as CollectionWithDocuments],
+    };
+    const state = firestoreDocumentSelected(
+      firestoreQuerySucceeded(
+        createInitialFirestoreQueryRuntimeState(),
+        'tab-1',
+        [{ items: [row] }],
+      ),
+      'tab-1',
+      'orders/ord_1/events/evt_2',
+    );
+
+    const replaced = firestoreResultDocumentSaved(
+      state,
+      'tab-1',
+      document('orders/ord_1/events/evt_1', { type: 'updated' }),
+    );
+    const deleted = firestoreResultDocumentDeleted(
+      replaced,
+      'tab-1',
+      'orders/ord_1/events/evt_2',
+    );
+    const collection = resultFor(deleted, 'tab-1').pages[0]?.items[0]
+      ?.subcollections?.[0] as CollectionWithDocuments | undefined;
+
+    expect(collection?.documents).toEqual([
+      document('orders/ord_1/events/evt_1', { type: 'updated' }),
+    ]);
+    expect(deleted.selectedDocumentPaths['tab-1']).toBeUndefined();
+  });
+
+  it('removes a deleted visible document without changing pagination metadata', () => {
+    const state = firestoreDocumentSelected(
+      firestoreQuerySucceeded(
+        createInitialFirestoreQueryRuntimeState(),
+        'tab-1',
+        [{
+          items: [document('orders/ord_1'), document('orders/ord_2')],
+          nextCursor: { token: 'cursor-1' },
+        }],
+        true,
+      ),
+      'tab-1',
+      'orders/ord_1',
+    );
+
+    const deleted = firestoreResultDocumentDeleted(state, 'tab-1', 'orders/ord_1');
+
+    expect(resultFor(deleted, 'tab-1').pages).toEqual([{
+      items: [document('orders/ord_2')],
+      nextCursor: { token: 'cursor-1' },
+    }]);
+    expect(resultFor(deleted, 'tab-1').hasMore).toBe(true);
+    expect(deleted.selectedDocumentPaths['tab-1']).toBeUndefined();
+  });
+
   it('selects rows, selected documents, page count, and query metadata', () => {
     const row = document('orders/ord_1');
     expect(selectFirestoreResultRows([{ items: [row] }])).toEqual([row]);
@@ -249,6 +355,10 @@ function queryDraft(
   };
 }
 
-function document(path: string): FirestoreDocumentResult {
-  return { data: {}, hasSubcollections: false, id: path.split('/').at(-1) ?? path, path };
+function document(path: string, data: Record<string, unknown> = {}): FirestoreDocumentResult {
+  return { data, hasSubcollections: false, id: path.split('/').at(-1) ?? path, path };
 }
+
+type CollectionWithDocuments = NonNullable<FirestoreDocumentResult['subcollections']>[number] & {
+  readonly documents: ReadonlyArray<FirestoreDocumentResult>;
+};

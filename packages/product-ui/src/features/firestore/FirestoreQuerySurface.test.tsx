@@ -251,6 +251,73 @@ describe('FirestoreQuerySurface editing UX', () => {
     await waitFor(() => expect(onResultsStaleChange).toHaveBeenCalledWith(true));
   });
 
+  it('syncs saved field results without marking results stale', async () => {
+    const savedDocument = {
+      ...document,
+      data: { ...document.data, active: null },
+      updateTime: '2026-04-29T00:01:00.000Z',
+    };
+    const onResultDocumentSaved = vi.fn();
+    const onResultsStaleChange = vi.fn();
+    const onUpdateDocumentFields = vi.fn<UpdateDocumentFields>().mockResolvedValue({
+      status: 'saved',
+      document: savedDocument,
+    });
+    renderSurface({
+      onResultDocumentSaved,
+      onResultsStaleChange,
+      onUpdateDocumentFields,
+    });
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'set null active' })[0]!);
+
+    await waitFor(() => expect(onResultDocumentSaved).toHaveBeenCalledWith(savedDocument));
+    expect(onResultsStaleChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it('syncs saved document results without marking results stale', async () => {
+    const savedDocument = {
+      ...document,
+      data: { active: false },
+      updateTime: '2026-04-29T00:01:00.000Z',
+    };
+    const onResultDocumentSaved = vi.fn();
+    const onResultsStaleChange = vi.fn();
+    const onSaveDocument = vi.fn<SaveDocument>().mockResolvedValue({
+      status: 'saved',
+      document: savedDocument,
+    });
+    renderSurface({ onResultDocumentSaved, onResultsStaleChange, onSaveDocument });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit document' }));
+    fireEvent.change(screen.getByLabelText('JSON value'), {
+      target: { value: '{"active":false}' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(onResultDocumentSaved).toHaveBeenCalledWith(savedDocument));
+    expect(onResultsStaleChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it('does not sync result rows when field writes conflict', async () => {
+    const remoteDocument = {
+      ...document,
+      data: { active: false },
+      updateTime: '2026-04-29T00:01:00.000Z',
+    };
+    const onResultDocumentSaved = vi.fn();
+    const onUpdateDocumentFields = vi.fn<UpdateDocumentFields>().mockResolvedValue({
+      status: 'conflict',
+      remoteDocument,
+    });
+    renderSurface({ onResultDocumentSaved, onUpdateDocumentFields });
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'set null active' })[0]!);
+
+    expect(await screen.findByRole('dialog', { name: 'Resolve save conflict' })).toBeTruthy();
+    expect(onResultDocumentSaved).not.toHaveBeenCalled();
+  });
+
   it('uses controlled result view state', () => {
     const onResultViewChange = vi.fn();
     renderSurface({ onResultViewChange, resultView: 'table' });
@@ -523,6 +590,19 @@ describe('FirestoreQuerySurface editing UX', () => {
     );
   });
 
+  it('syncs deleted result rows without marking results stale', async () => {
+    const onDeleteDocument = vi.fn<DeleteDocument>();
+    const onResultDocumentDeleted = vi.fn();
+    const onResultsStaleChange = vi.fn();
+    renderSurface({ onDeleteDocument, onResultDocumentDeleted, onResultsStaleChange });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete document' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(onResultDocumentDeleted).toHaveBeenCalledWith('orders/ord_1'));
+    expect(onResultsStaleChange).not.toHaveBeenCalledWith(true);
+  });
+
   it('shows delete document errors once', async () => {
     const onSaveDocument = vi.fn<SaveDocument>();
     const onDeleteDocument = vi.fn<DeleteDocument>(() => {
@@ -545,6 +625,8 @@ function renderSurface(
     onCreateDocument,
     onGenerateDocumentId,
     onResultViewChange,
+    onResultDocumentDeleted,
+    onResultDocumentSaved,
     onResultsStaleChange,
     onRun,
     onSaveDocument,
@@ -563,6 +645,8 @@ function renderSurface(
     readonly onDeleteDocument?: DeleteDocument;
     readonly onGenerateDocumentId?: (collectionPath: string) => Promise<string> | string;
     readonly onResultViewChange?: (resultView: FirestoreResultView) => void;
+    readonly onResultDocumentDeleted?: (documentPath: string) => void;
+    readonly onResultDocumentSaved?: (document: FirestoreDocumentResult) => void;
     readonly onResultsStaleChange?: (stale: boolean) => void;
     readonly onRun?: () => void;
     readonly onSaveDocument?: SaveDocument;
@@ -591,6 +675,8 @@ function renderSurface(
         onOpenDocumentInNewTab={() => {}}
         onReset={() => {}}
         onResultViewChange={onResultViewChange}
+        onResultDocumentDeleted={onResultDocumentDeleted}
+        onResultDocumentSaved={onResultDocumentSaved}
         onResultsStaleChange={onResultsStaleChange}
         onRun={onRun ?? (() => {})}
         onSaveDocument={onSaveDocument ?? vi.fn<SaveDocument>()}
