@@ -6,7 +6,7 @@ import type {
 } from '@firebase-desk/repo-contracts';
 import { Badge, Button, IconButton, Input, Panel, PanelBody, PanelHeader } from '@firebase-desk/ui';
 import { Folder, Loader2, Play, Plus, RotateCcw, X } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { FieldAutocompleteInput } from './FieldAutocompleteInput.tsx';
 
@@ -54,8 +54,12 @@ export function QueryBuilder(
 ) {
   const supportsCollectionControls = isCollectionPath(draft.path);
   const filters = filtersForDraft(draft);
-  const sortableFieldSuggestions = fieldSuggestions.filter((suggestion) =>
-    suggestion.types.every((type) => !type.startsWith('array<'))
+  const sortableFieldSuggestions = useMemo(
+    () =>
+      fieldSuggestions.filter((suggestion) =>
+        suggestion.types.every((type) => !type.startsWith('array<'))
+      ),
+    [fieldSuggestions],
   );
   const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
 

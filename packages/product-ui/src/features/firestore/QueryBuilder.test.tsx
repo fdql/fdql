@@ -34,9 +34,11 @@ describe('QueryBuilder', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Run' }));
-    fireEvent.change(screen.getByLabelText('Filter 1 field'), {
+    const field = screen.getByLabelText('Filter 1 field');
+    fireEvent.change(field, {
       target: { value: 'state' },
     });
+    fireEvent.blur(field);
     fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
 
     expect(onRun).toHaveBeenCalledTimes(1);
@@ -192,6 +194,7 @@ describe('QueryBuilder', () => {
     expect(screen.getByText('string')).toBeTruthy();
 
     fireEvent.change(field, { target: { value: 'custom.path' } });
+    fireEvent.blur(field);
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
       filterField: 'custom.path',
       filters: [expect.objectContaining({ field: 'custom.path' })],
@@ -217,6 +220,40 @@ describe('QueryBuilder', () => {
 
     expect(await screen.findByText('createdAt')).toBeTruthy();
     expect(screen.queryByText('tags')).toBeNull();
+  });
+
+  it('shows collapsed metadata placeholder suggestions for filter and sort fields', async () => {
+    render(
+      <QueryBuilder
+        draft={{
+          ...draft,
+          filters: [{ id: 'filter-1', field: '', op: '==', value: '' }],
+          filterField: '',
+          filterValue: '',
+          sortField: '',
+        }}
+        fieldSuggestions={[
+          { count: 5, field: 'attemptsById.{id}.status', types: ['string'] },
+          {
+            count: 5,
+            field: 'attemptsById.{id}.paymentsById.{id}.amount',
+            types: ['number'],
+          },
+        ]}
+        isLoading={false}
+        onDraftChange={() => {}}
+        onReset={() => {}}
+        onRun={() => {}}
+      />,
+    );
+
+    fireEvent.focus(screen.getByLabelText('Filter 1 field'));
+    expect(await screen.findByText('attemptsById.{id}.status')).toBeTruthy();
+    expect(screen.getByText('attemptsById.{id}.paymentsById.{id}.amount')).toBeTruthy();
+
+    fireEvent.blur(screen.getByLabelText('Filter 1 field'));
+    fireEvent.focus(screen.getByLabelText('Sort field'));
+    expect(await screen.findByText('attemptsById.{id}.status')).toBeTruthy();
   });
 
   it('hides collection-only controls for document paths', () => {

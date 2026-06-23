@@ -61,17 +61,18 @@ describe('fieldCatalog', () => {
         },
       ]),
     ).toEqual([
+      { count: 2, field: 'status', types: ['string'] },
       { count: 1, field: 'active', types: ['boolean'] },
       { count: 1, field: 'deliveryLocation', types: ['geoPoint'] },
+      { count: 1, field: 'lineItems', types: ['array<mixed>'] },
+      { count: 1, field: 'ref', types: ['reference'] },
+      { count: 1, field: 'updatedAt', types: ['timestamp'] },
       { count: 2, field: 'metadata.score', types: ['number'] },
       { count: 2, field: 'metadata.tags', types: ['array<mixed>', 'array<string>'] },
-      { count: 1, field: 'ref', types: ['reference'] },
-      { count: 2, field: 'status', types: ['string'] },
-      { count: 1, field: 'updatedAt', types: ['timestamp'] },
     ]);
   });
 
-  it('handles encoded Firestore values and ignores arrays of objects', () => {
+  it('handles encoded Firestore values and catalogs arrays as leaf fields', () => {
     expect(
       fieldCatalogFromRows([{
         id: 'doc_1',
@@ -85,13 +86,14 @@ describe('fieldCatalog', () => {
         },
       }]),
     ).toEqual([
-      { count: 1, field: 'encodedMap.count', types: ['number'] },
       { count: 1, field: 'encodedTime', types: ['timestamp'] },
+      { count: 1, field: 'ignoredArray', types: ['array<mixed>'] },
       { count: 1, field: 'typedArray', types: ['array<number>'] },
+      { count: 1, field: 'encodedMap.count', types: ['number'] },
     ]);
   });
 
-  it('caps field catalog metadata scans for one huge nested document', () => {
+  it('prioritizes shallow fields before deep fields under metadata budget pressure', () => {
     const metadata = Object.fromEntries(
       Array.from(
         { length: 5_000 },
@@ -103,12 +105,253 @@ describe('fieldCatalog', () => {
       id: 'doc_1',
       path: 'items/doc_1',
       hasSubcollections: false,
-      data: { metadata },
+      data: {
+        createdAt: new FirestoreTimestamp('2026-04-24T09:30:12.058Z'),
+        metadata,
+        status: 'active',
+      },
     }]);
 
     expect(catalog).toHaveLength(1_000);
-    expect(catalog[0]?.field).toBe('metadata.field_0000');
-    expect(catalog.at(-1)?.field).toBe('metadata.field_0999');
+    expect(catalog.slice(0, 2).map((entry) => entry.field)).toEqual(['createdAt', 'status']);
+    expect(catalog).toContainEqual({ count: 1, field: 'metadata.field_0000', types: ['number'] });
+    expect(catalog.at(-1)?.field).toBe('metadata.field_0997');
+  });
+
+  it('collapses repeated-shape maps into placeholder fields', () => {
+    expect(
+      fieldCatalogFromRows([{
+        id: 'doc_1',
+        path: 'payments/doc_1',
+        hasSubcollections: false,
+        data: {
+          attemptsById: {
+            first: {
+              id: 'att_1',
+              mode: 'card',
+              providerPaymentIntentId: 'pi_1',
+              status: 'paid',
+              updatedAt: new FirestoreTimestamp('2026-04-24T09:30:12.058Z'),
+            },
+            second: {
+              id: 'att_2',
+              mode: 'card',
+              providerPaymentIntentId: 'pi_2',
+              status: 'failed',
+              updatedAt: new FirestoreTimestamp('2026-04-25T09:30:12.058Z'),
+            },
+            third: {
+              id: 'att_3',
+              mode: 'pix',
+              providerPaymentIntentId: 'pi_3',
+              status: 'pending',
+              updatedAt: new FirestoreTimestamp('2026-04-26T09:30:12.058Z'),
+            },
+          },
+        },
+      }]),
+    ).toEqual([
+      { count: 1, field: 'attemptsById.{id}.id', types: ['string'] },
+      { count: 1, field: 'attemptsById.{id}.mode', types: ['string'] },
+      { count: 1, field: 'attemptsById.{id}.providerPaymentIntentId', types: ['string'] },
+      { count: 1, field: 'attemptsById.{id}.status', types: ['string'] },
+      { count: 1, field: 'attemptsById.{id}.updatedAt', types: ['timestamp'] },
+    ]);
+  });
+
+  it('collapses repeated-shape maps across loaded documents', () => {
+    expect(
+      fieldCatalogFromRows([
+        {
+          id: 'doc_1',
+          path: 'payments/doc_1',
+          hasSubcollections: false,
+          data: {
+            attemptsById: {
+              attemptA: { amount: 10, status: 'paid' },
+            },
+          },
+        },
+        {
+          id: 'doc_2',
+          path: 'payments/doc_2',
+          hasSubcollections: false,
+          data: {
+            attemptsById: {
+              attemptB: { amount: 20, status: 'failed' },
+            },
+          },
+        },
+        {
+          id: 'doc_3',
+          path: 'payments/doc_3',
+          hasSubcollections: false,
+          data: {
+            attemptsById: {
+              attemptC: { amount: 30, status: 'pending' },
+            },
+          },
+        },
+      ]),
+    ).toEqual([
+      { count: 3, field: 'attemptsById.{id}.amount', types: ['number'] },
+      { count: 3, field: 'attemptsById.{id}.status', types: ['string'] },
+    ]);
+  });
+
+  it('derives dynamic map placeholders from by-key parent names', () => {
+    expect(
+      fieldCatalogFromRows([{
+        id: 'doc_1',
+        path: 'sessions/doc_1',
+        hasSubcollections: false,
+        data: {
+          statsBySteamId: {
+            S76561198000000000: { lapCount: 12, rating: 'gold' },
+            S76561198154403932: { lapCount: 8, rating: 'silver' },
+            S76561198276234129: { lapCount: 3, rating: 'bronze' },
+          },
+        },
+      }]),
+    ).toEqual([
+      { count: 1, field: 'statsBySteamId.{steamId}.lapCount', types: ['number'] },
+      { count: 1, field: 'statsBySteamId.{steamId}.rating', types: ['string'] },
+    ]);
+  });
+
+  it('collapses nested repeated-shape maps recursively', () => {
+    expect(
+      fieldCatalogFromRows([{
+        id: 'doc_1',
+        path: 'payments/doc_1',
+        hasSubcollections: false,
+        data: {
+          attemptsById: {
+            first: {
+              paymentsById: {
+                p1: { amount: 10, status: 'paid' },
+              },
+              status: 'paid',
+            },
+            second: {
+              paymentsById: {
+                p2: { amount: 20, status: 'failed' },
+              },
+              status: 'failed',
+            },
+            third: {
+              paymentsById: {
+                p3: { amount: 30, status: 'pending' },
+              },
+              status: 'pending',
+            },
+          },
+        },
+      }]),
+    ).toEqual([
+      { count: 1, field: 'attemptsById.{id}.status', types: ['string'] },
+      { count: 1, field: 'attemptsById.{id}.paymentsById.{id}.amount', types: ['number'] },
+      { count: 1, field: 'attemptsById.{id}.paymentsById.{id}.status', types: ['string'] },
+    ]);
+  });
+
+  it('counts collapsed dynamic fields once per document', () => {
+    expect(
+      fieldCatalogFromRows([
+        {
+          id: 'doc_1',
+          path: 'payments/doc_1',
+          hasSubcollections: false,
+          data: {
+            attemptsById: {
+              first: { mode: 'card', status: 'paid' },
+              second: { mode: 'pix', status: 'failed' },
+              third: { mode: 'card', status: 'pending' },
+            },
+          },
+        },
+        {
+          id: 'doc_2',
+          path: 'payments/doc_2',
+          hasSubcollections: false,
+          data: {
+            attemptsById: {
+              fourth: { mode: 'card', status: 'paid' },
+              fifth: { mode: 'pix', status: 'failed' },
+              sixth: { mode: 'card', status: 'pending' },
+            },
+          },
+        },
+      ]),
+    ).toEqual([
+      { count: 2, field: 'attemptsById.{id}.mode', types: ['string'] },
+      { count: 2, field: 'attemptsById.{id}.status', types: ['string'] },
+    ]);
+  });
+
+  it('limits recursive dynamic map placeholders', () => {
+    expect(
+      fieldCatalogFromRows([{
+        id: 'doc_1',
+        path: 'items/doc_1',
+        hasSubcollections: false,
+        data: {
+          levelsById: {
+            first: {
+              groupsById: {
+                g1: {
+                  paymentsById: { p1: { amount: 10, status: 'paid' } },
+                  state: 'open',
+                },
+              },
+              status: 'ready',
+            },
+            second: {
+              groupsById: {
+                g2: {
+                  paymentsById: { p2: { amount: 20, status: 'failed' } },
+                  state: 'closed',
+                },
+              },
+              status: 'ready',
+            },
+            third: {
+              groupsById: {
+                g3: {
+                  paymentsById: { p3: { amount: 30, status: 'pending' } },
+                  state: 'open',
+                },
+              },
+              status: 'ready',
+            },
+          },
+        },
+      }]),
+    ).toEqual([
+      { count: 1, field: 'levelsById.{id}.status', types: ['string'] },
+      { count: 1, field: 'levelsById.{id}.groupsById.{id}.state', types: ['string'] },
+    ]);
+  });
+
+  it('keeps normal domain maps concrete', () => {
+    expect(
+      fieldCatalogFromRows([{
+        id: 'doc_1',
+        path: 'users/doc_1',
+        hasSubcollections: false,
+        data: {
+          roles: {
+            admin: { enabled: true },
+            owner: { enabled: true },
+            user: { enabled: false },
+          },
+        },
+      }]),
+    ).toEqual([
+      { count: 1, field: 'roles.admin.enabled', types: ['boolean'] },
+      { count: 1, field: 'roles.owner.enabled', types: ['boolean'] },
+      { count: 1, field: 'roles.user.enabled', types: ['boolean'] },
+    ]);
   });
 
   it('does not catalog fields deeper than the metadata depth budget', () => {
@@ -134,6 +377,26 @@ describe('fieldCatalog', () => {
     ).toEqual([
       { count: 3, field: 'status', types: ['string'] },
       { count: 1, field: 'total', types: ['number'] },
+    ]);
+  });
+
+  it('drops saved concrete dynamic paths when a placeholder path is observed', () => {
+    expect(
+      mergeFieldCatalogEntries(
+        [
+          { count: 1, field: 'attemptsById.attemptA.amount', types: ['number'] },
+          { count: 1, field: 'attemptsById.attemptB.status', types: ['string'] },
+          { count: 1, field: 'roles.admin.enabled', types: ['boolean'] },
+        ],
+        [
+          { count: 3, field: 'attemptsById.{id}.amount', types: ['number'] },
+          { count: 3, field: 'attemptsById.{id}.status', types: ['string'] },
+        ],
+      ),
+    ).toEqual([
+      { count: 3, field: 'attemptsById.{id}.amount', types: ['number'] },
+      { count: 3, field: 'attemptsById.{id}.status', types: ['string'] },
+      { count: 1, field: 'roles.admin.enabled', types: ['boolean'] },
     ]);
   });
 
