@@ -56,6 +56,9 @@ export class MainSettingsRepository implements SettingsRepository {
       workspaceState: patch.workspaceState === undefined
         ? cloneWorkspaceState(current.workspaceState)
         : cloneWorkspaceState(patch.workspaceState),
+      workspaceStateClearedAt: patch.workspaceStateClearedAt === undefined
+        ? current.workspaceStateClearedAt ?? null
+        : patch.workspaceStateClearedAt,
     });
   }
 

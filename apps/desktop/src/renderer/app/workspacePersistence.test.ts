@@ -71,6 +71,17 @@ describe('workspacePersistence', () => {
     await expect(loadPersistedWorkspaceState(settings)).resolves.toEqual(persistedWorkspace);
   });
 
+  it('does not restore workspace state older than an explicit clear marker', async () => {
+    const settings = settingsWithWorkspace({ ...persistedWorkspace, savedAt: 100 });
+    settings.workspaceStateClearedAt = 200;
+
+    await expect(loadPersistedWorkspaceState(settings)).resolves.toBeNull();
+    await expect(loadPersistedWorkspaceStateResult(settings)).resolves.toEqual({
+      error: null,
+      snapshot: null,
+    });
+  });
+
   it('loads Firestore inspector UI state for open tabs', async () => {
     const workspace = {
       ...persistedWorkspace,
@@ -264,11 +275,12 @@ describe('workspacePersistence', () => {
         ],
         interactionHistoryIndex: 1,
       },
-    })).resolves.toBeNull();
+    }, { recordedAtMs: 300 })).resolves.toBeNull();
 
     const raw = JSON.stringify(settings.workspaceState);
     expect(raw).toContain('tab-firestore-1');
     expect(raw).not.toContain('closed-tab');
+    expect(settings.workspaceState).toMatchObject({ savedAt: 300 });
     await expect(loadPersistedWorkspaceState(settings)).resolves.toMatchObject({
       tabsState: { interactionHistoryIndex: 0 },
     });
@@ -287,9 +299,10 @@ describe('workspacePersistence', () => {
         interactionHistoryIndex: 0,
         tabs: [],
       },
-    })).resolves.toBeNull();
+    }, { recordedAtMs: 400 })).resolves.toBeNull();
 
     expect(settings.workspaceState).toBeNull();
+    expect(settings.workspaceStateClearedAt).toBe(400);
   });
 
   it('returns save failures instead of swallowing them', async () => {
@@ -307,20 +320,30 @@ describe('workspacePersistence', () => {
 
 function settingsWithWorkspace(
   workspaceState: unknown,
-): Pick<SettingsRepository, 'load' | 'save'> & { workspaceState: unknown | null; } {
+): Pick<SettingsRepository, 'load' | 'save'> & {
+  workspaceState: unknown | null;
+  workspaceStateClearedAt: number | null;
+} {
   return {
     workspaceState: workspaceState ?? null,
+    workspaceStateClearedAt: null,
     async load() {
-      return settingsSnapshot(this.workspaceState);
+      return settingsSnapshot(this.workspaceState, this.workspaceStateClearedAt);
     },
     async save(patch: Parameters<SettingsRepository['save']>[0]) {
       if ('workspaceState' in patch) this.workspaceState = patch.workspaceState ?? null;
-      return settingsSnapshot(this.workspaceState);
+      if ('workspaceStateClearedAt' in patch) {
+        this.workspaceStateClearedAt = patch.workspaceStateClearedAt ?? null;
+      }
+      return settingsSnapshot(this.workspaceState, this.workspaceStateClearedAt);
     },
   };
 }
 
-function settingsSnapshot(workspaceState: unknown | null): SettingsSnapshot {
+function settingsSnapshot(
+  workspaceState: unknown | null,
+  workspaceStateClearedAt: number | null = null,
+): SettingsSnapshot {
   return {
     activityLog: DEFAULT_ACTIVITY_LOG_SETTINGS,
     dataMode: 'mock',
@@ -335,5 +358,6 @@ function settingsSnapshot(workspaceState: unknown | null): SettingsSnapshot {
     theme: 'system',
     updates: DEFAULT_UPDATE_SETTINGS,
     workspaceState,
+    workspaceStateClearedAt,
   };
 }

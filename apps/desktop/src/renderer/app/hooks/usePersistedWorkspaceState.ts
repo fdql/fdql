@@ -42,6 +42,11 @@ export interface WorkspacePersistenceSnapshot {
   readonly tabsState: TabsState;
 }
 
+interface PendingWorkspacePersistenceSnapshot {
+  readonly recordedAtMs: number;
+  readonly snapshot: WorkspacePersistenceSnapshot;
+}
+
 export function usePersistedWorkspaceState(
   options: {
     readonly onError?: (error: WorkspacePersistenceFailure) => void;
@@ -103,9 +108,10 @@ export function usePersistWorkspaceSnapshot(
   const { onError, settings } = options;
   const skippedInitialSaveRef = useRef(false);
   const lastQueuedSnapshotKeyRef = useRef<string | null>(null);
-  const pendingSnapshotRef = useRef<WorkspacePersistenceSnapshot | null>(null);
+  const pendingSnapshotRef = useRef<PendingWorkspacePersistenceSnapshot | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestSaveOptionsRef = useRef({ onError, settings });
+  const lastRecordedAtMsRef = useRef(0);
   latestSaveOptionsRef.current = { onError, settings };
 
   useEffect(() => {
@@ -132,13 +138,15 @@ export function usePersistWorkspaceSnapshot(
     }
     if (lastQueuedSnapshotKeyRef.current === snapshotKey) return;
     lastQueuedSnapshotKeyRef.current = snapshotKey;
-    pendingSnapshotRef.current = snapshot;
+    pendingSnapshotRef.current = { recordedAtMs: nextRecordedAtMs(), snapshot };
     clearPendingSave();
     if (!snapshot.tabsState.tabs.length) {
       const pendingSnapshot = pendingSnapshotRef.current;
       pendingSnapshotRef.current = null;
       if (!pendingSnapshot) return;
-      void savePersistedWorkspaceState(settings, pendingSnapshot).then((error) => {
+      void savePersistedWorkspaceState(settings, pendingSnapshot.snapshot, {
+        recordedAtMs: pendingSnapshot.recordedAtMs,
+      }).then((error) => {
         if (error) latestSaveOptionsRef.current.onError?.(error);
       });
       return;
@@ -148,7 +156,9 @@ export function usePersistWorkspaceSnapshot(
       const pendingSnapshot = pendingSnapshotRef.current;
       pendingSnapshotRef.current = null;
       if (!pendingSnapshot) return;
-      void savePersistedWorkspaceState(settings, pendingSnapshot).then((error) => {
+      void savePersistedWorkspaceState(settings, pendingSnapshot.snapshot, {
+        recordedAtMs: pendingSnapshot.recordedAtMs,
+      }).then((error) => {
         if (error) latestSaveOptionsRef.current.onError?.(error);
       });
     }, options.debounceMs ?? 300);
@@ -163,8 +173,16 @@ export function usePersistWorkspaceSnapshot(
     pendingSnapshotRef.current = null;
     if (!pendingSnapshot) return;
     const latest = latestSaveOptionsRef.current;
-    void savePersistedWorkspaceState(latest.settings, pendingSnapshot).then((error) => {
+    void savePersistedWorkspaceState(latest.settings, pendingSnapshot.snapshot, {
+      recordedAtMs: pendingSnapshot.recordedAtMs,
+    }).then((error) => {
       if (error) latest.onError?.(error);
     });
   }, []);
+
+  function nextRecordedAtMs(): number {
+    const recordedAtMs = Math.max(Date.now(), lastRecordedAtMsRef.current + 1);
+    lastRecordedAtMsRef.current = recordedAtMs;
+    return recordedAtMs;
+  }
 }

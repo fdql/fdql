@@ -28,6 +28,7 @@ export const DEFAULT_SETTINGS_SNAPSHOT: SettingsSnapshot = {
   firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
   updates: DEFAULT_UPDATE_SETTINGS,
   workspaceState: null,
+  workspaceStateClearedAt: null,
 };
 
 export class SettingsStore {
@@ -87,6 +88,7 @@ function cloneSnapshot(snapshot: SettingsSnapshot): SettingsSnapshot {
     hotkeyOverrides: { ...snapshot.hotkeyOverrides },
     updates: cloneUpdateSettings(snapshot.updates),
     workspaceState: cloneWorkspaceState(snapshot.workspaceState),
+    workspaceStateClearedAt: snapshot.workspaceStateClearedAt ?? null,
     firestoreFieldCatalogs: Object.fromEntries(
       Object.entries(snapshot.firestoreFieldCatalogs).map(([key, entries]) => [
         key,

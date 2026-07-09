@@ -108,26 +108,34 @@ export function tabClosed(state: TabsState, tabId: string): TabsState {
   const activeTabId = state.activeTabId === tabId
     ? tabs[Math.max(0, index - 1)]?.id ?? tabs[0]?.id ?? ''
     : state.activeTabId;
-  return { ...state, activeTabId, tabs };
+  return sanitizeOpenTabReferences({ ...state, activeTabId, tabs });
 }
 
 export function otherTabsClosed(state: TabsState, tabId: string): TabsState {
   const tab = state.tabs.find((item) => item.id === tabId);
-  return tab ? { ...state, activeTabId: tab.id, tabs: [tab] } : state;
+  return tab ? sanitizeOpenTabReferences({ ...state, activeTabId: tab.id, tabs: [tab] }) : state;
 }
 
 export function tabsToLeftClosed(state: TabsState, tabId: string): TabsState {
   const index = state.tabs.findIndex((tab) => tab.id === tabId);
   if (index <= 0) return state;
   const tabs = state.tabs.slice(index);
-  return { ...state, activeTabId: keepActiveTab(state.activeTabId, tabs), tabs };
+  return sanitizeOpenTabReferences({
+    ...state,
+    activeTabId: keepActiveTab(state.activeTabId, tabs),
+    tabs,
+  });
 }
 
 export function tabsToRightClosed(state: TabsState, tabId: string): TabsState {
   const index = state.tabs.findIndex((tab) => tab.id === tabId);
   if (index < 0 || index === state.tabs.length - 1) return state;
   const tabs = state.tabs.slice(0, index + 1);
-  return { ...state, activeTabId: keepActiveTab(state.activeTabId, tabs), tabs };
+  return sanitizeOpenTabReferences({
+    ...state,
+    activeTabId: keepActiveTab(state.activeTabId, tabs),
+    tabs,
+  });
 }
 
 export function allTabsClosed(state: TabsState): TabsState {
@@ -232,25 +240,31 @@ export function interactionRecorded(
 export function interactionMovedBack(
   state: TabsState,
 ): { readonly entry: InteractionHistoryEntry | null; readonly state: TabsState; } {
-  const interactionHistoryIndex = Math.max(0, state.interactionHistoryIndex - 1);
-  const entry = state.interactionHistory[interactionHistoryIndex] ?? null;
+  const sanitized = sanitizeInteractionHistory(state);
+  const interactionHistoryIndex = Math.max(0, sanitized.interactionHistoryIndex - 1);
+  const entry = sanitized.interactionHistory[interactionHistoryIndex] ?? null;
   return {
     entry,
-    state: entry ? { ...state, activeTabId: entry.activeTabId, interactionHistoryIndex } : state,
+    state: entry
+      ? { ...sanitized, activeTabId: entry.activeTabId, interactionHistoryIndex }
+      : sanitized,
   };
 }
 
 export function interactionMovedForward(
   state: TabsState,
 ): { readonly entry: InteractionHistoryEntry | null; readonly state: TabsState; } {
+  const sanitized = sanitizeInteractionHistory(state);
   const interactionHistoryIndex = Math.min(
-    state.interactionHistory.length - 1,
-    state.interactionHistoryIndex + 1,
+    sanitized.interactionHistory.length - 1,
+    sanitized.interactionHistoryIndex + 1,
   );
-  const entry = state.interactionHistory[interactionHistoryIndex] ?? null;
+  const entry = sanitized.interactionHistory[interactionHistoryIndex] ?? null;
   return {
     entry,
-    state: entry ? { ...state, activeTabId: entry.activeTabId, interactionHistoryIndex } : state,
+    state: entry
+      ? { ...sanitized, activeTabId: entry.activeTabId, interactionHistoryIndex }
+      : sanitized,
   };
 }
 
@@ -308,4 +322,30 @@ function uniqueTabId(id: string, seen: ReadonlySet<string>): string {
     const candidate = `${id}-${index}`;
     if (!seen.has(candidate)) return candidate;
   }
+}
+
+function sanitizeOpenTabReferences(state: TabsState): TabsState {
+  const sanitized = sanitizeInteractionHistory(state);
+  return {
+    ...sanitized,
+    activeTabId: keepActiveTab(sanitized.activeTabId, sanitized.tabs),
+  };
+}
+
+function sanitizeInteractionHistory(state: TabsState): TabsState {
+  const tabIds = tabIdsFor(state.tabs);
+  const interactionHistory: InteractionHistoryEntry[] = [];
+  let interactionHistoryIndex = -1;
+  state.interactionHistory.forEach((entry, index) => {
+    if (!tabIds.has(entry.activeTabId)) return;
+    interactionHistory.push(entry);
+    if (index <= state.interactionHistoryIndex) {
+      interactionHistoryIndex = interactionHistory.length - 1;
+    }
+  });
+  return {
+    ...state,
+    interactionHistory,
+    interactionHistoryIndex: clampIndex(interactionHistoryIndex, interactionHistory),
+  };
 }

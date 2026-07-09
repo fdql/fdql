@@ -5,6 +5,7 @@ import {
   allTabsClosed,
   authUserSelected,
   interactionMovedBack,
+  interactionMovedForward,
   interactionRecorded,
   otherTabsClosed,
   tabClosed,
@@ -108,6 +109,72 @@ describe('workspace transitions', () => {
     expect(allTabsClosed(opened).tabs).toEqual([]);
   });
 
+  it('prunes interaction history for closed tabs', () => {
+    const opened = tabOpened(
+      createInitialTabsState('emu'),
+      { kind: 'firestore-query', connectionId: 'prod', path: 'customers' },
+      'tab-firestore-query-1',
+    ).state;
+    const state = interactionRecorded(
+      interactionRecorded(opened, {
+        activeTabId: 'tab-firestore',
+        path: 'orders',
+        selectedTreeItemId: 'collection:emu:orders',
+      }),
+      {
+        activeTabId: 'tab-firestore-query-1',
+        path: 'customers',
+        selectedTreeItemId: 'collection:prod:customers',
+      },
+    );
+
+    const closed = tabClosed(state, 'tab-firestore-query-1');
+
+    expect(closed.activeTabId).toBe('tab-sql');
+    expect(closed.interactionHistory.map((entry) => entry.activeTabId)).toEqual([
+      'tab-firestore',
+      'tab-firestore',
+    ]);
+    expect(closed.interactionHistory).not.toContainEqual(
+      expect.objectContaining({ activeTabId: 'tab-firestore-query-1' }),
+    );
+    expect(closed.interactionHistoryIndex).toBe(1);
+  });
+
+  it('prunes interaction history for bulk close operations', () => {
+    const opened = tabOpened(
+      createInitialTabsState('emu'),
+      { kind: 'firestore-query', connectionId: 'prod', path: 'customers' },
+      'tab-firestore-query-1',
+    ).state;
+    const state = interactionRecorded(
+      interactionRecorded(opened, {
+        activeTabId: 'tab-firestore',
+        path: 'orders',
+        selectedTreeItemId: 'collection:emu:orders',
+      }),
+      {
+        activeTabId: 'tab-firestore-query-1',
+        path: 'customers',
+        selectedTreeItemId: 'collection:prod:customers',
+      },
+    );
+
+    expect(otherTabsClosed(state, 'tab-firestore').interactionHistory).not.toContainEqual(
+      expect.objectContaining({ activeTabId: 'tab-firestore-query-1' }),
+    );
+    expect(tabsToLeftClosed(state, 'tab-firestore-query-1').interactionHistory).toEqual([
+      {
+        activeTabId: 'tab-firestore-query-1',
+        path: 'customers',
+        selectedTreeItemId: 'collection:prod:customers',
+      },
+    ]);
+    expect(tabsToRightClosed(state, 'tab-firestore').interactionHistory).not.toContainEqual(
+      expect.objectContaining({ activeTabId: 'tab-firestore-query-1' }),
+    );
+  });
+
   it('reorders and sorts tabs by account', () => {
     const state = tabOpened(
       createInitialTabsState('emu'),
@@ -166,6 +233,48 @@ describe('workspace transitions', () => {
       selectedTreeItemId: 'collection:emu:orders',
     });
     expect(result.state.tabs).toHaveLength(4);
+  });
+
+  it('skips stale closed-tab entries when replaying interaction history', () => {
+    const state = {
+      ...createInitialTabsState('emu'),
+      activeTabId: 'tab-firestore',
+      interactionHistory: [
+        {
+          activeTabId: 'tab-firestore',
+          path: 'orders',
+          selectedTreeItemId: 'collection:emu:orders',
+        },
+        {
+          activeTabId: 'closed-tab',
+          path: 'closed',
+          selectedTreeItemId: 'collection:emu:closed',
+        },
+        {
+          activeTabId: 'tab-auth',
+          path: 'auth/users',
+          selectedTreeItemId: 'auth:emu',
+        },
+      ],
+      interactionHistoryIndex: 0,
+    };
+
+    const forward = interactionMovedForward(state);
+    const back = interactionMovedBack(forward.state);
+
+    expect(forward.entry).toEqual({
+      activeTabId: 'tab-auth',
+      path: 'auth/users',
+      selectedTreeItemId: 'auth:emu',
+    });
+    expect(forward.state.activeTabId).toBe('tab-auth');
+    expect(forward.state.interactionHistory).toHaveLength(2);
+    expect(back.entry).toEqual({
+      activeTabId: 'tab-firestore',
+      path: 'orders',
+      selectedTreeItemId: 'collection:emu:orders',
+    });
+    expect(back.state.activeTabId).toBe('tab-firestore');
   });
 
   it('normalizes restored tabs and interaction history', () => {

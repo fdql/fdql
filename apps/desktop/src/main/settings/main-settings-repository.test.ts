@@ -21,6 +21,7 @@ const initialSnapshot: SettingsSnapshot = {
   firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
   updates: DEFAULT_UPDATE_SETTINGS,
   workspaceState: null,
+  workspaceStateClearedAt: null,
 };
 
 describe('MainSettingsRepository', () => {

@@ -1,5 +1,6 @@
 import { CommandPalette } from '@firebase-desk/product-ui';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@firebase-desk/ui';
+import { useLayoutEffect, useRef } from 'react';
 import type { ActivityStore } from '../app-core/activity/activityStore.ts';
 import { AppDialogs } from './AppDialogs.tsx';
 import { AppHeader } from './AppHeader.tsx';
@@ -21,6 +22,14 @@ export interface AppShellProps {
   readonly initialSidebarWidth?: number;
 }
 
+interface SidebarPanelHandle {
+  readonly collapse: () => void;
+  readonly expand: () => void;
+  readonly getSize: () => { readonly asPercentage: number; readonly inPixels: number; };
+  readonly isCollapsed: () => boolean;
+  readonly resize: (size: number | string) => void;
+}
+
 export function AppShell(
   {
     activityStore,
@@ -37,7 +46,18 @@ export function AppShell(
     demoMode,
     initialSidebarWidth,
   });
+  const sidebarPanelRef = useRef<SidebarPanelHandle | null>(null);
   const activeView = controller.tabView ? <WorkspaceTabView {...controller.tabView} /> : null;
+
+  useLayoutEffect(() => {
+    const sidebarPanel = sidebarPanelRef.current;
+    if (!sidebarPanel) return;
+    if (controller.layout.sidebarCollapsed) {
+      if (!sidebarPanel.isCollapsed()) sidebarPanel.collapse();
+      return;
+    }
+    if (sidebarPanel.isCollapsed()) sidebarPanel.expand();
+  }, [controller.layout.sidebarCollapsed]);
 
   return (
     <div className='relative grid h-full overflow-hidden grid-rows-[40px_minmax(0,1fr)] bg-bg-app text-text-primary'>
@@ -54,6 +74,9 @@ export function AppShell(
           maxSize={controller.layout.sidebarMaxSize}
           minSize={controller.layout.sidebarMinSize}
           onResize={(size) => controller.layout.onSidebarResize(size.inPixels)}
+          panelRef={(panel) => {
+            sidebarPanelRef.current = panel;
+          }}
         >
           <AppSidebar {...controller.sidebar} />
         </ResizablePanel>

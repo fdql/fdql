@@ -11,6 +11,79 @@ import {
 import { selectionActions } from './stores/selectionStore.ts';
 import { tabActions } from './stores/tabsStore.ts';
 
+const resizablePanelHarness = vi.hoisted(() => ({
+  handles: [] as Array<{
+    readonly collapse: ReturnType<typeof vi.fn>;
+    readonly expand: ReturnType<typeof vi.fn>;
+    readonly getSize: ReturnType<typeof vi.fn>;
+    readonly isCollapsed: ReturnType<typeof vi.fn>;
+    readonly resize: ReturnType<typeof vi.fn>;
+  }>,
+}));
+
+vi.mock('@firebase-desk/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@firebase-desk/ui')>();
+  const React = await import('react');
+  return {
+    ...actual,
+    ResizableHandle: ({ className }: { readonly className?: string; }) => (
+      <div className={className} role='separator' />
+    ),
+    ResizablePanel: (
+      {
+        children,
+        className,
+        panelRef,
+      }: {
+        readonly children: import('react').ReactNode;
+        readonly className?: string;
+        readonly panelRef?: ((handle: unknown | null) => void) | undefined;
+      },
+    ) => {
+      const handleRef = React.useRef<
+        {
+          readonly collapse: ReturnType<typeof vi.fn>;
+          readonly expand: ReturnType<typeof vi.fn>;
+          readonly getSize: ReturnType<typeof vi.fn>;
+          readonly isCollapsed: ReturnType<typeof vi.fn>;
+          readonly resize: ReturnType<typeof vi.fn>;
+        } | null
+      >(null);
+      if (!handleRef.current) {
+        let collapsed = false;
+        handleRef.current = {
+          collapse: vi.fn(() => {
+            collapsed = true;
+          }),
+          expand: vi.fn(() => {
+            collapsed = false;
+          }),
+          getSize: vi.fn(() => ({
+            asPercentage: collapsed ? 0 : 30,
+            inPixels: collapsed ? 36 : 320,
+          })),
+          isCollapsed: vi.fn(() => collapsed),
+          resize: vi.fn(() => {
+            collapsed = false;
+          }),
+        };
+        resizablePanelHarness.handles.push(handleRef.current);
+      }
+      React.useLayoutEffect(() => {
+        panelRef?.(handleRef.current);
+        return () => panelRef?.(null);
+      }, [panelRef]);
+      return <div className={className}>{children}</div>;
+    },
+    ResizablePanelGroup: (
+      {
+        children,
+        className,
+      }: { readonly children: import('react').ReactNode; readonly className?: string; },
+    ) => <div className={className}>{children}</div>,
+  };
+});
+
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: (
     { count, estimateSize }: {
@@ -52,6 +125,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   tabActions.reset();
   selectionActions.reset();
+  resizablePanelHarness.handles.length = 0;
 });
 
 type InitialTab = Parameters<typeof tabActions.openTab>[0];
@@ -89,6 +163,19 @@ describe('desktop AppShell', () => {
     expect((await screen.findAllByText('Local Emulator')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('demo-local').length).toBeGreaterThan(0);
     expect(screen.getAllByText('emulator').length).toBeGreaterThan(0);
+  });
+
+  it('expands the sidebar panel from the collapsed rail', async () => {
+    renderShell();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Collapse sidebar' }));
+    const sidebarPanel = resizablePanelHarness.handles[0];
+
+    expect(sidebarPanel?.collapse).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand sidebar' }));
+
+    expect(sidebarPanel?.expand).toHaveBeenCalledTimes(1);
   });
 });
 

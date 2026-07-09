@@ -68,6 +68,7 @@ export const SettingsSnapshotSchema = z.object({
   firestoreWrites: FirestoreWriteSettingsSchema.default(DEFAULT_FIRESTORE_WRITE_SETTINGS),
   updates: UpdateSettingsSchema.default(DEFAULT_UPDATE_SETTINGS),
   workspaceState: z.unknown().nullable().default(null),
+  workspaceStateClearedAt: z.number().finite().nonnegative().nullable().optional(),
 });
 
 export const SettingsPatchSchema = z.object({
@@ -84,6 +85,7 @@ export const SettingsPatchSchema = z.object({
   firestoreWrites: FirestoreWriteSettingsSchema.optional(),
   updates: UpdateSettingsSchema.optional(),
   workspaceState: z.unknown().nullable().optional(),
+  workspaceStateClearedAt: z.number().finite().nonnegative().nullable().optional(),
 });
 
 export const SettingsFileSchema = z.object({

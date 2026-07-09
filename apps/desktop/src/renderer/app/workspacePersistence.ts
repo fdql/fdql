@@ -122,6 +122,7 @@ const FirestoreInspectorUiStateSchema = z.object({
 
 export const PersistedWorkspaceStateSchema = z.object({
   version: z.literal(1),
+  savedAt: z.number().finite().nonnegative().optional(),
   authFilter: z.string(),
   drafts: z.record(z.string(), FirestoreQueryDraftSchema),
   firestoreInspectorUi: z.record(z.string(), FirestoreInspectorUiStateSchema).optional(),
@@ -184,7 +185,8 @@ export async function loadPersistedWorkspaceStateResult(
   settings: Pick<SettingsRepository, 'load'>,
 ): Promise<LoadPersistedWorkspaceStateResult> {
   try {
-    const raw = (await settings.load()).workspaceState;
+    const settingsSnapshot = await settings.load();
+    const raw = settingsSnapshot.workspaceState;
     if (raw === null || raw === undefined) return { error: null, snapshot: null };
     const parsed = PersistedWorkspaceStateSchema.safeParse(raw);
     if (!parsed.success) {
@@ -195,6 +197,10 @@ export async function loadPersistedWorkspaceStateResult(
         },
         snapshot: null,
       };
+    }
+    const clearedAt = settingsSnapshot.workspaceStateClearedAt ?? null;
+    if (clearedAt !== null && (parsed.data.savedAt ?? 0) <= clearedAt) {
+      return { error: null, snapshot: null };
     }
     return { error: null, snapshot: parsed.data };
   } catch (error) {
@@ -211,9 +217,10 @@ export async function loadPersistedWorkspaceStateResult(
 export function savePersistedWorkspaceState(
   settings: Pick<SettingsRepository, 'save'>,
   state: Omit<PersistedWorkspaceState, 'version'>,
+  options: { readonly recordedAtMs?: number | undefined; } = {},
 ): Promise<WorkspacePersistenceFailure | null> {
   try {
-    return persistWorkspaceState(settings, state)
+    return persistWorkspaceState(settings, state, options.recordedAtMs ?? Date.now())
       .then(() => null)
       .catch((error: unknown) => ({
         message: messageFromError(error, 'Could not save workspace state.'),
@@ -230,14 +237,16 @@ export function savePersistedWorkspaceState(
 async function persistWorkspaceState(
   settings: Pick<SettingsRepository, 'save'>,
   state: Omit<PersistedWorkspaceState, 'version'>,
+  recordedAtMs: number,
 ): Promise<void> {
   if (!state.tabsState.tabs.length) {
-    await settings.save({ workspaceState: null });
+    await settings.save({ workspaceState: null, workspaceStateClearedAt: recordedAtMs });
     return;
   }
   const tabIds = new Set(state.tabsState.tabs.map((tab) => tab.id));
   const payload = PersistedWorkspaceStateSchema.parse({
     version: 1,
+    savedAt: recordedAtMs,
     authFilter: state.authFilter,
     drafts: pickTabRecord(state.drafts, tabIds),
     firestoreInspectorUi: pickTabRecord(state.firestoreInspectorUi ?? {}, tabIds),

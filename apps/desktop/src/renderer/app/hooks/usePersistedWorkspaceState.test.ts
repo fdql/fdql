@@ -127,7 +127,10 @@ describe('usePersistWorkspaceSnapshot', () => {
     });
 
     expect(settings.save).toHaveBeenCalledTimes(1);
-    expect(settings.save.mock.calls[0]?.[0]).toEqual({ workspaceState: null });
+    expect(settings.save.mock.calls[0]?.[0]).toEqual({
+      workspaceState: null,
+      workspaceStateClearedAt: expect.any(Number),
+    });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(50);
     });
