@@ -18,6 +18,7 @@ import type {
   FirestoreDocumentResult,
   FirestoreFieldPatchOperation,
   FirestoreQueryDraft,
+  FirestoreQueryDraftEdit,
   FirestoreSaveDocumentOptions,
   FirestoreSaveDocumentResult,
   FirestoreSqlCompileResult,
@@ -33,6 +34,7 @@ import type {
   FirestoreCollectionJobRequest,
   FirestoreExportFormat,
 } from '@firebase-desk/repo-contracts/jobs';
+import { firestoreDraftFingerprint } from '../app-core/firestore/query/firestoreQueryDraft.ts';
 import type {
   FirestoreInspectorSectionId,
   FirestoreInspectorUiState,
@@ -89,7 +91,7 @@ export interface FirestoreTabSurfaceModel {
     documentPath: string,
     options: DeleteDocumentOptions,
   ) => void;
-  readonly onDraftChange: (draft: FirestoreQueryDraft) => void;
+  readonly onDraftEdit: (edit: FirestoreQueryDraftEdit) => void;
   readonly onGenerateDocumentId: (collectionPath: string) => Promise<string> | string;
   readonly onPickCollectionJobExportFile: (
     format: FirestoreExportFormat,
@@ -106,7 +108,6 @@ export interface FirestoreTabSurfaceModel {
   ) => void;
   readonly onInspectorWidthChange: (width: number) => void;
   readonly onOpenDocumentInNewTab: (documentPath: string) => void;
-  readonly onReset: () => void;
   readonly onRefreshResults: () => void;
   readonly onResultViewChange: (resultView: FirestoreResultView, scopeKey?: string) => void;
   readonly onResultTreeExpandedIdsChange: (expandedIds: ReadonlyArray<string>) => void;
@@ -135,6 +136,7 @@ export interface FirestoreTabSurfaceModel {
   readonly onStartCollectionJob: (request: FirestoreCollectionJobRequest) => Promise<void> | void;
   readonly projects: ReadonlyArray<ProjectSummary>;
   readonly resultView: FirestoreResultView;
+  readonly resultQueryPath: string | null;
   readonly resultsStale: boolean;
   readonly rows: ReadonlyArray<FirestoreDocumentResult>;
   readonly selectedDocument: FirestoreDocumentResult | null;
@@ -250,7 +252,6 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
   }
   return (
     <FirestoreQuerySurface
-      key={props.activeTab.id}
       activeProject={props.firestore.activeProject}
       collectionJobRequest={props.firestore.collectionJobRequest}
       createDocumentRequest={props.firestore.createDocumentRequest}
@@ -264,16 +265,21 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
       isLoading={props.firestore.isLoading}
       rows={props.firestore.rows}
       resultView={props.firestore.resultView}
+      resultQueryPath={props.firestore.resultQueryPath}
       resultsScopeKey={props.activeTab.id}
       resultsStale={props.firestore.resultsStale}
       selectedDocument={props.firestore.selectedDocument}
       selectedDocumentPath={props.firestore.selectedDocumentPath}
       settings={props.firestore.settings}
+      targetScopeKey={firestoreDraftFingerprint(
+        props.activeTab.connectionId,
+        props.firestore.draft,
+      )}
       projects={props.firestore.projects}
       onCreateDocument={props.firestore.onCreateDocument}
       onCollectionJobRequestHandled={props.firestore.onCollectionJobRequestHandled}
       onCreateDocumentRequestHandled={props.firestore.onCreateDocumentRequestHandled}
-      onDraftChange={props.firestore.onDraftChange}
+      onDraftEdit={props.firestore.onDraftEdit}
       onDeleteDocument={props.firestore.onDeleteDocument}
       onGenerateDocumentId={props.firestore.onGenerateDocumentId}
       onInspectorOverviewCollapsedChange={props.firestore.onInspectorOverviewCollapsedChange}
@@ -284,7 +290,6 @@ export function WorkspaceTabView(props: WorkspaceTabViewProps) {
       onLoadMore={props.firestore.onLoadMore}
       onLoadSubcollections={props.firestore.onLoadSubcollections}
       onOpenDocumentInNewTab={props.firestore.onOpenDocumentInNewTab}
-      onReset={props.firestore.onReset}
       onRefreshResults={props.firestore.onRefreshResults}
       onResultViewChange={props.firestore.onResultViewChange}
       onResultTreeExpandedIdsChange={props.firestore.onResultTreeExpandedIdsChange}

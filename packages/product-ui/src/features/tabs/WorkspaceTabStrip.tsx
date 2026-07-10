@@ -148,6 +148,7 @@ export function WorkspaceTabStrip(
         <SortableContext items={tabs.map((tab) => tab.id)} strategy={horizontalListSortingStrategy}>
           <div
             ref={scrollRef}
+            aria-label='Workspace tabs'
             className='flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
             role='tablist'
           >
@@ -240,6 +241,7 @@ function SortableTab(
           role='tab'
           style={style}
           tabIndex={active ? 0 : -1}
+          aria-label={`${tab.title} — ${project?.name ?? 'No project'}`}
           aria-selected={active}
           onClick={() => onSelectTab(tab.id)}
         >

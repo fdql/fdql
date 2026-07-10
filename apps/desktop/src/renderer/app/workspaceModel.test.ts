@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createWorkspaceTab, tabTitle } from '../app-core/workspace/workspaceState.ts';
 import {
   authNodeId,
   buildTreeItems,
@@ -75,18 +76,26 @@ describe('workspaceModel', () => {
     expect(isDocumentPath('orders')).toBe(false);
   });
 
-  it('creates tree ids and restores tab tree ids', () => {
-    const tab = {
-      id: 'tab-firestore-query-1',
-      kind: 'firestore-query' as const,
-      title: 'orders',
+  it('derives title and tree identity from the normalized tab-owned draft path', () => {
+    const tab = createWorkspaceTab({
       connectionId: 'emu',
-      history: ['orders'],
-      historyIndex: 0,
-      inspectorWidth: 360,
-    };
+      draft: { ...DEFAULT_FIRESTORE_DRAFT, path: '/orders//' },
+      kind: 'firestore-query',
+    }, 'tab-firestore-query-1');
 
     expect(treeItemIdForTab(tab)).toBe(collectionNodeId('emu', 'orders'));
+    expect(tabTitle(tab)).toBe('orders');
+
+    const documentTab = createWorkspaceTab({
+      connectionId: 'emu',
+      draft: { ...DEFAULT_FIRESTORE_DRAFT, path: 'orders/ord_1024' },
+      kind: 'firestore-query',
+    }, 'tab-firestore-query-2');
+    expect(treeItemIdForTab(documentTab)).toBe(collectionNodeId('emu', 'orders'));
+    expect(tabTitle(documentTab)).toBe('orders/ord_1024');
+  });
+
+  it('parses collection and Authentication tree ids', () => {
     expect(parseTreeId('collection:emu:orders/ord_1024/events')).toEqual({
       kind: 'collection',
       connectionId: 'emu',
@@ -228,8 +237,18 @@ describe('workspaceModel', () => {
     }));
   });
 
-  it('returns default drafts and immutable omitted records', () => {
-    expect(getDraft(undefined, {})).toBe(DEFAULT_FIRESTORE_DRAFT);
+  it('returns the tab-owned draft or the immutable default', () => {
+    const tab = createWorkspaceTab({
+      connectionId: 'emu',
+      draft: { ...DEFAULT_FIRESTORE_DRAFT, path: 'customers', limit: 50 },
+      kind: 'firestore-query',
+    }, 'tab-customers');
+
+    expect(getDraft(tab)).toEqual(expect.objectContaining({ path: 'customers', limit: 50 }));
+    expect(getDraft(undefined)).toBe(DEFAULT_FIRESTORE_DRAFT);
+  });
+
+  it('omits a record key without mutating the input shape', () => {
     expect(omitKey({ a: 1, b: 2 }, 'a')).toEqual({ b: 2 });
   });
 

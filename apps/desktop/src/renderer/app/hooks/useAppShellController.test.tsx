@@ -1,6 +1,8 @@
 import { createProjectFixture } from '@firebase-desk/repo-mocks';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createFirestoreDraft } from '../../app-core/firestore/query/firestoreQueryDraft.ts';
+import { defaultFirestoreInspectorUiState } from '../../app-core/firestore/query/firestoreQueryState.ts';
 import type { AppShellController, AppShellOrchestratorInput } from '../appShellOrchestrator.ts';
 import type { RepositorySet } from '../RepositoryProvider.tsx';
 import { type SelectionState, selectionStore } from '../stores/selectionStore.ts';
@@ -146,27 +148,18 @@ describe('useAppShellController', () => {
     expect(input.activeTab).toBe(scenario.tabsState.tabs[0]);
     expect(input.activeProject).toBe(scenario.project);
     expect(input.layout.sidebarDefaultWidth).toBe(clampSidebarWidth(999));
-    expect(input.selection).toBe(scenario.selection);
+    expect(input.selection).toEqual({
+      ...scenario.selection,
+      treeItemId: scenario.tabsState.selectedTreeItemId,
+    });
     expect(input.tabsState).toBe(scenario.tabsState);
     expect(mocks.useAppShellHotkeys).toHaveBeenCalledWith(scenario.controller.hotkeys);
   });
 
   it('passes restored workspace state into feature hooks and persistence snapshot', () => {
-    const tab = firestoreTab('tab-firestore', 'emu');
+    const tab = firestoreTab('tab-firestore', 'emu', 'customers', 7);
     const scenario = createScenario({
       authFilter: 'ada',
-      drafts: {
-        [tab.id]: {
-          path: 'customers',
-          filters: [],
-          filterField: '',
-          filterOp: '==',
-          filterValue: '',
-          sortField: '',
-          sortDirection: 'desc',
-          limit: 7,
-        },
-      },
       scripts: { 'tab-js': 'yield 1;' },
       tabsState: tabsState([tab], tab.id),
     });
@@ -178,10 +171,8 @@ describe('useAppShellController', () => {
       expect.objectContaining({
         activeProject: scenario.project,
         activeTab: tab,
-        initialDrafts: scenario.persistedWorkspace.snapshot?.drafts,
-        initialInspectorUi: scenario.persistedWorkspace.snapshot?.firestoreInspectorUi,
         onQueryActivity: scenario.activity.record,
-        selectedTreeItemId: scenario.selection.treeItemId,
+        selectedTreeItemId: scenario.tabsState.selectedTreeItemId,
       }),
     );
     expect(mocks.useAuthTabState).toHaveBeenCalledWith(
@@ -198,15 +189,13 @@ describe('useAppShellController', () => {
         activeTab: tab,
         initialScripts: scenario.persistedWorkspace.snapshot?.scripts,
         recordActivity: scenario.activity.record,
-        selectedTreeItemId: scenario.selection.treeItemId,
+        selectedTreeItemId: scenario.tabsState.selectedTreeItemId,
       }),
     );
     expect(mocks.usePersistWorkspaceSnapshot).toHaveBeenCalledWith(
       {
         authFilter: 'ada',
-        drafts: scenario.firestoreTab.drafts,
         fdqlSources: scenario.fdqlTab.sources,
-        firestoreInspectorUi: scenario.firestoreTab.inspectorUi,
         scripts: scenario.jsTab.scripts,
         sqlContexts: scenario.sqlTab.contexts,
         sqlSources: scenario.sqlTab.sources,
@@ -325,22 +314,23 @@ interface Scenario {
   readonly authTab: ReturnType<typeof createAuthTab>;
   readonly controller: AppShellController;
   readonly destructiveAction: ReturnType<typeof createDestructiveAction>;
-  readonly drafts: Record<string, unknown>;
   readonly fdqlTab: ReturnType<typeof createFdqlTab>;
   readonly firestoreTab: ReturnType<typeof createFirestoreTab>;
   readonly firestoreWrite: ReturnType<typeof createFirestoreWrite>;
   readonly jsTab: ReturnType<typeof createJsTab>;
   readonly jobs: ReturnType<typeof createJobs>;
   readonly persistedWorkspace: {
+    readonly persistenceEnabled: boolean;
+    readonly recoveryDiagnostic: string | null;
     readonly restored: boolean;
     readonly snapshot: {
+      readonly version: 2;
       readonly authFilter: string;
-      readonly drafts: Record<string, unknown>;
       readonly fdqlSources: Record<string, string>;
-      readonly firestoreInspectorUi: Record<string, unknown>;
       readonly scripts: Record<string, string>;
       readonly sqlContexts: Record<string, unknown>;
       readonly sqlSources: Record<string, string>;
+      readonly tabsState: TabsState;
     };
   };
   readonly project: ReturnType<typeof createProjectFixture>;
@@ -387,8 +377,8 @@ function setupMocks(scenario: Scenario) {
 }
 
 function expectControllerInput(): AppShellOrchestratorInput {
-  expect(mocks.createAppShellController).toHaveBeenCalledTimes(1);
-  const call = mocks.createAppShellController.mock.calls[0];
+  expect(mocks.createAppShellController).toHaveBeenCalled();
+  const call = mocks.createAppShellController.mock.calls.at(-1);
   if (!call) throw new Error('Expected createAppShellController call.');
   return call[0] as AppShellOrchestratorInput;
 }
@@ -402,23 +392,18 @@ function lastControllerInput(): AppShellOrchestratorInput {
 function createScenario(
   {
     authFilter = '',
-    drafts = {},
     fdqlSources = {},
-    firestoreInspectorUi = {},
     repositories = createRepositories(),
     scripts = {},
     sqlContexts = {},
     sqlSources = {},
     selection = {
       authUserId: 'u_ada',
-      treeItemId: 'collection:emu:orders',
     },
     tabsState: state = tabsState([firestoreTab('tab-orders', 'emu')], 'tab-orders'),
   }: {
     readonly authFilter?: string;
-    readonly drafts?: Record<string, unknown>;
     readonly fdqlSources?: Record<string, string>;
-    readonly firestoreInspectorUi?: Record<string, unknown>;
     readonly repositories?: RepositorySet;
     readonly scripts?: Record<string, string>;
     readonly sqlContexts?: Record<string, unknown>;
@@ -429,7 +414,7 @@ function createScenario(
 ): Scenario {
   const project = createProjectFixture({ id: 'emu', name: 'Local Emulator' });
   const activity = createActivity();
-  const firestoreTabState = createFirestoreTab({ drafts });
+  const firestoreTabState = createFirestoreTab();
   const fdqlTab = createFdqlTab({ sources: fdqlSources });
   const jsTab = createJsTab({ scripts });
   const sqlTab = createSqlTab({ contexts: sqlContexts, sources: sqlSources });
@@ -439,22 +424,23 @@ function createScenario(
     authTab: createAuthTab({ authFilter }),
     controller: createController(),
     destructiveAction: createDestructiveAction(),
-    drafts,
     fdqlTab,
     firestoreTab: firestoreTabState,
     firestoreWrite: createFirestoreWrite(),
     jsTab,
     jobs: createJobs(),
     persistedWorkspace: {
+      persistenceEnabled: true,
+      recoveryDiagnostic: null,
       restored: true,
       snapshot: {
+        version: 2,
         authFilter,
-        drafts,
         fdqlSources,
-        firestoreInspectorUi,
         scripts,
         sqlContexts,
         sqlSources,
+        tabsState: state,
       },
     },
     project,
@@ -578,10 +564,9 @@ function createDestructiveAction() {
   };
 }
 
-function createFirestoreTab(
-  { drafts = {} }: { readonly drafts?: Record<string, unknown>; } = {},
-) {
+function createFirestoreTab() {
   return {
+    activeLoadedPageCount: 0,
     activeDraft: {
       path: 'orders',
       filters: [],
@@ -602,34 +587,39 @@ function createFirestoreTab(
       },
       selectionPreviewExpandedPathsByDocumentPath: {},
     },
+    activeQueryConnectionId: null,
+    activeQueryIsDocument: false,
+    activeQueryPath: null,
+    activeQueryRunId: null,
     clearTab: vi.fn(),
     duplicateTab: vi.fn(),
-    drafts,
+    editDraft: vi.fn(),
     errorMessage: null,
     hasMore: false,
     isFetchingMore: false,
     isLoading: false,
     isTabLoading: vi.fn(() => false),
+    invalidateTab: vi.fn(),
     loadMore: vi.fn(),
+    loadSubcollections: vi.fn(async () => []),
     openTab: vi.fn(() => 'tab-opened'),
     openTabInNewTab: vi.fn(() => 'tab-opened-new'),
     queryRows: [],
     refreshQuery: vi.fn(() => 'orders'),
-    resetDraft: vi.fn(),
+    removeResultDocument: vi.fn(),
+    replaceResultDocument: vi.fn(),
     resultView: 'table' as const,
     resultsStale: false,
     runQuery: vi.fn(() => 'orders'),
     selectDocument: vi.fn(),
     selectedDocument: null,
     selectedDocumentPath: null,
-    setDraft: vi.fn(),
     setInspectorOverviewCollapsed: vi.fn(),
     setInspectorSectionOpen: vi.fn(),
     setResultView: vi.fn(),
     setResultTreeExpandedIds: vi.fn(),
     setResultsStale: vi.fn(),
     setSelectionPreviewExpandedPaths: vi.fn(),
-    inspectorUi: {},
   };
 }
 
@@ -799,18 +789,23 @@ function tabsState(tabs: ReadonlyArray<WorkspaceTab>, activeTabId: string): Tabs
     activeTabId,
     interactionHistory: [],
     interactionHistoryIndex: -1,
+    selectedTreeItemId: 'collection:emu:orders',
     tabs,
   };
 }
 
-function firestoreTab(id: string, connectionId: string): WorkspaceTab {
+function firestoreTab(
+  id: string,
+  connectionId: string,
+  path = 'orders',
+  limit = 25,
+): WorkspaceTab {
   return {
     connectionId,
-    history: ['orders'],
-    historyIndex: 0,
+    draft: { ...createFirestoreDraft(path), limit },
     id,
+    inspectorUi: defaultFirestoreInspectorUiState(),
     inspectorWidth: 360,
     kind: 'firestore-query',
-    title: 'orders',
   };
 }

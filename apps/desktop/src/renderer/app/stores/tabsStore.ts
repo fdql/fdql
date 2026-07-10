@@ -1,11 +1,20 @@
+import type { FirestoreQueryDraftEdit } from '@firebase-desk/repo-contracts';
 import { Store } from '@tanstack/react-store';
-import { activePath, createEmptyTabsState } from '../../app-core/workspace/workspaceState.ts';
+import type { FirestoreInspectorUiState } from '../../app-core/firestore/query/firestoreQueryState.ts';
+import {
+  activePath,
+  createEmptyTabsState,
+  interactionLocationForTab,
+} from '../../app-core/workspace/workspaceState.ts';
 import {
   allTabsClosed,
   findOpenWorkspaceTab,
+  firestoreTabDraftEdited,
+  firestoreTabInspectorUiChanged,
   interactionMovedBack,
   interactionMovedForward,
   interactionRecorded,
+  openFirestoreTarget,
   otherTabsClosed,
   tabClosed,
   tabConnectionUpdated,
@@ -24,9 +33,11 @@ import {
   tabsSortedByProject,
   tabsToLeftClosed,
   tabsToRightClosed,
+  workspaceTreeItemSelected,
 } from '../../app-core/workspace/workspaceTransitions.ts';
 import {
   type InteractionHistoryEntry,
+  type OpenFirestoreTargetInput,
   type OpenTabInput,
   type TabsState,
   WORKSPACE_TAB_KINDS,
@@ -37,6 +48,7 @@ import {
 export {
   activePath,
   type InteractionHistoryEntry,
+  type OpenFirestoreTargetInput,
   type OpenTabInput,
   type TabsState,
   WORKSPACE_TAB_KINDS,
@@ -70,6 +82,16 @@ export const tabActions = {
       : tabOpened(tabsStore.state, input, nextTabId(input.kind));
     tabsStore.setState(() => result.state);
     return result.tabId;
+  },
+  openFirestoreTarget(input: OpenFirestoreTargetInput): string {
+    const tabId = nextTabId('firestore-query');
+    let openedId = tabId;
+    tabsStore.setState((state) => {
+      const result = openFirestoreTarget(state, input, tabId);
+      openedId = result.tabId;
+      return result.state;
+    });
+    return openedId;
   },
   duplicateTab(tabId: string): string | null {
     const source = tabsStore.state.tabs.find((tab) => tab.id === tabId);
@@ -105,6 +127,21 @@ export const tabActions = {
   updateConnection(tabId: string, connectionId: string) {
     tabsStore.setState((state) => tabConnectionUpdated(state, tabId, connectionId));
   },
+  editFirestoreDraft(tabId: string, edit: FirestoreQueryDraftEdit): boolean {
+    let queryChanged = false;
+    tabsStore.setState((state) => {
+      const result = firestoreTabDraftEdited(state, tabId, edit);
+      queryChanged = result.queryChanged;
+      return result.state;
+    });
+    return queryChanged;
+  },
+  setFirestoreInspectorUi(tabId: string, inspectorUi: FirestoreInspectorUiState) {
+    tabsStore.setState((state) => firestoreTabInspectorUiChanged(state, tabId, inspectorUi));
+  },
+  selectTreeItem(treeItemId: string | null) {
+    tabsStore.setState((state) => workspaceTreeItemSelected(state, treeItemId));
+  },
   pushHistory(tabId: string, path: string) {
     tabsStore.setState((state) => tabHistoryPushed(state, tabId, path));
   },
@@ -120,23 +157,42 @@ export const tabActions = {
   restorePath(tabId: string, path: string) {
     tabsStore.setState((state) => tabPathRestored(state, tabId, path));
   },
-  recordInteraction(entry: InteractionHistoryEntry) {
-    tabsStore.setState((state) => interactionRecorded(state, entry));
+  recordInteraction(
+    input: Omit<InteractionHistoryEntry, 'location'> & {
+      readonly location?: InteractionHistoryEntry['location'];
+    },
+  ) {
+    tabsStore.setState((state) => {
+      const tab = state.tabs.find((item) => item.id === input.activeTabId);
+      if (!tab) return state;
+      return interactionRecorded(state, {
+        ...input,
+        location: input.location ?? interactionLocationForTab(tab),
+      });
+    });
   },
-  goBackInteraction(): InteractionHistoryEntry | null {
+  goBackInteraction(
+    availableConnectionIds?: ReadonlySet<string>,
+    beforeRestore?: (entry: InteractionHistoryEntry) => void,
+  ): InteractionHistoryEntry | null {
     let entry: InteractionHistoryEntry | null = null;
     tabsStore.setState((state) => {
-      const result = interactionMovedBack(state);
+      const result = interactionMovedBack(state, availableConnectionIds);
       entry = result.entry;
+      if (result.entry) beforeRestore?.(result.entry);
       return result.state;
     });
     return entry;
   },
-  goForwardInteraction(): InteractionHistoryEntry | null {
+  goForwardInteraction(
+    availableConnectionIds?: ReadonlySet<string>,
+    beforeRestore?: (entry: InteractionHistoryEntry) => void,
+  ): InteractionHistoryEntry | null {
     let entry: InteractionHistoryEntry | null = null;
     tabsStore.setState((state) => {
-      const result = interactionMovedForward(state);
+      const result = interactionMovedForward(state, availableConnectionIds);
       entry = result.entry;
+      if (result.entry) beforeRestore?.(result.entry);
       return result.state;
     });
     return entry;

@@ -59,14 +59,14 @@ describe('FieldAutocompleteInput', () => {
 
   it('keeps typing local and commits after the user pauses', () => {
     vi.useFakeTimers();
-    const onChange = vi.fn();
+    const onCommit = vi.fn();
     try {
       render(
         <FieldAutocompleteInput
           ariaLabel='Field'
+          onCommit={onCommit}
           suggestions={suggestions}
           value=''
-          onChange={onChange}
         />,
       );
 
@@ -74,13 +74,13 @@ describe('FieldAutocompleteInput', () => {
       fireEvent.change(input, { target: { value: 'custom.path' } });
 
       expect(input.value).toBe('custom.path');
-      expect(onChange).not.toHaveBeenCalled();
+      expect(onCommit).not.toHaveBeenCalled();
 
       act(() => {
         vi.advanceTimersByTime(120);
       });
 
-      expect(onChange).toHaveBeenCalledWith('custom.path');
+      expect(onCommit).toHaveBeenCalledWith('custom.path');
     } finally {
       vi.useRealTimers();
     }
@@ -131,9 +131,9 @@ function ControlledFieldAutocompleteInput(
   return (
     <FieldAutocompleteInput
       ariaLabel='Field'
+      onCommit={setValue}
       suggestions={fieldSuggestions}
       value={value}
-      onChange={setValue}
     />
   );
 }

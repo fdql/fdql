@@ -65,12 +65,12 @@ describe('createAppShellController', () => {
     expect(mocks.firestoreTab.openTab).toHaveBeenCalledWith('emu', 'orders');
     expect(mocks.firestoreWrite.requestCreateDocument).toHaveBeenCalledWith({
       collectionPath: 'orders',
+      connectionId: 'emu',
       requestId: 1,
       tabId: 'tab-opened',
     });
     expect(mocks.ui.recordInteraction).toHaveBeenCalledWith({
       activeTabId: 'tab-opened',
-      path: 'orders',
       selectedTreeItemId: collectionNodeId('emu', 'orders'),
     });
     expect(mocks.ui.setLastAction).toHaveBeenCalledWith('Creating document in orders');
@@ -82,10 +82,11 @@ describe('createAppShellController', () => {
 
     controller.sidebar.onCreateCollection(firestoreNodeId('emu'));
 
-    expect(mocks.firestoreTab.openTab).toHaveBeenCalledWith('emu', DEFAULT_FIRESTORE_DRAFT.path);
+    expect(mocks.firestoreTab.openTab).toHaveBeenCalledWith('emu', '');
     expect(mocks.firestoreWrite.requestCreateDocument).toHaveBeenCalledWith({
       collectionPath: '',
       collectionPathEditable: true,
+      connectionId: 'emu',
       requestId: 1,
       tabId: 'tab-opened',
     });
@@ -103,8 +104,8 @@ describe('createAppShellController', () => {
     controller.workspace.onConnectionChange('prod');
 
     expect(mocks.ui.updateActiveTabConnection).toHaveBeenCalledWith(tab.id, 'prod');
-    expect(mocks.firestoreTab.clearTab).toHaveBeenCalledWith(tab.id);
-    expect(mocks.jsTab.clearTab).toHaveBeenCalledWith(tab.id);
+    expect(mocks.firestoreTab.invalidateTab).not.toHaveBeenCalled();
+    expect(mocks.jsTab.clearTab).not.toHaveBeenCalled();
     expect(mocks.ui.clearAuthSelection).toHaveBeenCalledTimes(1);
     expect(mocks.authTab.clear).toHaveBeenCalledTimes(1);
     expect(mocks.ui.selectTreeItem).toHaveBeenCalledWith(authNodeId('prod'));
@@ -214,7 +215,6 @@ describe('createAppShellController', () => {
     expect(mocks.ui.selectTreeItem).toHaveBeenCalledWith('fdql:emu');
     expect(mocks.ui.recordInteraction).toHaveBeenCalledWith({
       activeTabId: 'tab-duplicate',
-      path: 'fdql/default',
       selectedTreeItemId: 'fdql:emu',
     });
   });
@@ -237,7 +237,6 @@ describe('createAppShellController', () => {
     expect(mocks.firestoreTab.openTab).toHaveBeenCalledWith('emu', 'orders/ord_1024');
     expect(mocks.ui.recordInteraction).toHaveBeenCalledWith({
       activeTabId: 'tab-opened',
-      path: 'orders/ord_1024',
       selectedTreeItemId: input.selection.treeItemId,
     });
     expect(mocks.ui.setLastAction).toHaveBeenCalledWith('Opened orders/ord_1024');
@@ -383,6 +382,22 @@ describe('createAppShellController', () => {
       ['root:orders'],
     );
   });
+
+  it('forwards granular Firestore draft edits', () => {
+    const tab = firestoreTab({ id: 'tab-firestore-1' });
+    const { input, mocks } = createInput({
+      activeTab: tab,
+      tabsState: tabsState([tab], tab.id),
+    });
+    const controller = createAppShellController(input);
+
+    controller.tabView?.firestore.onDraftEdit({ type: 'path-set', path: 'auditLogs' });
+
+    expect(mocks.firestoreTab.editDraft).toHaveBeenCalledWith({
+      type: 'path-set',
+      path: 'auditLogs',
+    });
+  });
 });
 
 function createInput(
@@ -447,30 +462,33 @@ function createInput(
   };
   const firestoreTabFacade = {
     activeDraft: draft('orders'),
-    activeInspectorUi: defaultFirestoreInspectorUiState(),
+    activeInspectorUi: tab?.kind === 'firestore-query'
+      ? tab.inspectorUi
+      : defaultFirestoreInspectorUiState(),
+    activeQueryPath: 'orders',
     clearTab: vi.fn(),
     duplicateTab: vi.fn(),
-    drafts: {},
+    editDraft: vi.fn(),
     errorMessage: null,
     hasMore: false,
+    invalidateTab: vi.fn(),
     isFetchingMore: false,
     isLoading: false,
     isTabLoading: vi.fn(() => false),
     loadMore: vi.fn(),
+    loadSubcollections: vi.fn(async () => []),
     openTab: vi.fn(() => 'tab-opened'),
     openTabInNewTab: vi.fn(() => 'tab-opened-new'),
     queryRows: [],
     refreshQuery: vi.fn(() => 'orders'),
     removeResultDocument: vi.fn(),
     replaceResultDocument: vi.fn(),
-    resetDraft: vi.fn(),
     resultView: 'table' as const,
     resultsStale: false,
     runQuery: vi.fn(() => 'orders'),
     selectDocument: vi.fn(),
     selectedDocument: null,
     selectedDocumentPath: null,
-    setDraft: vi.fn(),
     setInspectorOverviewCollapsed: vi.fn(),
     setInspectorSectionOpen: vi.fn(),
     setResultView: vi.fn(),
@@ -479,6 +497,7 @@ function createInput(
     setSelectionPreviewExpandedPaths: vi.fn(),
   };
   const firestoreWriteFacade = {
+    clearTabScope: vi.fn(),
     createDocument: vi.fn(),
     createDocumentRequest: null,
     deleteDocument: vi.fn(),
@@ -535,7 +554,6 @@ function createInput(
     clearAuthSelection: vi.fn(),
     recordInteraction: vi.fn(),
     requestDestructiveAction: vi.fn(),
-    restorePath: vi.fn(),
     selectAuthUser: vi.fn(),
     selectTreeItem: vi.fn(),
     setAddProjectOpen: vi.fn(),
@@ -655,15 +673,16 @@ function tabsState(tabs: ReadonlyArray<WorkspaceTab>, activeTabId: string) {
   };
 }
 
-function firestoreTab(patch: Partial<WorkspaceTab> = {}): WorkspaceTab {
+function firestoreTab(
+  patch: Partial<Extract<WorkspaceTab, { kind: 'firestore-query'; }>> = {},
+): Extract<WorkspaceTab, { kind: 'firestore-query'; }> {
   return {
     connectionId: 'emu',
-    history: ['orders'],
-    historyIndex: 0,
+    draft: draft('orders'),
     id: 'tab-firestore',
+    inspectorUi: defaultFirestoreInspectorUiState(),
     inspectorWidth: 360,
     kind: 'firestore-query',
-    title: 'orders',
     ...patch,
   };
 }

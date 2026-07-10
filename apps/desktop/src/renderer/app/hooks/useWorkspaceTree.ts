@@ -1,12 +1,11 @@
 import type { FirestoreCollectionNode, ProjectSummary } from '@firebase-desk/repo-contracts';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   openWorkspaceTreeItemCommand,
   selectWorkspaceTreeItemCommand,
   type WorkspaceTreeTarget,
 } from '../../app-core/workspace/workspaceTreeCommands.ts';
 import { useRepositories } from '../RepositoryProvider.tsx';
-import { selectionActions } from '../stores/selectionStore.ts';
 import {
   activePath,
   tabActions,
@@ -51,6 +50,13 @@ export function useWorkspaceTree(
 ) {
   const repositories = useRepositories();
   const [treeFilter, setTreeFilter] = useState('');
+  const lastSelectionRef = useRef<
+    {
+      readonly created: boolean;
+      readonly id: string;
+      readonly tabId: string;
+    } | null
+  >(null);
   const [expandedTreeIds, setExpandedTreeIds] = useState<ReadonlySet<string>>(() => new Set());
   const [treeCache, setTreeCache] = useState<TreeCache>(initialTreeCache);
   const treeItems = useMemo(
@@ -130,7 +136,6 @@ export function useWorkspaceTree(
       return;
     }
     const parsed = parseTreeId(id);
-    selectionActions.selectTreeItem(id);
     const result = selectWorkspaceTreeItemCommand({
       activeTab: activeTab
         ? { id: activeTab.id, path: activePath(activeTab) }
@@ -138,11 +143,29 @@ export function useWorkspaceTree(
       item: parsed,
       selectedTreeItemId: id,
     });
-    recordTreeTarget(result.target, id);
+    const tabIdsBeforeOpen = new Set(tabsStore.state.tabs.map((tab) => tab.id));
+    const opened = recordTreeTarget(result.target, id);
+    lastSelectionRef.current = opened?.tabId
+      ? { created: !tabIdsBeforeOpen.has(opened.tabId), id, tabId: opened.tabId }
+      : null;
     setLastAction(result.lastAction);
   }
 
   function handleOpenItem(id: string) {
+    const selection = lastSelectionRef.current;
+    lastSelectionRef.current = null;
+    if (
+      selection?.id === id
+      && selection.created
+      && tabsStore.state.tabs.some((tab) => tab.id === selection.tabId)
+    ) {
+      tabActions.selectTab(selection.tabId);
+      tabActions.recordInteraction({
+        activeTabId: selection.tabId,
+        selectedTreeItemId: id,
+      });
+      return;
+    }
     const parsed = parseTreeId(id);
     recordTreeTarget(openWorkspaceTreeItemCommand(parsed).target, id);
   }
@@ -156,14 +179,14 @@ export function useWorkspaceTree(
   }
 
   function recordTreeTarget(target: WorkspaceTreeTarget | null, targetTreeItemId: string) {
-    if (!target) return;
+    if (!target) return null;
     const opened = openTreeTarget(target);
-    if (!opened.tabId) return;
+    if (!opened.tabId) return null;
     tabActions.recordInteraction({
       activeTabId: opened.tabId,
       selectedTreeItemId: targetTreeItemId,
-      ...(opened.path === undefined ? {} : { path: opened.path }),
     });
+    return opened;
   }
 
   function openTreeTarget(

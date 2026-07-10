@@ -16,9 +16,11 @@ export interface FirestoreWriteCommandAvailability {
 export function selectCreateDocumentRequestForTab(
   state: FirestoreWriteState,
   tabId: string | null | undefined,
+  connectionId?: string | null | undefined,
 ) {
-  if (!tabId) return null;
+  if (!tabId || !connectionId) return null;
   return state.pendingCreateDocumentRequest?.tabId === tabId
+      && state.pendingCreateDocumentRequest.connectionId === connectionId
     ? state.pendingCreateDocumentRequest
     : null;
 }
@@ -26,8 +28,9 @@ export function selectCreateDocumentRequestForTab(
 export function selectCreateDocumentModalModel(
   state: FirestoreWriteState,
   tabId: string | null | undefined,
+  connectionId?: string | null | undefined,
 ): FirestoreCreateDocumentModalModel | null {
-  const request = selectCreateDocumentRequestForTab(state, tabId);
+  const request = selectCreateDocumentRequestForTab(state, tabId, connectionId);
   if (!request) return null;
   return {
     errorMessage: state.create.status === 'failed' ? state.create.errorMessage : null,

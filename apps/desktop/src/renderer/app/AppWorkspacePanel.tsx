@@ -9,6 +9,7 @@ import type { ActivityLogEntry, ProjectSummary } from '@firebase-desk/repo-contr
 import { Badge, Button, IconButton, Toolbar } from '@firebase-desk/ui';
 import { Database, RefreshCw } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
+import { tabTitle } from '../app-core/workspace/workspaceState.ts';
 import { AppStatusBar } from './AppStatusBar.tsx';
 import { ProjectSwitcher } from './ProjectSwitcher.tsx';
 import { RenderErrorBoundary } from './RenderErrorBoundary.tsx';
@@ -155,7 +156,7 @@ export function AppWorkspacePanel(
             <span className='flex min-w-0 flex-1 items-center gap-2'>
               <Database size={14} aria-hidden='true' />
               <span className='truncate text-sm font-semibold text-text-primary'>
-                {activeTab?.title ?? 'No tab'}
+                {activeTab ? tabTitle(activeTab) : 'No tab'}
               </span>
             </span>
             {activeProject
@@ -187,7 +188,7 @@ export function AppWorkspacePanel(
         }
       >
         <RenderErrorBoundary
-          label={activeTab?.title ?? 'Workspace'}
+          label={activeTab ? tabTitle(activeTab) : 'Workspace'}
           resetKey={activeTab?.id ?? 'empty'}
           onError={onViewError}
         >
@@ -234,7 +235,7 @@ export function AppWorkspacePanel(
       />
       <AppStatusBar
         activeProject={activeProject}
-        activeTabTitle={activeTab?.title ?? 'No tab'}
+        activeTabTitle={activeTab ? tabTitle(activeTab) : 'No tab'}
         activityBadge={activity.buttonBadge}
         activityButtonVariant={activity.buttonVariant}
         activityOpen={activity.open}

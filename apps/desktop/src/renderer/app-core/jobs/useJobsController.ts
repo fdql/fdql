@@ -3,7 +3,7 @@ import type {
   BackgroundJobRepository,
   FirestoreCollectionJobRequest,
 } from '@firebase-desk/repo-contracts/jobs';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { messageFromError } from '../shared/errors.ts';
 import { useAppCoreStore } from '../shared/reactStore.ts';
 import { selectJobsButtonModel } from './jobsSelectors.ts';
@@ -19,17 +19,19 @@ import {
 } from './jobsTransitions.ts';
 
 export interface UseJobsControllerInput {
+  readonly onJobSucceeded?: ((job: BackgroundJob) => void) | undefined;
   readonly onStatus?: ((message: string) => void) | undefined;
   readonly repository: BackgroundJobRepository;
   readonly store?: JobsStore | undefined;
 }
 
 export function useJobsController(
-  { onStatus, repository, store: inputStore }: UseJobsControllerInput,
+  { onJobSucceeded, onStatus, repository, store: inputStore }: UseJobsControllerInput,
 ) {
   const [ownedStore] = useState(createJobsStore);
   const store = inputStore ?? ownedStore;
   const state = useAppCoreStore(store);
+  const notifyJobSucceeded = useEffectEvent((job: BackgroundJob) => onJobSucceeded?.(job));
 
   const acknowledgeIssueJobs = useCallback((jobs: ReadonlyArray<BackgroundJob>) => {
     const ids = jobs.filter(isUnacknowledgedIssueJob).map((job) => job.id);
@@ -62,6 +64,9 @@ export function useJobsController(
         event.type === 'job-updated' && isFinalStatus(event.job.status) && !event.job.acknowledgedAt
       ) {
         onStatus?.(event.job.summary ?? event.job.status);
+      }
+      if (event.type !== 'job-removed' && event.job.status === 'succeeded') {
+        notifyJobSucceeded(event.job);
       }
     });
   }, [acknowledgeIssueJobs, load, onStatus, repository, store]);

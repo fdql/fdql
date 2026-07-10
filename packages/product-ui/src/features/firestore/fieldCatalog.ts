@@ -95,17 +95,23 @@ export function mergeFieldCatalogEntries(
 export function useFirestoreFieldCatalog(
   {
     onSettingsError,
+    observationQueryPath,
     queryPath,
     rows,
     settings,
   }: {
     readonly onSettingsError?: ((message: string) => void) | undefined;
+    readonly observationQueryPath?: string | null | undefined;
     readonly queryPath: string;
     readonly rows: ReadonlyArray<FirestoreDocumentResult>;
     readonly settings?: SettingsRepository | undefined;
   },
 ): ReadonlyArray<FirestoreFieldCatalogEntry> {
-  const key = useMemo(() => fieldCatalogKeyForPath(queryPath), [queryPath]);
+  const suggestionKey = useMemo(() => fieldCatalogKeyForPath(queryPath), [queryPath]);
+  const observationKey = useMemo(
+    () => fieldCatalogKeyForPath(observationQueryPath ?? queryPath),
+    [observationQueryPath, queryPath],
+  );
   const [catalogs, setCatalogs] = useState<FirestoreFieldCatalogs>({});
 
   useEffect(() => {
@@ -134,13 +140,13 @@ export function useFirestoreFieldCatalog(
     let cancelled = false;
     settings.load()
       .then((snapshot) => {
-        const currentEntries = snapshot.firestoreFieldCatalogs[key] ?? [];
+        const currentEntries = snapshot.firestoreFieldCatalogs[observationKey] ?? [];
         const mergedEntries = mergeFieldCatalogEntries(currentEntries, observed);
         if (catalogEntriesEqual(currentEntries, mergedEntries)) return snapshot;
         return settings.save({
           firestoreFieldCatalogs: {
             ...snapshot.firestoreFieldCatalogs,
-            [key]: mergedEntries,
+            [observationKey]: mergedEntries,
           },
         });
       })
@@ -155,9 +161,9 @@ export function useFirestoreFieldCatalog(
     return () => {
       cancelled = true;
     };
-  }, [key, onSettingsError, rows, settings]);
+  }, [observationKey, onSettingsError, rows, settings]);
 
-  return catalogs[key] ?? [];
+  return catalogs[suggestionKey] ?? [];
 }
 
 function collectFields(

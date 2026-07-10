@@ -1,3 +1,4 @@
+import { tabTitle } from './workspaceState.ts';
 import { allTabsClosed, tabClosed, tabsRestored } from './workspaceTransitions.ts';
 import type { TabsState, WorkspaceTab } from './workspaceTypes.ts';
 
@@ -28,7 +29,9 @@ export function closeWorkspaceTabsCommand(
 
   if (!tabsToCleanup.length) {
     return {
-      lastAction: `Still loading ${blockedTabs[0]?.title ?? 'tab'}`,
+      lastAction: blockedTabs[0]
+        ? `Still loading ${tabTitle(blockedTabs[0])}`
+        : 'Still loading tab',
       state,
       tabsToCleanup,
     };

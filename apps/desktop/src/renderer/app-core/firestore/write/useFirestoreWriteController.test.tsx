@@ -11,7 +11,6 @@ import { useFirestoreWriteController } from './useFirestoreWriteController.ts';
 
 describe('useFirestoreWriteController', () => {
   it('routes write operations through the active project repository', async () => {
-    const clearSelectedDocument = vi.fn();
     const firestore = firestoreRepository({
       createDocument: vi.fn().mockResolvedValue(document()),
       deleteDocument: vi.fn().mockResolvedValue(undefined),
@@ -23,7 +22,6 @@ describe('useFirestoreWriteController', () => {
       useFirestoreWriteController({
         activeProject: project,
         activeTab: { id: 'tab_1', kind: 'firestore-query' },
-        clearSelectedDocument,
         dataMode: 'live',
         firestore,
         onStatus: vi.fn(),
@@ -71,7 +69,6 @@ describe('useFirestoreWriteController', () => {
     expect(firestore.deleteDocument).toHaveBeenCalledWith('emu', 'orders/ord_1', {
       deleteSubcollectionPaths: ['orders/ord_1/events'],
     });
-    expect(clearSelectedDocument).toHaveBeenCalledWith('tab_1');
   });
 
   it('keeps failure statuses visible while rethrowing modal errors', async () => {
@@ -84,7 +81,6 @@ describe('useFirestoreWriteController', () => {
       useFirestoreWriteController({
         activeProject: project,
         activeTab: { id: 'tab_1', kind: 'firestore-query' },
-        clearSelectedDocument: vi.fn(),
         dataMode: 'mock',
         firestore,
         onStatus,

@@ -7,6 +7,7 @@ import type {
 export interface PendingCreateDocumentRequest {
   readonly collectionPath: string;
   readonly collectionPathEditable?: boolean;
+  readonly connectionId: string;
   readonly requestId: number;
   readonly tabId: string;
 }

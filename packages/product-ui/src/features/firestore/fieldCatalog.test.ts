@@ -423,6 +423,53 @@ describe('fieldCatalog', () => {
     await waitFor(() => expect(onSettingsError).toHaveBeenCalledWith('catalog load failed'));
   });
 
+  it('suggests from the draft target and records rows against the execution target', async () => {
+    const loadedSnapshot: SettingsSnapshot = {
+      ...settingsSnapshot,
+      firestoreFieldCatalogs: {
+        customers: [{ count: 2, field: 'plan', types: ['string'] }],
+      },
+    };
+    const settings: SettingsRepository = {
+      getHotkeyOverrides: vi.fn(async () => ({})),
+      load: vi.fn(async () => loadedSnapshot),
+      save: vi.fn(async (patch) => ({
+        ...loadedSnapshot,
+        firestoreFieldCatalogs: patch.firestoreFieldCatalogs
+          ?? loadedSnapshot.firestoreFieldCatalogs,
+      })),
+      setHotkeyOverrides: vi.fn(async () => undefined),
+    };
+
+    const { result } = renderHook(() =>
+      useFirestoreFieldCatalog({
+        observationQueryPath: 'orders',
+        queryPath: 'customers',
+        rows: [{
+          data: { total: 42 },
+          hasSubcollections: false,
+          id: 'ord_1',
+          path: 'orders/ord_1',
+        }],
+        settings,
+      })
+    );
+
+    await waitFor(() =>
+      expect(result.current).toEqual([
+        { count: 2, field: 'plan', types: ['string'] },
+      ])
+    );
+    await waitFor(() =>
+      expect(settings.save).toHaveBeenCalledWith({
+        firestoreFieldCatalogs: {
+          customers: [{ count: 2, field: 'plan', types: ['string'] }],
+          orders: [{ count: 1, field: 'total', types: ['number'] }],
+        },
+      })
+    );
+  });
+
   it('reports settings save failures', async () => {
     const onSettingsError = vi.fn();
     const settings: SettingsRepository = {

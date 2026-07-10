@@ -25,6 +25,15 @@ export function firestoreCreateDocumentRequestHandled(
     : state;
 }
 
+export function firestoreCreateDocumentScopeInvalidated(
+  state: FirestoreWriteState,
+  tabId: string,
+): FirestoreWriteState {
+  return state.pendingCreateDocumentRequest?.tabId === tabId
+    ? { ...state, pendingCreateDocumentRequest: null }
+    : state;
+}
+
 export function firestoreCreateStarted(
   state: FirestoreWriteState,
   documentPath: string,

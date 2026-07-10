@@ -1,4 +1,5 @@
 import type { CommandPaletteItem } from '@firebase-desk/product-ui';
+import { tabTitle } from '../app-core/workspace/workspaceState.ts';
 import type { WorkspaceTab, WorkspaceTabKind } from './stores/tabsStore.ts';
 
 export interface CommandPaletteModelInput {
@@ -33,7 +34,7 @@ export function createCommandPaletteModel(
   return [
     ...tabs.map((tab) => ({
       id: `switch-${tab.id}`,
-      label: `Switch to ${tab.title}`,
+      label: `Switch to ${tabTitle(tab)}`,
       onSelect: () => onSelectTab(tab.id),
     })),
     {

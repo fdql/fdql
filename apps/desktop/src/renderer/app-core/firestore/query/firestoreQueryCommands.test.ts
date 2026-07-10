@@ -7,25 +7,34 @@ import { describe, expect, it, vi } from 'vitest';
 import { createAppCoreStore } from '../../shared/store.ts';
 import {
   completeFirestoreQueryCommand,
+  completeFirestoreSubcollectionsLoadCommand,
   continueFirestorePageReloadCommand,
   executeFirestoreLoadMoreCommand,
   executeFirestoreQueryCommand,
+  failFirestoreSubcollectionsLoadCommand,
   firestoreQueryCompletionActivity,
-  loadFirestoreSubcollectionsCommand,
   loadMoreFirestoreQueryCommand,
   openFirestoreDocumentInNewTabCommand,
   refreshFirestoreQueryCommand,
   runFirestoreQueryCommand,
+  startFirestoreSubcollectionsLoadCommand,
 } from './firestoreQueryCommands.ts';
 import { selectFirestoreTabResultState } from './firestoreQuerySelectors.ts';
 import { createInitialFirestoreQueryRuntimeState } from './firestoreQueryState.ts';
+import { firestoreQuerySucceeded } from './firestoreQueryTransitions.ts';
 
 describe('firestore query commands', () => {
   it('submits a query and returns a tab interaction intent', () => {
+    const activeDraft = draft('orders');
+    const filterValue = { statuses: ['paid'] };
+    const submittedQuery: FirestoreQuery = {
+      ...query('orders'),
+      filters: [{ field: 'status', op: 'in', value: filterValue }],
+    };
     const result = runFirestoreQueryCommand(createInitialFirestoreQueryRuntimeState(), {
-      activeDraft: draft('orders'),
+      activeDraft,
       clearSelection: true,
-      query: query('orders'),
+      query: submittedQuery,
       selectedTreeItemId: 'collection:emu:orders',
       tab,
     });
@@ -36,7 +45,15 @@ describe('firestore query commands', () => {
       path: 'orders',
       selectedTreeItemId: 'collection:emu:orders',
     });
-    expect(result.state.queryRequests[tab.id]).toMatchObject({ runId: 1 });
+    const execution = result.state.queryRequests[tab.id]!;
+    filterValue.statuses.push('refunded');
+    expect(execution).toMatchObject({ runId: 1 });
+    expect(execution.draft).not.toBe(activeDraft);
+    expect(execution.query).not.toBe(submittedQuery);
+    expect(Object.isFrozen(execution)).toBe(true);
+    expect(Object.isFrozen(execution.token)).toBe(true);
+    expect(execution.query.filters?.[0]?.value).toEqual({ statuses: ['paid'] });
+    expect(Object.isFrozen(execution.query.filters?.[0]?.value)).toBe(true);
   });
 
   it('returns no-op results when no Firestore query tab is active', () => {
@@ -97,8 +114,23 @@ describe('firestore query commands', () => {
   });
 
   it('returns a load more intent only for collection queries', () => {
+    const submitted = runFirestoreQueryCommand(createInitialFirestoreQueryRuntimeState(), {
+      activeDraft: draft('orders'),
+      clearSelection: true,
+      query: query('orders'),
+      selectedTreeItemId: null,
+      tab,
+    }).state;
+    const execution = submitted.queryRequests[tab.id]!;
+    const loaded = firestoreQuerySucceeded(
+      submitted,
+      tab.id,
+      [{ items: [row('ord_1')], nextCursor: { token: 'page-2' } }],
+      true,
+      execution,
+    );
     const collectionResult = loadMoreFirestoreQueryCommand(
-      createInitialFirestoreQueryRuntimeState(),
+      loaded,
       {
         isDocumentQuery: false,
         tabId: tab.id,
@@ -106,6 +138,10 @@ describe('firestore query commands', () => {
     );
     expect(collectionResult.shouldFetchNextPage).toBe(true);
     expect(resultFor(collectionResult.state, tab.id).isFetchingMore).toBe(true);
+    expect(loadMoreFirestoreQueryCommand(collectionResult.state, {
+      isDocumentQuery: false,
+      tabId: tab.id,
+    })).toEqual({ shouldFetchNextPage: false, state: collectionResult.state });
 
     const documentState = createInitialFirestoreQueryRuntimeState();
     expect(loadMoreFirestoreQueryCommand(documentState, {
@@ -242,6 +278,7 @@ describe('firestore query commands', () => {
       limit: 25,
     });
     expect(store.get().resultsByTab[tab.id]?.pages).toHaveLength(2);
+    expect(store.get().resultsByTab[tab.id]?.execution).toBe(submitted.queryRequests[tab.id]);
     expect(recordActivity).toHaveBeenCalledTimes(1);
     expect(recordActivity).toHaveBeenCalledWith(expect.objectContaining({
       durationMs: 45,
@@ -283,6 +320,45 @@ describe('firestore query commands', () => {
 
     expect(store.get().resultsByTab[tab.id]?.pages).toEqual([]);
     expect(store.get().queryRequests[tab.id]?.query.path).toBe('customers');
+    expect(recordActivity).not.toHaveBeenCalled();
+  });
+
+  it('ignores an execution whose scalar token was reused after runtime reset', async () => {
+    const first = runFirestoreQueryCommand(createInitialFirestoreQueryRuntimeState(), {
+      activeDraft: draft('orders'),
+      clearSelection: true,
+      query: query('orders'),
+      selectedTreeItemId: null,
+      tab,
+    }).state;
+    const replacement = runFirestoreQueryCommand(createInitialFirestoreQueryRuntimeState(), {
+      activeDraft: draft('orders'),
+      clearSelection: true,
+      query: query('orders'),
+      selectedTreeItemId: null,
+      tab,
+    }).state;
+    const firstExecution = first.queryRequests[tab.id]!;
+    const replacementExecution = replacement.queryRequests[tab.id]!;
+    const store = createAppCoreStore(replacement);
+    const recordActivity = vi.fn();
+
+    await executeFirestoreQueryCommand(store, {
+      getDocument: vi.fn(),
+      now: vi.fn(() => 0),
+      recordActivity,
+      runQuery: vi.fn(async () => ({ items: [row('ord_1')], nextCursor: null })),
+    }, {
+      draft: draft('orders'),
+      isRefresh: false,
+      pagesToLoad: 1,
+      request: firstExecution,
+      tab,
+    });
+
+    expect(firstExecution.token).toMatchObject(replacementExecution.token);
+    expect(firstExecution.token).not.toBe(replacementExecution.token);
+    expect(store.get()).toBe(replacement);
     expect(recordActivity).not.toHaveBeenCalled();
   });
 
@@ -351,39 +427,33 @@ describe('firestore query commands', () => {
   });
 
   it('merges loaded subcollections and returns document open intents', () => {
-    const state = loadFirestoreSubcollectionsCommand(
-      createInitialFirestoreQueryRuntimeState({
-        drafts: {},
-      }),
-      {
-        documentPath: 'orders/ord_1',
-        subcollections: [{ id: 'events', path: 'orders/ord_1/events' }],
-      },
+    const submitted = runFirestoreQueryCommand(createInitialFirestoreQueryRuntimeState(), {
+      activeDraft: draft('orders'),
+      clearSelection: true,
+      query: query('orders'),
+      selectedTreeItemId: null,
+      tab,
+    }).state;
+    const execution = submitted.queryRequests[tab.id]!;
+    const loaded = firestoreQuerySucceeded(
+      submitted,
+      tab.id,
+      [{
+        items: [{ data: {}, hasSubcollections: true, id: 'ord_1', path: 'orders/ord_1' }],
+      }],
+      false,
+      execution,
     );
-    expect(resultFor(state, tab.id).pages).toEqual([]);
-
-    const withPage = loadFirestoreSubcollectionsCommand(
-      {
-        ...createInitialFirestoreQueryRuntimeState(),
-        resultsByTab: {
-          [tab.id]: {
-            errorMessage: null,
-            hasMore: false,
-            isFetchingMore: false,
-            isLoading: false,
-            pages: [{
-              items: [{ data: {}, hasSubcollections: true, id: 'ord_1', path: 'orders/ord_1' }],
-            }],
-            resultView: 'table',
-            resultsStale: false,
-          },
-        },
-      },
-      {
-        documentPath: 'orders/ord_1',
-        subcollections: [{ id: 'events', path: 'orders/ord_1/events' }],
-      },
-    );
+    const started = startFirestoreSubcollectionsLoadCommand(loaded, {
+      documentPath: 'orders/ord_1',
+      execution,
+    });
+    expect(started.request).not.toBeNull();
+    expect(Object.values(started.state.subcollectionRequests)).toEqual([started.request]);
+    const withPage = completeFirestoreSubcollectionsLoadCommand(started.state, {
+      request: started.request!,
+      subcollections: [{ id: 'events', path: 'orders/ord_1/events' }],
+    });
     expect(resultFor(withPage, tab.id).pages[0]?.items[0]?.subcollections).toEqual([{
       id: 'events',
       path: 'orders/ord_1/events',
@@ -392,6 +462,39 @@ describe('firestore query commands', () => {
       connectionId: 'emu',
       path: 'orders/ord_1',
     });
+  });
+
+  it('clears only the exact failed subcollection request so it can retry', () => {
+    const submitted = runFirestoreQueryCommand(createInitialFirestoreQueryRuntimeState(), {
+      activeDraft: draft('orders'),
+      clearSelection: true,
+      query: query('orders'),
+      selectedTreeItemId: null,
+      tab,
+    }).state;
+    const execution = submitted.queryRequests[tab.id]!;
+    const loaded = firestoreQuerySucceeded(
+      submitted,
+      tab.id,
+      [{ items: [row('ord_1')] }],
+      false,
+      execution,
+    );
+    const first = startFirestoreSubcollectionsLoadCommand(loaded, {
+      documentPath: 'orders/ord_1',
+      execution,
+    });
+
+    const failed = failFirestoreSubcollectionsLoadCommand(first.state, first.request!);
+    const retry = startFirestoreSubcollectionsLoadCommand(failed, {
+      documentPath: 'orders/ord_1',
+      execution,
+    });
+    const staleFailure = failFirestoreSubcollectionsLoadCommand(retry.state, first.request!);
+
+    expect(Object.values(failed.subcollectionRequests)).toEqual([]);
+    expect(retry.request?.token).not.toBe(first.request?.token);
+    expect(staleFailure).toBe(retry.state);
   });
 
   it('builds query completion activity for collection and document reads', () => {

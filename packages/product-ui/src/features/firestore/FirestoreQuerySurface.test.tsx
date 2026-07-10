@@ -1,6 +1,7 @@
 import type {
   FirestoreDocumentResult,
   FirestoreQueryDraft,
+  FirestoreQueryDraftEdit,
   FirestoreSaveDocumentResult,
   FirestoreUpdateDocumentFieldsResult,
   SettingsRepository,
@@ -8,7 +9,7 @@ import type {
 } from '@firebase-desk/repo-contracts';
 import { MockSettingsRepository } from '@firebase-desk/repo-mocks';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { AppearanceProvider } from '../../appearance/AppearanceProvider.tsx';
 import type { DeleteDocumentOptions } from './deleteDocumentModel.ts';
@@ -177,6 +178,17 @@ const documentWithSubcollections: FirestoreDocumentResult = {
 };
 
 describe('FirestoreQuerySurface editing UX', () => {
+  it('forwards granular query draft edits', () => {
+    const onDraftEdit = vi.fn<(edit: FirestoreQueryDraftEdit) => void>();
+    renderSurface({ onDraftEdit });
+
+    fireEvent.change(screen.getByLabelText('Query path'), {
+      target: { value: 'customers' },
+    });
+
+    expect(onDraftEdit).toHaveBeenCalledWith({ type: 'path-set', path: 'customers' });
+  });
+
   it('quick toggles a boolean field from the selection preview', async () => {
     const onUpdateDocumentFields = vi.fn<UpdateDocumentFields>();
     renderSurface({ onUpdateDocumentFields });
@@ -456,6 +468,17 @@ describe('FirestoreQuerySurface editing UX', () => {
     );
   });
 
+  it('closes pending dialogs when the target scope changes', async () => {
+    render(<ScopedCreateRequestSurface />);
+
+    expect(await screen.findByRole('dialog', { name: 'New document' })).toBeTruthy();
+    fireEvent.click(screen.getByText('Change target'));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'New document' })).toBeNull();
+    });
+  });
+
   it('opens editable conflict merge and saves merged JSON with remote update time', async () => {
     const remoteDocument: FirestoreDocumentResult = {
       ...document,
@@ -623,6 +646,7 @@ function renderSurface(
     document: inputDocument = document,
     onDeleteDocument,
     onCreateDocument,
+    onDraftEdit,
     onGenerateDocumentId,
     onResultViewChange,
     onResultDocumentDeleted,
@@ -643,6 +667,7 @@ function renderSurface(
     readonly document?: FirestoreDocumentResult;
     readonly onCreateDocument?: CreateDocument;
     readonly onDeleteDocument?: DeleteDocument;
+    readonly onDraftEdit?: (edit: FirestoreQueryDraftEdit) => void;
     readonly onGenerateDocumentId?: (collectionPath: string) => Promise<string> | string;
     readonly onResultViewChange?: (resultView: FirestoreResultView) => void;
     readonly onResultDocumentDeleted?: (documentPath: string) => void;
@@ -670,10 +695,9 @@ function renderSurface(
         {...(onCreateDocument ? { onCreateDocument } : {})}
         {...(onDeleteDocument ? { onDeleteDocument } : {})}
         {...(onGenerateDocumentId ? { onGenerateDocumentId } : {})}
-        onDraftChange={() => {}}
+        onDraftEdit={onDraftEdit ?? (() => {})}
         onLoadMore={() => {}}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onResultViewChange={onResultViewChange}
         onResultDocumentDeleted={onResultDocumentDeleted}
         onResultDocumentSaved={onResultDocumentSaved}
@@ -693,6 +717,34 @@ type SaveDocument = (
   data: Record<string, unknown>,
   options?: { readonly lastUpdateTime?: string; },
 ) => FirestoreSaveDocumentResult | void | Promise<FirestoreSaveDocumentResult | void>;
+
+function ScopedCreateRequestSurface() {
+  const [scope, setScope] = useState('emu:orders');
+  const [settings] = useState(() => new MockSettingsRepository());
+  return (
+    <AppearanceProvider settings={settings}>
+      <button type='button' onClick={() => setScope('emu:auditLogs')}>Change target</button>
+      <FirestoreQuerySurface
+        createDocumentRequest={{ collectionPath: 'orders', requestId: 1 }}
+        draft={draft}
+        hasMore={false}
+        rows={[document]}
+        selectedDocument={document}
+        selectedDocumentPath={document.path}
+        settings={settings}
+        targetScopeKey={scope}
+        onCreateDocument={() => {}}
+        onDraftEdit={() => {}}
+        onGenerateDocumentId={() => 'generated_id'}
+        onLoadMore={() => {}}
+        onOpenDocumentInNewTab={() => {}}
+        onRun={() => {}}
+        onSelectDocument={() => {}}
+      />
+    </AppearanceProvider>
+  );
+}
+
 type UpdateDocumentFields = (
   documentPath: string,
   operations: ReadonlyArray<{

@@ -64,6 +64,27 @@ export interface FirestoreQueryFilterDraft {
   readonly value: string;
 }
 
+export type FirestoreQueryDraftEdit =
+  | { readonly type: 'path-set'; readonly path: string; }
+  | { readonly type: 'limit-set'; readonly limit: number; }
+  | { readonly type: 'sort-field-set'; readonly sortField: string; }
+  | {
+    readonly type: 'sort-direction-set';
+    readonly sortDirection: FirestoreQueryDraft['sortDirection'];
+  }
+  | { readonly type: 'filter-add'; readonly filter: FirestoreQueryFilterDraft; }
+  | { readonly type: 'filter-remove'; readonly filterId: string; }
+  | {
+    readonly type: 'filter-patch';
+    readonly filterId: string;
+    readonly patch: {
+      readonly field?: string;
+      readonly op?: FirestoreFilterOp;
+      readonly value?: string;
+    };
+  }
+  | { readonly type: 'reset'; };
+
 export interface FirestoreDocumentResult {
   readonly id: string;
   readonly path: string;

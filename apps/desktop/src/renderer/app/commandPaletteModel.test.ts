@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import { defaultFirestoreInspectorUiState } from '../app-core/firestore/query/firestoreQueryState.ts';
 import { createCommandPaletteModel } from './commandPaletteModel.ts';
 import type { WorkspaceTab } from './stores/tabsStore.ts';
+import { DEFAULT_FIRESTORE_DRAFT } from './workspaceModel.ts';
 
 describe('createCommandPaletteModel', () => {
   it('creates tab and workspace commands', () => {
@@ -16,7 +18,7 @@ describe('createCommandPaletteModel', () => {
       onRunScript: vi.fn(),
       onSelectTab,
       resolvedTheme: 'dark',
-      tabs: [tab('tab-1', 'Orders')],
+      tabs: [tab('tab-1', '//orders//')],
     });
 
     commands.find((command) => command.id === 'switch-tab-1')?.onSelect();
@@ -26,16 +28,18 @@ describe('createCommandPaletteModel', () => {
     expect(onSelectTab).toHaveBeenCalledWith('tab-1');
     expect(onOpenTab).toHaveBeenCalledWith('firestore-query');
     expect(onChangeTheme).toHaveBeenCalledWith('light');
+    expect(commands.find((command) => command.id === 'switch-tab-1')?.label).toBe(
+      'Switch to orders',
+    );
   });
 });
 
-function tab(id: string, title: string): WorkspaceTab {
+function tab(id: string, path: string): WorkspaceTab {
   return {
-    id,
-    title,
     connectionId: 'emu',
-    history: ['orders'],
-    historyIndex: 0,
+    draft: { ...DEFAULT_FIRESTORE_DRAFT, path },
+    id,
+    inspectorUi: defaultFirestoreInspectorUiState(),
     inspectorWidth: 360,
     kind: 'firestore-query',
   };

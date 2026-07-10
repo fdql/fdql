@@ -97,10 +97,9 @@ describe('real feature surface integrations', () => {
         draft={draft}
         hasMore={false}
         rows={documents}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSelectDocument={onSelectDocument}
       />,

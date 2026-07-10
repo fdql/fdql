@@ -1,11 +1,8 @@
-import type { FirestoreQueryDraft, FirestoreSqlContext } from '@firebase-desk/repo-contracts';
+import type { FirestoreSqlContext } from '@firebase-desk/repo-contracts';
 import type { SettingsRepository } from '@firebase-desk/repo-contracts';
 import { useEffect, useRef, useState } from 'react';
-import type { FirestoreInspectorUiState } from '../../app-core/firestore/query/firestoreQueryState.ts';
 import { restoreWorkspaceTabsCommand } from '../../app-core/workspace/workspaceCommands.ts';
-import { selectionActions } from '../stores/selectionStore.ts';
 import { type TabsState, tabsStore } from '../stores/tabsStore.ts';
-import { treeItemIdForTab } from '../workspaceModel.ts';
 import {
   loadPersistedWorkspaceStateResult,
   savePersistedWorkspaceState,
@@ -14,28 +11,22 @@ import {
 
 export interface PersistedWorkspaceSnapshot {
   readonly authFilter?: string | undefined;
-  readonly drafts?: Readonly<Record<string, FirestoreQueryDraft>> | undefined;
   readonly fdqlSources?: Readonly<Record<string, string>> | undefined;
-  readonly firestoreInspectorUi?:
-    | Readonly<Record<string, FirestoreInspectorUiState>>
-    | undefined;
   readonly scripts?: Readonly<Record<string, string>> | undefined;
   readonly sqlContexts?: Readonly<Record<string, FirestoreSqlContext>> | undefined;
   readonly sqlSources?: Readonly<Record<string, string>> | undefined;
 }
 
 export interface PersistedWorkspaceStateResult {
+  readonly persistenceEnabled: boolean;
+  readonly recoveryDiagnostic: string | null;
   readonly restored: boolean;
   readonly snapshot: PersistedWorkspaceSnapshot | null;
 }
 
 export interface WorkspacePersistenceSnapshot {
   readonly authFilter: string;
-  readonly drafts: Readonly<Record<string, FirestoreQueryDraft>>;
   readonly fdqlSources?: Readonly<Record<string, string>> | undefined;
-  readonly firestoreInspectorUi?:
-    | Readonly<Record<string, FirestoreInspectorUiState>>
-    | undefined;
   readonly scripts: Readonly<Record<string, string>>;
   readonly sqlContexts?: Readonly<Record<string, FirestoreSqlContext>> | undefined;
   readonly sqlSources?: Readonly<Record<string, string>> | undefined;
@@ -50,12 +41,16 @@ interface PendingWorkspacePersistenceSnapshot {
 export function usePersistedWorkspaceState(
   options: {
     readonly onError?: (error: WorkspacePersistenceFailure) => void;
-    readonly settings: Pick<SettingsRepository, 'load'>;
+    readonly settings:
+      & Pick<SettingsRepository, 'load'>
+      & Partial<Pick<SettingsRepository, 'save'>>;
   },
 ): PersistedWorkspaceStateResult {
   const { onError, settings } = options;
   const [result, setResult] = useState<PersistedWorkspaceStateResult>({
     restored: false,
+    persistenceEnabled: true,
+    recoveryDiagnostic: null,
     snapshot: null,
   });
   const restoredRef = useRef(false);
@@ -77,12 +72,20 @@ export function usePersistedWorkspaceState(
         if (persistedWorkspace && shouldRestore) {
           const restoreResult = restoreWorkspaceTabsCommand(persistedWorkspace.tabsState);
           tabsStore.setState(() => restoreResult.state);
-          if (restoreResult.activeTab) {
-            selectionActions.selectTreeItem(treeItemIdForTab(restoreResult.activeTab));
+          if (loadResult.migrated && settings.save) {
+            const { version: _version, ...migratedState } = persistedWorkspace;
+            void savePersistedWorkspaceState(
+              settings as typeof settings & Pick<SettingsRepository, 'save'>,
+              migratedState,
+            ).then((error) => {
+              if (error) onError?.(error);
+            });
           }
         }
       }
       setResult({
+        persistenceEnabled: loadResult.unsupportedVersion === undefined,
+        recoveryDiagnostic: loadResult.recoveryDiagnostic ?? null,
         restored: true,
         snapshot: restoredSnapshot,
       });

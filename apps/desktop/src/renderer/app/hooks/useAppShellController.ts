@@ -58,12 +58,13 @@ export function useAppShellController(
   const repositories = useRepositories();
   const desktopAppApi = getDesktopAppApi();
   const tabsState = useSelector(tabsStore, (state) => state);
-  const selection = useSelector(selectionStore, (state) => state);
+  const featureSelection = useSelector(selectionStore, (state) => state);
   const projectsQuery = useProjects();
   const projects = projectsQuery.data ?? [];
   const activeTab = tabsState.tabs.find((tab) => tab.id === tabsState.activeTabId)
     ?? tabsState.tabs[0];
   const activeProject = activeTab ? resolveProject(projects, activeTab.connectionId) : null;
+  const selection = { ...featureSelection, treeItemId: tabsState.selectedTreeItemId };
 
   const [density, setDensity] = useState<DensityName>(defaultDensity);
   const [addProjectOpen, setAddProjectOpen] = useState(false);
@@ -72,7 +73,7 @@ export function useAppShellController(
   const [firstRunGuideSaving, setFirstRunGuideSaving] = useState(false);
   const [firstRunGuideError, setFirstRunGuideError] = useState<string | null>(null);
   const [credentialWarning, setCredentialWarning] = useState<string | null>(null);
-  const [lastAction, setLastAction] = useState('Ready');
+  const [lastAction, setLastAction] = useState('Restoring workspace');
   const [workspacePersistenceError, setWorkspacePersistenceError] = useState<
     WorkspacePersistenceFailure | null
   >(null);
@@ -83,8 +84,10 @@ export function useAppShellController(
   const [collectionJobRequest, setCollectionJobRequest] = useState<
     {
       readonly collectionPath: string;
+      readonly connectionId: string;
       readonly kind: 'copy' | 'delete' | 'duplicate' | 'export' | 'import';
       readonly requestId: number;
+      readonly tabId: string;
     } | null
   >(null);
 
@@ -95,10 +98,6 @@ export function useAppShellController(
     store: activityStore,
   });
   const recordActivity = activity.record;
-  const jobs = useJobsController({
-    onStatus: setLastAction,
-    repository: repositories.jobs,
-  });
   const persistedWorkspace = usePersistedWorkspaceState({
     onError: setWorkspacePersistenceError,
     settings: repositories.settings,
@@ -165,10 +164,13 @@ export function useAppShellController(
   const firestoreTab = useFirestoreTabState({
     activeProject,
     activeTab,
-    initialDrafts: persistedWorkspace.snapshot?.drafts,
-    initialInspectorUi: persistedWorkspace.snapshot?.firestoreInspectorUi,
     onQueryActivity: recordActivity,
     selectedTreeItemId: selection.treeItemId,
+  });
+  const jobs = useJobsController({
+    onJobSucceeded: firestoreTab.markCollectionJobSucceeded,
+    onStatus: setLastAction,
+    repository: repositories.jobs,
   });
   const workspaceTree = useWorkspaceTree({
     activeTab,
@@ -211,12 +213,12 @@ export function useAppShellController(
   const firestoreWrite = useFirestoreWriteController({
     activeProject,
     activeTab,
-    clearSelectedDocument: (tabId) => firestoreTab.selectDocument(tabId, null),
     dataMode,
     firestore: repositories.firestore,
     onStatus: setLastAction,
     recordActivity,
     refreshAfterLiveWrite: workspaceTree.refreshLoadedRoots,
+    resultProject: resolveProject(projects, firestoreTab.activeQueryConnectionId),
   });
   const authTab = useAuthTabState({
     activeProject,
@@ -254,9 +256,7 @@ export function useAppShellController(
   const sidebarDefaultWidth = clampSidebarWidth(initialSidebarWidth);
   const workspaceSnapshot = useMemo(() => ({
     authFilter: authTab.authFilter,
-    drafts: firestoreTab.drafts,
     fdqlSources: fdqlTab.sources,
-    firestoreInspectorUi: firestoreTab.inspectorUi,
     scripts: jsTab.scripts,
     sqlContexts: sqlTab.contexts,
     sqlSources: sqlTab.sources,
@@ -264,8 +264,6 @@ export function useAppShellController(
   }), [
     authTab.authFilter,
     fdqlTab.sources,
-    firestoreTab.drafts,
-    firestoreTab.inspectorUi,
     jsTab.scripts,
     sqlTab.contexts,
     sqlTab.sources,
@@ -274,11 +272,19 @@ export function useAppShellController(
 
   useDocumentDensity(density);
   usePersistWorkspaceSnapshot(workspaceSnapshot, {
-    enabled: persistedWorkspace.restored,
+    enabled: persistedWorkspace.restored && persistedWorkspace.persistenceEnabled,
     onError: setWorkspacePersistenceError,
     skipInitialSave: Boolean(persistedWorkspace.snapshot),
     settings: repositories.settings,
   });
+  useEffect(() => {
+    if (!persistedWorkspace.restored) return;
+    if (persistedWorkspace.recoveryDiagnostic) {
+      setLastAction(persistedWorkspace.recoveryDiagnostic);
+      return;
+    }
+    setLastAction((current) => current === 'Restoring workspace' ? 'Ready' : current);
+  }, [persistedWorkspace.recoveryDiagnostic, persistedWorkspace.restored]);
   useEffect(() => {
     if (!workspacePersistenceError) return;
     setLastAction(`Workspace persistence failed: ${workspacePersistenceError.message}`);
@@ -397,9 +403,8 @@ export function useAppShellController(
       clearAuthSelection: () => selectionActions.selectAuthUser(null),
       recordInteraction: tabActions.recordInteraction,
       requestDestructiveAction: destructiveAction.request,
-      restorePath: tabActions.restorePath,
       selectAuthUser: selectionActions.selectAuthUser,
-      selectTreeItem: selectionActions.selectTreeItem,
+      selectTreeItem: tabActions.selectTreeItem,
       setAddProjectOpen,
       setCredentialWarning,
       setCollectionJobRequest,

@@ -634,10 +634,9 @@ describe('feature surfaces', () => {
         hasMore
         rows={documents}
         selectedDocument={selectedDocument}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSaveDocument={onSaveDocument}
         onSelectDocument={onSelectDocument}
@@ -677,10 +676,9 @@ describe('feature surfaces', () => {
         draft={draft}
         hasMore={false}
         rows={documents}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSelectDocument={() => {}}
       />,
@@ -703,10 +701,9 @@ describe('feature surfaces', () => {
         hasMore={false}
         rows={documents}
         settings={settings}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSelectDocument={() => {}}
       />,
@@ -769,11 +766,10 @@ describe('feature surfaces', () => {
           data: { status: 'paid' },
           hasSubcollections: true,
         }]}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onLoadSubcollections={onLoadSubcollections}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSelectDocument={() => {}}
       />,
@@ -799,11 +795,10 @@ describe('feature surfaces', () => {
           data: { status: 'paid' },
           hasSubcollections: true,
         }]}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onLoadSubcollections={onLoadSubcollections}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSelectDocument={() => {}}
       />,
@@ -889,10 +884,9 @@ describe('feature surfaces', () => {
         hasMore={false}
         isLoading
         rows={documents}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSelectDocument={() => {}}
       />,

@@ -49,10 +49,10 @@ export interface FieldAutocompleteInputProps {
   readonly ariaLabel: string;
   readonly className?: string;
   readonly disabled?: boolean;
+  readonly onCommit: (value: string) => void;
   readonly placeholder?: string;
   readonly suggestions?: ReadonlyArray<FirestoreFieldCatalogEntry>;
   readonly value: string;
-  readonly onChange: (value: string) => void;
 }
 
 const inputClassName =
@@ -63,10 +63,10 @@ export function FieldAutocompleteInput(
     ariaLabel,
     className,
     disabled = false,
+    onCommit,
     placeholder,
     suggestions = [],
     value,
-    onChange,
   }: FieldAutocompleteInputProps,
 ) {
   const [open, setOpen] = useState(false);
@@ -134,7 +134,7 @@ export function FieldAutocompleteInput(
     clearPendingCommit();
     if (committedValueRef.current === nextValue) return;
     committedValueRef.current = nextValue;
-    onChange(nextValue);
+    onCommit(nextValue);
   }
 
   function scheduleCommit(nextValue: string) {

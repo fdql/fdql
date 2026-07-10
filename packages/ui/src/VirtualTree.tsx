@@ -15,6 +15,7 @@ import { visibleVirtualRows } from './virtualRows.ts';
 export interface VirtualTreeNode {
   readonly id: string;
   readonly label: string;
+  readonly selected?: boolean | undefined;
   readonly depth: number;
   readonly hasChildren: boolean;
   readonly expanded: boolean;
@@ -135,6 +136,7 @@ export function VirtualTree(
               role='treeitem'
               aria-expanded={node.hasChildren ? node.expanded : undefined}
               aria-level={node.depth + 1}
+              aria-selected={node.selected}
               tabIndex={row.index === focusedIndex ? 0 : -1}
               data-virtual-tree-row-index={row.index}
               ref={(el) => {

@@ -5,7 +5,14 @@ import type {
   FirestoreQueryDraft,
   ProjectSummary,
 } from '@firebase-desk/repo-contracts';
-import { activePath, type WorkspaceTab } from './stores/tabsStore.ts';
+import {
+  DEFAULT_FIRESTORE_DRAFT,
+  normalizeFirestorePath,
+} from '../app-core/firestore/query/firestoreQueryDraft.ts';
+import { treeItemIdForWorkspaceTab } from '../app-core/workspace/workspaceState.ts';
+import type { WorkspaceTab } from './stores/tabsStore.ts';
+
+export { DEFAULT_FIRESTORE_DRAFT };
 
 export type LoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -46,17 +53,6 @@ const TREE_NODE_KIND = {
   sql: 'sql',
   status: 'status',
 } as const;
-export const DEFAULT_FIRESTORE_DRAFT: FirestoreQueryDraft = {
-  path: 'orders',
-  filters: [],
-  filterField: '',
-  filterOp: '==',
-  filterValue: '',
-  sortField: '',
-  sortDirection: 'desc',
-  limit: 25,
-};
-
 export function projectIdForConnection(name: string): string {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   return slug || 'mock-connection';
@@ -164,13 +160,8 @@ export function buildTreeItems(
 
 export function getDraft(
   tab: WorkspaceTab | undefined,
-  drafts: Readonly<Record<string, FirestoreQueryDraft>>,
 ): FirestoreQueryDraft {
-  if (!tab) return DEFAULT_FIRESTORE_DRAFT;
-  return drafts[tab.id] ?? {
-    ...DEFAULT_FIRESTORE_DRAFT,
-    path: activePath(tab) || DEFAULT_FIRESTORE_DRAFT.path,
-  };
+  return tab?.kind === 'firestore-query' ? tab.draft : DEFAULT_FIRESTORE_DRAFT;
 }
 
 export function draftToQuery(connectionId: string, draft: FirestoreQueryDraft): FirestoreQuery {
@@ -209,7 +200,7 @@ export function parseFilterValue(value: string): unknown {
 }
 
 export function normalizePath(path: string): string {
-  return path.split('/').filter(Boolean).join('/');
+  return normalizeFirestorePath(path);
 }
 
 export function isDocumentPath(path: string): boolean {
@@ -230,11 +221,7 @@ export function resolveProject(
 }
 
 export function treeItemIdForTab(tab: WorkspaceTab): string {
-  if (tab.kind === 'auth-users') return authNodeId(tab.connectionId);
-  if (tab.kind === 'js-query') return scriptNodeId(tab.connectionId);
-  if (tab.kind === 'firestore-sql') return sqlNodeId(tab.connectionId);
-  if (tab.kind === 'fdql') return fdqlNodeId(tab.connectionId);
-  return collectionNodeId(tab.connectionId, normalizePath(activePath(tab)));
+  return treeItemIdForWorkspaceTab(tab);
 }
 
 export function omitKey<T>(

@@ -38,6 +38,13 @@ function renderStrip(overrides: Partial<Parameters<typeof WorkspaceTabStrip>[0]>
 }
 
 describe('WorkspaceTabStrip', () => {
+  it('labels the workspace tablist and each tab with its connection', () => {
+    renderStrip();
+
+    expect(screen.getByRole('tablist', { name: 'Workspace tabs' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'orders — Local emulator' })).toBeTruthy();
+  });
+
   it('renders a consistent icon tab context menu without switch action', async () => {
     const props = renderStrip();
 

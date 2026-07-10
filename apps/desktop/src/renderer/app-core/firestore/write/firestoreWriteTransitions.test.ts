@@ -12,6 +12,7 @@ import { createInitialFirestoreWriteState } from './firestoreWriteState.ts';
 import {
   firestoreCreateDocumentRequested,
   firestoreCreateDocumentRequestHandled,
+  firestoreCreateDocumentScopeInvalidated,
   firestoreCreateFailed,
   firestoreCreateStarted,
   firestoreCreateSucceeded,
@@ -36,12 +37,17 @@ describe('firestore write transitions', () => {
   it('tracks create requests and create workflow state', () => {
     const requested = firestoreCreateDocumentRequested(createInitialFirestoreWriteState(), {
       collectionPath: 'orders',
+      connectionId: 'emu',
       requestId: 2,
       tabId: 'tab-1',
     });
     expect(requested.pendingCreateDocumentRequest?.requestId).toBe(2);
     expect(requested.create.status).toBe('editing');
     expect(firestoreCreateDocumentRequestHandled(requested, 1)).toBe(requested);
+    expect(firestoreCreateDocumentScopeInvalidated(requested, 'other-tab')).toBe(requested);
+    expect(
+      firestoreCreateDocumentScopeInvalidated(requested, 'tab-1').pendingCreateDocumentRequest,
+    ).toBeNull();
     expect(
       firestoreCreateDocumentRequestHandled(requested, 2).pendingCreateDocumentRequest,
     ).toBeNull();
@@ -127,17 +133,20 @@ describe('firestore write transitions', () => {
   it('selects modal props and command availability', () => {
     const requested = firestoreCreateDocumentRequested(createInitialFirestoreWriteState(), {
       collectionPath: 'orders',
+      connectionId: 'emu',
       requestId: 2,
       tabId: 'tab-1',
     });
     const creating = firestoreCreateStarted(requested, 'orders/ord_1');
 
-    expect(selectCreateDocumentModalModel(creating, 'tab-1')).toMatchObject({
+    expect(selectCreateDocumentModalModel(creating, 'tab-1', 'emu')).toMatchObject({
       errorMessage: null,
       isCreating: true,
       request: { collectionPath: 'orders', requestId: 2, tabId: 'tab-1' },
     });
-    expect(selectCreateDocumentModalModel(creating, 'tab-2')).toBeNull();
+    expect(selectCreateDocumentModalModel(creating, 'tab-2', 'emu')).toBeNull();
+    expect(selectCreateDocumentModalModel(creating, 'tab-1', 'prod')).toBeNull();
+    expect(selectCreateDocumentModalModel(creating, 'tab-1')).toBeNull();
     expect(selectFirestoreWriteCommandAvailability(creating)).toMatchObject({
       canCreateDocument: false,
       canDeleteDocument: true,

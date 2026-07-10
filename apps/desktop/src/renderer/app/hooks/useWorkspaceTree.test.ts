@@ -1,10 +1,10 @@
 import type { ProjectSummary } from '@firebase-desk/repo-contracts';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { defaultFirestoreInspectorUiState } from '../../app-core/firestore/query/firestoreQueryState.ts';
 import { useRepositories } from '../RepositoryProvider.tsx';
-import { selectionActions, selectionStore } from '../stores/selectionStore.ts';
-import { tabActions, type WorkspaceTab } from '../stores/tabsStore.ts';
-import { projectNodeId } from '../workspaceModel.ts';
+import { tabActions, tabsStore, type WorkspaceTab } from '../stores/tabsStore.ts';
+import { DEFAULT_FIRESTORE_DRAFT, projectNodeId } from '../workspaceModel.ts';
 import { useWorkspaceTree } from './useWorkspaceTree.ts';
 
 vi.mock('../RepositoryProvider.tsx', () => ({
@@ -25,19 +25,25 @@ const projects: ReadonlyArray<ProjectSummary> = [
 ];
 
 const activeTab: WorkspaceTab = {
-  id: 'tab-firestore-1',
-  kind: 'firestore-query',
-  title: 'orders',
   connectionId: 'emu',
-  history: ['orders'],
-  historyIndex: 0,
+  draft: DEFAULT_FIRESTORE_DRAFT,
+  id: 'tab-firestore-1',
+  inspectorUi: defaultFirestoreInspectorUiState(),
   inspectorWidth: 360,
+  kind: 'firestore-query',
 };
 
 describe('useWorkspaceTree', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    selectionActions.reset();
+    tabActions.reset();
+    tabActions.restore({
+      activeTabId: activeTab.id,
+      interactionHistory: [],
+      interactionHistoryIndex: 0,
+      selectedTreeItemId: null,
+      tabs: [activeTab],
+    });
     vi.mocked(useRepositories).mockReturnValue({
       firestore: {
         listRootCollections: vi.fn().mockResolvedValue([{ id: 'orders', path: 'orders' }]),
@@ -66,11 +72,9 @@ describe('useWorkspaceTree', () => {
 
     act(() => result.current.handleSelectItem('collection:emu:orders'));
 
-    expect(selectionStore.state.treeItemId).toBe('collection:emu:orders');
     expect(openFirestoreTab).toHaveBeenCalledWith('emu', 'orders');
     expect(recordInteraction).toHaveBeenCalledWith({
       activeTabId: 'tab-firestore-2',
-      path: 'orders',
       selectedTreeItemId: 'collection:emu:orders',
     });
     expect(setLastAction).toHaveBeenCalledWith('Opened orders');
@@ -222,7 +226,6 @@ describe('useWorkspaceTree', () => {
     expect(openToolTab).toHaveBeenCalledWith('js-query', 'emu', { newTab: false });
     expect(recordInteraction).toHaveBeenCalledWith({
       activeTabId: 'tab-js-reused',
-      path: 'scripts/default',
       selectedTreeItemId: 'script:emu',
     });
 
@@ -231,7 +234,6 @@ describe('useWorkspaceTree', () => {
     expect(openToolTab).toHaveBeenCalledWith('js-query', 'emu', { newTab: true });
     expect(recordInteraction).toHaveBeenCalledWith({
       activeTabId: 'tab-js-new',
-      path: 'scripts/default',
       selectedTreeItemId: 'script:emu',
     });
   });
@@ -264,14 +266,17 @@ describe('useWorkspaceTree', () => {
     expect(openToolTab).toHaveBeenCalledWith('fdql', 'emu', { newTab: true });
     expect(recordInteraction).toHaveBeenCalledWith({
       activeTabId: 'tab-fdql-new',
-      path: 'fdql/default',
       selectedTreeItemId: 'fdql:emu',
     });
   });
 
-  it('opens collection double clicks in a new tab', () => {
-    const openFirestoreTab = vi.fn(() => 'tab-firestore-reused');
-    const openFirestoreTabInNewTab = vi.fn(() => 'tab-firestore-new');
+  it('creates exactly one collection tab for a double click with no existing match', () => {
+    const openFirestoreTab = vi.fn((connectionId: string, path: string) =>
+      tabActions.openFirestoreTarget({ connectionId, newTab: false, path })
+    );
+    const openFirestoreTabInNewTab = vi.fn((connectionId: string, path: string) =>
+      tabActions.openFirestoreTarget({ connectionId, newTab: true, path })
+    );
     const recordInteraction = vi.spyOn(tabActions, 'recordInteraction').mockImplementation(
       () => {},
     );
@@ -287,15 +292,20 @@ describe('useWorkspaceTree', () => {
       })
     );
 
-    act(() => result.current.handleSelectItem('collection:emu:orders'));
-    act(() => result.current.handleOpenItem('collection:emu:orders'));
+    act(() => result.current.handleSelectItem('collection:emu:customers'));
+    act(() => result.current.handleOpenItem('collection:emu:customers'));
 
-    expect(openFirestoreTab).toHaveBeenCalledWith('emu', 'orders');
-    expect(openFirestoreTabInNewTab).toHaveBeenCalledWith('emu', 'orders');
+    expect(openFirestoreTab).toHaveBeenCalledWith('emu', 'customers');
+    expect(openFirestoreTabInNewTab).not.toHaveBeenCalled();
+    expect(tabsStore.state.tabs).toHaveLength(2);
+    expect(tabsStore.state.tabs[1]).toEqual(expect.objectContaining({
+      draft: expect.objectContaining({ path: 'customers' }),
+    }));
+    expect(recordInteraction).toHaveBeenCalledTimes(2);
+    expect(new Set(recordInteraction.mock.calls.map(([input]) => input.activeTabId)).size).toBe(1);
     expect(recordInteraction).toHaveBeenCalledWith({
-      activeTabId: 'tab-firestore-new',
-      path: 'orders',
-      selectedTreeItemId: 'collection:emu:orders',
+      activeTabId: expect.stringMatching(/^tab-firestore-query-/),
+      selectedTreeItemId: 'collection:emu:customers',
     });
   });
 });
