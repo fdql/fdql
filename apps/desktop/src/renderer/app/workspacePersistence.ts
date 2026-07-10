@@ -48,7 +48,7 @@ const FirestoreQueryDraftSchema = z.object({
   limit: z.number().int().positive(),
 }).transform((draft): FirestoreQueryDraft => ({
   path: draft.path,
-  ...(draft.filters === undefined ? {} : { filters: draft.filters }),
+  filters: draft.filters ?? [],
   filterField: draft.filterField,
   filterOp: draft.filterOp,
   filterValue: draft.filterValue,

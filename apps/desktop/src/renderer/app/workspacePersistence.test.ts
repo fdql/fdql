@@ -134,6 +134,46 @@ describe('workspacePersistence', () => {
     await expect(loadPersistedWorkspaceState(settings)).resolves.toEqual(persistedWorkspace);
   });
 
+  it('normalizes drafts without filters to an empty filters array', async () => {
+    const { filters: _filters, ...draftWithoutFilters } = firestoreDraft;
+    const settings = settingsWithWorkspace({
+      ...persistedWorkspace,
+      tabsState: {
+        ...persistedWorkspace.tabsState,
+        interactionHistory: [{
+          activeTabId: 'tab-firestore-1',
+          location: {
+            kind: 'firestore-query',
+            connectionId: 'emu',
+            draft: draftWithoutFilters,
+          },
+          selectedTreeItemId: 'collection:emu:orders',
+        }],
+        tabs: [
+          {
+            ...persistedWorkspace.tabsState.tabs[0],
+            draft: draftWithoutFilters,
+          },
+          persistedWorkspace.tabsState.tabs[1],
+        ],
+      },
+    });
+
+    const restored = await loadPersistedWorkspaceState(settings);
+
+    expect({
+      historyDraft: restored?.tabsState.interactionHistory[0]?.location,
+      tabDraft: restored?.tabsState.tabs[0],
+    }).toEqual({
+      historyDraft: expect.objectContaining({
+        draft: expect.objectContaining({ filters: [] }),
+      }),
+      tabDraft: expect.objectContaining({
+        draft: expect.objectContaining({ filters: [] }),
+      }),
+    });
+  });
+
   it('migrates version 1 drafts and inspector state into Firestore tabs', async () => {
     const settings = settingsWithWorkspace(persistedWorkspaceV1);
 
