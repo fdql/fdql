@@ -64,6 +64,16 @@ describe('FDQL parser stages', () => {
     ]);
   });
 
+  it('rejects a from alias after long whitespace', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+
+    parseFrom(statement(`from $_ as ${' '.repeat(20_000)}!`), diagnostics);
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_PARSE_ERROR', line: 1 }),
+    );
+  });
+
   it('parses multiline statement headers and provider clauses', () => {
     const diagnostics: FdqlDiagnostic[] = [];
     const from = parseFrom(

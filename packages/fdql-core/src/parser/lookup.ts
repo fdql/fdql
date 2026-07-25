@@ -156,8 +156,15 @@ function parseLookupHeader(block: SourceBlock): LookupHeader | null {
 }
 
 function isMalformedLookupCache(text: string): boolean {
-  return /^then\s+lookup\s+(?:required\s+one|one|many)\s+.+?\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+cache(?:\s|=|$)/i
-    .test(text);
+  const header = /^then\s+lookup\s+(?:required\s+one|one|many)\s+/i.exec(text);
+  if (!header) return false;
+  const remainder = text.slice(header[0].length);
+  const aliasIndex = findTopLevelAs(remainder);
+  if (aliasIndex < 0) return false;
+  const suffix = remainder.slice(aliasIndex + 4).trimStart();
+  const alias = /^[A-Za-z_][A-Za-z0-9_]*/.exec(suffix);
+  if (!alias) return false;
+  return /^\s+cache(?:\s|=|$)/i.test(suffix.slice(alias[0].length));
 }
 
 function parseLookupSource(

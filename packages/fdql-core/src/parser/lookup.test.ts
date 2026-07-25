@@ -92,4 +92,18 @@ describe('FDQL parser lookup', () => {
       expect.objectContaining({ code: 'FDQL_UNKNOWN_STAGE', line: 1 }),
     );
   });
+
+  it('rejects malformed cache suffixes after long whitespace', () => {
+    const diagnostics: FdqlDiagnostic[] = [];
+
+    parseLookup(
+      createSourceLines(`then lookup one $items as item${' '.repeat(20_000)}cache = run`),
+      0,
+      diagnostics,
+    );
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_LOOKUP_CACHE', line: 1 }),
+    );
+  });
 });

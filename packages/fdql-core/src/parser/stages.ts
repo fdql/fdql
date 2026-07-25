@@ -239,62 +239,75 @@ export function parseFrom(
   diagnostics: FdqlDiagnostic[],
 ): FdqlFromStage | undefined {
   const { column, line, range, text } = block;
-  const match = /^from\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+([A-Za-z_][A-Za-z0-9_]*)$/i.exec(text);
-  if (!match) {
-    const invalidAlias = /^from\s+(\$[A-Za-z_][A-Za-z0-9_]*)\s+as\s+(.+)$/i.exec(text);
-    if (invalidAlias) {
-      const alias = invalidAlias[2]!.trim();
+  const bodyBlock = trimSourceBlock(sourceBlockSlice(block, 'from'.length));
+  const aliasIndex = findTopLevelAs(bodyBlock.text);
+  if (aliasIndex >= 0) {
+    const sourceBlock = trimSourceBlock(sourceBlockSlice(bodyBlock, 0, aliasIndex));
+    const aliasBlock = trimSourceBlock(sourceBlockSlice(bodyBlock, aliasIndex + 4));
+    const sourceAlias = sourceBlock.text;
+    const rowAlias = aliasBlock.text;
+    if (isSourceAlias(sourceAlias) && isIdentifier(rowAlias)) {
+      return {
+        column,
+        kind: 'from',
+        line,
+        range,
+        rowAlias,
+        rowAliasRef: nameRefInSourceBlock(rowAlias, aliasBlock),
+        sourceAlias,
+        sourceAliasRef: nameRefInSourceBlock(sourceAlias, sourceBlock),
+      };
+    }
+    if (isSourceAlias(sourceAlias) && rowAlias) {
       diagnostics.push(
         parserError(
           'FDQL_PARSE_ERROR',
           '`from` row alias must be an identifier.',
           line,
           column,
-          nameRefInSourceBlock(alias, block, text.indexOf(' as ') + 4).range,
+          nameRefInSourceBlock(rowAlias, aliasBlock).range,
         ),
       );
       return undefined;
     }
-    const sourceOnly = /^from\s+(\$[A-Za-z_][A-Za-z0-9_]*)$/i.exec(text);
-    if (sourceOnly) {
-      diagnostics.push(
-        parserError(
-          'FDQL_PARSE_ERROR',
-          '`from` must use `from $source as rowAlias`.',
-          line,
-          column,
-          rangeInSourceBlock(block, text.length, 1),
-        ),
-      );
-      return undefined;
-    }
-    const sourceCandidate = /^from\s+(\S+)/i.exec(text);
-    const errorRange = sourceCandidate
-      ? nameRefInSourceBlock(sourceCandidate[1]!, block, 'from '.length).range
-      : range;
+  }
+  if (isSourceAlias(bodyBlock.text)) {
     diagnostics.push(
       parserError(
         'FDQL_PARSE_ERROR',
         '`from` must use `from $source as rowAlias`.',
         line,
         column,
-        errorRange,
+        rangeInSourceBlock(block, text.length, 1),
       ),
     );
     return undefined;
   }
-  const sourceAlias = match[1]!;
-  const rowAlias = match[2]!;
-  return {
-    column,
-    kind: 'from',
-    line,
-    range,
-    rowAlias,
-    rowAliasRef: nameRefInSourceBlock(rowAlias, block, text.indexOf(' as ') + 4),
-    sourceAlias,
-    sourceAliasRef: nameRefInSourceBlock(sourceAlias, block, 'from '.length),
-  };
+  const sourceCandidate = firstToken(bodyBlock.text);
+  diagnostics.push(
+    parserError(
+      'FDQL_PARSE_ERROR',
+      '`from` must use `from $source as rowAlias`.',
+      line,
+      column,
+      sourceCandidate ? nameRefInSourceBlock(sourceCandidate, bodyBlock).range : range,
+    ),
+  );
+  return undefined;
+}
+
+function firstToken(text: string): string {
+  let end = 0;
+  while (end < text.length && !/\s/.test(text[end] ?? '')) end += 1;
+  return text.slice(0, end);
+}
+
+function isIdentifier(text: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(text);
+}
+
+function isSourceAlias(text: string): boolean {
+  return /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(text);
 }
 
 export function parseAggregateFrom(
