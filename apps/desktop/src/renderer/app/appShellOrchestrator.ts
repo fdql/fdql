@@ -142,7 +142,6 @@ export interface AppShellController {
   readonly layout: {
     readonly sidebarCollapsed: boolean;
     readonly sidebarDefaultWidth: number;
-    readonly sidebarMaxSize?: string | undefined;
     readonly sidebarMinSize: string;
     readonly onSidebarResize: (size: number, previousSize?: number) => void;
   };
@@ -1423,7 +1422,6 @@ export function createAppShellController(
     layout: {
       sidebarCollapsed: input.sidebarCollapsed,
       sidebarDefaultWidth: input.layout.sidebarDefaultWidth,
-      sidebarMaxSize: input.sidebarCollapsed ? `${COLLAPSED_SIDEBAR_WIDTH}px` : undefined,
       sidebarMinSize: input.sidebarCollapsed
         ? `${COLLAPSED_SIDEBAR_WIDTH}px`
         : `${MIN_SIDEBAR_WIDTH}px`,

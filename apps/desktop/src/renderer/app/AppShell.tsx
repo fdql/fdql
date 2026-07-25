@@ -77,7 +77,6 @@ export function AppShell(
             ? `${COLLAPSED_SIDEBAR_WIDTH}px`
             : `${controller.layout.sidebarDefaultWidth}px`}
           groupResizeBehavior='preserve-pixel-size'
-          maxSize={controller.layout.sidebarMaxSize}
           minSize={controller.layout.sidebarMinSize}
           onResize={(size, _id, previousSize) =>
             controller.layout.onSidebarResize(size.inPixels, previousSize?.inPixels)}
