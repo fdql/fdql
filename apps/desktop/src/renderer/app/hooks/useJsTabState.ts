@@ -5,6 +5,7 @@ import {
   cancelJsQueryCommand,
   clearJsQueryTabCommand,
   clearJsQueryTabRuntimeCommand,
+  duplicateJsQueryTabCommand,
   type JsQueryCommandEnvironment,
   receiveJsQueryEventCommand,
   runJsQueryCommand,
@@ -37,6 +38,7 @@ export interface JsTabState {
   readonly cancelScript: () => boolean;
   readonly clearTab: (tabId: string) => void;
   readonly clearTabRuntime: (tabId: string) => void;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
   readonly isTabRunning: (tabId: string) => boolean;
   readonly runScript: () => boolean;
   readonly setScriptSource: (source: string) => void;
@@ -100,6 +102,10 @@ export function useJsTabState(
     clearJsQueryTabRuntimeCommand(store, env, tabId);
   }
 
+  function duplicateTab(sourceTabId: string, targetTabId: string) {
+    duplicateJsQueryTabCommand(store, sourceTabId, targetTabId);
+  }
+
   return {
     isRunning: model.isRunning,
     scriptResult: model.result,
@@ -110,6 +116,7 @@ export function useJsTabState(
     cancelScript,
     clearTab,
     clearTabRuntime,
+    duplicateTab,
     isTabRunning,
     runScript,
     setScriptSource,

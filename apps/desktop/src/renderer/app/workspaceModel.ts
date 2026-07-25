@@ -5,7 +5,14 @@ import type {
   FirestoreQueryDraft,
   ProjectSummary,
 } from '@firebase-desk/repo-contracts';
-import { activePath, type WorkspaceTab } from './stores/tabsStore.ts';
+import {
+  DEFAULT_FIRESTORE_DRAFT,
+  normalizeFirestorePath,
+} from '../app-core/firestore/query/firestoreQueryDraft.ts';
+import { treeItemIdForWorkspaceTab } from '../app-core/workspace/workspaceState.ts';
+import type { WorkspaceTab } from './stores/tabsStore.ts';
+
+export { DEFAULT_FIRESTORE_DRAFT };
 
 export type LoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -32,8 +39,8 @@ export type ConnectionTargetOption =
   | 'production-service-account';
 
 export const DEFAULT_SIDEBAR_WIDTH = 320;
-export const MAX_SIDEBAR_WIDTH = 560;
-export const MIN_SIDEBAR_WIDTH = 280;
+export const COLLAPSED_SIDEBAR_WIDTH = 40;
+export const MIN_SIDEBAR_WIDTH = 180;
 export const MIN_WORKSPACE_WIDTH = 360;
 export const initialTreeCache: TreeCache = { roots: {}, tools: {} };
 const TREE_NODE_KIND = {
@@ -42,19 +49,10 @@ const TREE_NODE_KIND = {
   firestore: 'firestore',
   project: 'project',
   script: 'script',
+  fdql: 'fdql',
+  sql: 'sql',
   status: 'status',
 } as const;
-export const DEFAULT_FIRESTORE_DRAFT: FirestoreQueryDraft = {
-  path: 'orders',
-  filters: [],
-  filterField: '',
-  filterOp: '==',
-  filterValue: '',
-  sortField: '',
-  sortDirection: 'desc',
-  limit: 25,
-};
-
 export function projectIdForConnection(name: string): string {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   return slug || 'mock-connection';
@@ -132,6 +130,26 @@ export function buildTreeItems(
       secondary: 'SDK',
       selected: selectedId === scriptNodeId(project.id),
     });
+    items.push({
+      id: fdqlNodeId(project.id),
+      kind: 'fdql',
+      label: 'FDQL',
+      depth: 1,
+      hasChildren: false,
+      expanded: false,
+      secondary: 'beta',
+      selected: selectedId === fdqlNodeId(project.id),
+    });
+    items.push({
+      id: sqlNodeId(project.id),
+      kind: 'sql',
+      label: 'Firestore SQL',
+      depth: 1,
+      hasChildren: false,
+      expanded: false,
+      secondary: 'read-only',
+      selected: selectedId === sqlNodeId(project.id),
+    });
   }
   const filter = filterValue.trim().toLowerCase();
   if (!filter) return items;
@@ -142,13 +160,8 @@ export function buildTreeItems(
 
 export function getDraft(
   tab: WorkspaceTab | undefined,
-  drafts: Readonly<Record<string, FirestoreQueryDraft>>,
 ): FirestoreQueryDraft {
-  if (!tab) return DEFAULT_FIRESTORE_DRAFT;
-  return drafts[tab.id] ?? {
-    ...DEFAULT_FIRESTORE_DRAFT,
-    path: activePath(tab) || DEFAULT_FIRESTORE_DRAFT.path,
-  };
+  return tab?.kind === 'firestore-query' ? tab.draft : DEFAULT_FIRESTORE_DRAFT;
 }
 
 export function draftToQuery(connectionId: string, draft: FirestoreQueryDraft): FirestoreQuery {
@@ -187,7 +200,7 @@ export function parseFilterValue(value: string): unknown {
 }
 
 export function normalizePath(path: string): string {
-  return path.split('/').filter(Boolean).join('/');
+  return normalizeFirestorePath(path);
 }
 
 export function isDocumentPath(path: string): boolean {
@@ -208,9 +221,7 @@ export function resolveProject(
 }
 
 export function treeItemIdForTab(tab: WorkspaceTab): string {
-  if (tab.kind === 'auth-users') return authNodeId(tab.connectionId);
-  if (tab.kind === 'js-query') return scriptNodeId(tab.connectionId);
-  return collectionNodeId(tab.connectionId, normalizePath(activePath(tab)));
+  return treeItemIdForWorkspaceTab(tab);
 }
 
 export function omitKey<T>(
@@ -241,6 +252,14 @@ export function scriptNodeId(projectId: string): string {
   return treeNodeId(TREE_NODE_KIND.script, projectId);
 }
 
+export function fdqlNodeId(projectId: string): string {
+  return treeNodeId(TREE_NODE_KIND.fdql, projectId);
+}
+
+export function sqlNodeId(projectId: string): string {
+  return treeNodeId(TREE_NODE_KIND.sql, projectId);
+}
+
 export function collectionNodeId(projectId: string, path: string): string {
   return treeNodeId(TREE_NODE_KIND.collection, projectId, path);
 }
@@ -264,6 +283,8 @@ export function actionLabelForTreeItem(kind: string, path?: string): string {
   if (kind === 'collection') return `Opened ${path ?? 'collection'}`;
   if (kind === 'auth') return 'Opened Authentication';
   if (kind === 'script') return 'Opened JavaScript Query';
+  if (kind === 'fdql') return 'Opened FDQL';
+  if (kind === 'sql') return 'Opened Firestore SQL';
   if (kind === 'project') return 'Selected account';
   if (kind === 'firestore') return 'Selected Firestore';
   return 'Selected tree item';
@@ -278,7 +299,7 @@ export function toggleSet(values: ReadonlySet<string>, value: string): ReadonlyS
 
 export function clampSidebarWidth(width: number): number {
   if (!Number.isFinite(width)) return DEFAULT_SIDEBAR_WIDTH;
-  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(width)));
+  return Math.max(MIN_SIDEBAR_WIDTH, Math.round(width));
 }
 
 function appendCollection(

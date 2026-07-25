@@ -2,17 +2,29 @@ import type { BackgroundJob, BackgroundJobEvent } from '@firebase-desk/repo-cont
 import type { JobsState } from './jobsState.ts';
 
 export function jobsLoadStarted(state: JobsState): JobsState {
-  return { ...state, errorMessage: null, isLoading: true };
+  return { ...state, errorMessage: null, eventsDuringLoad: {}, isLoading: true };
 }
 
 export function jobsLoadSucceeded(
   state: JobsState,
   jobs: ReadonlyArray<BackgroundJob>,
 ): JobsState {
+  const mergedJobs = Object.entries(state.eventsDuringLoad).reduce(
+    (current, [id, eventJob]) =>
+      eventJob ? upsertNewerJob(current, eventJob) : current.filter((job) => job.id !== id),
+    jobs,
+  );
   const acknowledgedIssueJobIds = state.open
-    ? issueJobIds(jobs)
-    : pruneAcknowledgedIssueJobIds(state.acknowledgedIssueJobIds, jobs);
-  return { ...state, acknowledgedIssueJobIds, errorMessage: null, isLoading: false, jobs };
+    ? issueJobIds(mergedJobs)
+    : pruneAcknowledgedIssueJobIds(state.acknowledgedIssueJobIds, mergedJobs);
+  return {
+    ...state,
+    acknowledgedIssueJobIds,
+    errorMessage: null,
+    eventsDuringLoad: {},
+    isLoading: false,
+    jobs: mergedJobs,
+  };
 }
 
 export function jobsLoadFailed(state: JobsState, message: string): JobsState {
@@ -41,21 +53,41 @@ export function jobsEventReceived(state: JobsState, event: BackgroundJobEvent): 
     return {
       ...state,
       acknowledgedIssueJobIds: state.acknowledgedIssueJobIds.filter((id) => id !== event.id),
+      eventsDuringLoad: state.isLoading
+        ? { ...state.eventsDuringLoad, [event.id]: null }
+        : state.eventsDuringLoad,
       jobs,
     };
   }
-  const exists = state.jobs.some((job) => job.id === event.job.id);
-  const jobs = exists
-    ? state.jobs.map((job) => job.id === event.job.id ? event.job : job)
-    : [event.job, ...state.jobs];
+  const jobs = upsertNewerJob(state.jobs, event.job);
+  const pendingJob = state.eventsDuringLoad[event.job.id];
+  const eventsDuringLoad = state.isLoading
+    ? {
+      ...state.eventsDuringLoad,
+      [event.job.id]: pendingJob && pendingJob.updatedAt > event.job.updatedAt
+        ? pendingJob
+        : event.job,
+    }
+    : state.eventsDuringLoad;
   const acknowledgedIssueJobIds = state.open && isIssueJob(event.job)
     ? unique([...state.acknowledgedIssueJobIds, event.job.id])
     : pruneAcknowledgedIssueJobIds(state.acknowledgedIssueJobIds, jobs);
   return {
     ...state,
     acknowledgedIssueJobIds,
+    eventsDuringLoad,
     jobs,
   };
+}
+
+function upsertNewerJob(
+  jobs: ReadonlyArray<BackgroundJob>,
+  candidate: BackgroundJob,
+): ReadonlyArray<BackgroundJob> {
+  const existing = jobs.find((job) => job.id === candidate.id);
+  if (!existing) return [candidate, ...jobs];
+  if (existing.updatedAt > candidate.updatedAt) return jobs;
+  return jobs.map((job) => job.id === candidate.id ? candidate : job);
 }
 
 function issueJobIds(jobs: ReadonlyArray<BackgroundJob>): string[] {

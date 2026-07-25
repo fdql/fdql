@@ -27,6 +27,7 @@
     "@dnd-kit/utilities": "3.2.2",
     "@firebase-desk/data-format": "workspace:*",
     "@firebase-desk/design-tokens": "workspace:*",
+    "@firebase-desk/fdql-language": "workspace:*",
     "@firebase-desk/hotkeys": "workspace:*",
     "@firebase-desk/repo-contracts": "workspace:*",
     "@firebase-desk/ui": "workspace:*",

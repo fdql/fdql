@@ -7,10 +7,53 @@ import type {
 
 export type FirestoreResultView = 'json' | 'table' | 'tree';
 
+export type FirestoreInspectorSectionId =
+  | 'fieldsInResults'
+  | 'jsonContext'
+  | 'selectionPreview';
+
+export interface FirestoreInspectorSectionState {
+  readonly fieldsInResults: boolean;
+  readonly jsonContext: boolean;
+  readonly selectionPreview: boolean;
+}
+
+export interface FirestoreInspectorUiState {
+  readonly overviewCollapsed: boolean;
+  readonly resultView: FirestoreResultView;
+  readonly resultTreeExpandedIds: ReadonlyArray<string> | null;
+  readonly sections: FirestoreInspectorSectionState;
+  readonly selectionPreviewExpandedPathsByDocumentPath: Readonly<
+    Record<string, ReadonlyArray<string>>
+  >;
+}
+
 export interface SubmittedFirestoreQuery {
+  readonly draft: FirestoreQueryDraft;
   readonly limit: number;
   readonly query: FirestoreQuery;
+  readonly requestId: number;
   readonly runId: number;
+  readonly token: FirestoreQueryExecutionToken;
+}
+
+export interface FirestoreQueryExecutionToken {
+  readonly connectionId: string;
+  readonly epoch: number;
+  readonly path: string;
+  readonly requestId: number;
+  readonly tabId: string;
+}
+
+export interface SubmittedFirestoreSubcollectionLoad {
+  readonly documentPath: string;
+  readonly execution: SubmittedFirestoreQuery;
+  readonly token: FirestoreSubcollectionExecutionToken;
+}
+
+export interface FirestoreSubcollectionExecutionToken {
+  readonly documentPath: string;
+  readonly queryToken: FirestoreQueryExecutionToken;
 }
 
 export interface FirestoreQueryPage {
@@ -18,52 +61,89 @@ export interface FirestoreQueryPage {
   readonly nextCursor?: PageRequest['cursor'];
 }
 
-export interface FirestoreQueryResultState {
-  readonly errorMessage: string | null;
+interface FirestoreQueryResultStateBase {
   readonly hasMore: boolean;
   readonly isFetchingMore: boolean;
-  readonly isLoading: boolean;
   readonly pages: ReadonlyArray<FirestoreQueryPage>;
-  readonly resultView: FirestoreResultView;
   readonly resultsStale: boolean;
 }
 
+export interface FirestoreQueryIdleState extends FirestoreQueryResultStateBase {
+  readonly errorMessage: null;
+  readonly execution: null;
+  readonly status: 'idle';
+}
+
+export interface FirestoreQueryLoadingState extends FirestoreQueryResultStateBase {
+  readonly errorMessage: null;
+  readonly execution: SubmittedFirestoreQuery;
+  readonly status: 'loading';
+}
+
+export interface FirestoreQuerySuccessState extends FirestoreQueryResultStateBase {
+  readonly errorMessage: null;
+  readonly execution: SubmittedFirestoreQuery;
+  readonly status: 'success';
+}
+
+export interface FirestoreQueryErrorState extends FirestoreQueryResultStateBase {
+  readonly errorMessage: string;
+  readonly execution: SubmittedFirestoreQuery;
+  readonly status: 'error';
+}
+
+export type FirestoreQueryResultState =
+  | FirestoreQueryErrorState
+  | FirestoreQueryIdleState
+  | FirestoreQueryLoadingState
+  | FirestoreQuerySuccessState;
+
 export interface FirestoreQueryRuntimeState {
-  readonly drafts: Readonly<Record<string, FirestoreQueryDraft>>;
-  readonly nextRunId: number;
+  readonly nextRequestId: number;
   readonly pendingPageReloads: Readonly<Record<string, number>>;
   readonly queryRequests: Readonly<Record<string, SubmittedFirestoreQuery | null>>;
   readonly recordedQueryCompletions: Readonly<Record<string, true>>;
   readonly resultsByTab: Readonly<Record<string, FirestoreQueryResultState>>;
   readonly selectedDocumentPaths: Readonly<Record<string, string>>;
+  readonly subcollectionRequests: Readonly<Record<string, SubmittedFirestoreSubcollectionLoad>>;
+  readonly tabEpochs: Readonly<Record<string, number>>;
 }
 
-export interface CreateFirestoreQueryRuntimeStateInput {
-  readonly drafts?: Readonly<Record<string, FirestoreQueryDraft>> | undefined;
-}
-
-export function createInitialFirestoreQueryRuntimeState(
-  input: CreateFirestoreQueryRuntimeStateInput = {},
-): FirestoreQueryRuntimeState {
+export function createInitialFirestoreQueryRuntimeState(): FirestoreQueryRuntimeState {
   return {
-    drafts: input.drafts ?? {},
-    nextRunId: 1,
+    nextRequestId: 1,
     pendingPageReloads: {},
     queryRequests: {},
     recordedQueryCompletions: {},
     resultsByTab: {},
     selectedDocumentPaths: {},
+    subcollectionRequests: {},
+    tabEpochs: {},
+  };
+}
+
+export function defaultFirestoreInspectorUiState(): FirestoreInspectorUiState {
+  return {
+    overviewCollapsed: false,
+    resultView: 'table',
+    resultTreeExpandedIds: null,
+    sections: {
+      fieldsInResults: false,
+      jsonContext: true,
+      selectionPreview: true,
+    },
+    selectionPreviewExpandedPathsByDocumentPath: {},
   };
 }
 
 export function emptyFirestoreQueryResultState(): FirestoreQueryResultState {
   return {
     errorMessage: null,
+    execution: null,
     hasMore: false,
     isFetchingMore: false,
-    isLoading: false,
     pages: [],
-    resultView: 'table',
     resultsStale: false,
+    status: 'idle',
   };
 }

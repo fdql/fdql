@@ -6,7 +6,9 @@ import { join } from 'node:path';
 import { launchDesktop } from './launch.ts';
 
 export const EMULATOR_ACCOUNT_NAME = 'Local Emulator E2E';
+export const EMULATOR_CONNECTION_ID = 'local-emulator-e2e';
 export const FIRESTORE_PROJECT_ID = 'demo-local';
+export const FIRESTORE_TREE_ITEM_LABEL = 'Firestore';
 
 export interface LiveApp {
   readonly app: ElectronApplication;
@@ -71,19 +73,24 @@ export async function addLocalEmulatorAccount(page: Page): Promise<void> {
 }
 
 export async function expandEmulatorAccount(page: Page): Promise<void> {
+  const expandSidebar = page.getByRole('button', { name: 'Expand sidebar' });
+  if (await expandSidebar.isVisible()) await expandSidebar.click();
+
   const tree = page.getByRole('tree', { name: 'Account tree' });
   const account = tree.getByRole('treeitem', { name: new RegExp(EMULATOR_ACCOUNT_NAME) });
-  await expect(account).toBeVisible();
-  if (await tree.getByRole('treeitem', { name: /Firestore/ }).count()) return;
-  await account.click();
-  await expect(tree.getByRole('treeitem', { name: /Firestore/ })).toBeVisible();
+  await expect(account).toBeVisible({ timeout: 15_000 });
+  if (await account.getAttribute('aria-expanded') !== 'true') await account.click();
+  await expect(account).toHaveAttribute('aria-expanded', 'true');
+  await expect(tree.getByText(FIRESTORE_TREE_ITEM_LABEL, { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
 }
 
 export async function openFirestore(page: Page): Promise<void> {
   await expandEmulatorAccount(page);
   const tree = page.getByRole('tree', { name: 'Account tree' });
-  await expect(tree.getByRole('treeitem', { name: /Firestore/ })).toBeVisible();
-  await tree.getByText('Firestore', { exact: true }).click();
+  await expect(tree.getByText(FIRESTORE_TREE_ITEM_LABEL, { exact: true })).toBeVisible();
+  await tree.getByText(FIRESTORE_TREE_ITEM_LABEL, { exact: true }).click();
 }
 
 export async function openAuthentication(page: Page): Promise<void> {
@@ -98,6 +105,13 @@ export async function openJavaScriptQuery(page: Page): Promise<void> {
   const tree = page.getByRole('tree', { name: 'Account tree' });
   await expect(tree.getByRole('treeitem', { name: /JavaScript Query/ })).toBeVisible();
   await tree.getByRole('treeitem', { name: /JavaScript Query/ }).click();
+}
+
+export async function openFdql(page: Page): Promise<void> {
+  await expandEmulatorAccount(page);
+  const tree = page.getByRole('tree', { name: 'Account tree' });
+  await expect(tree.getByRole('treeitem', { name: /FDQL/ })).toBeVisible();
+  await tree.getByRole('treeitem', { name: /FDQL/ }).click();
 }
 
 export function uniqueSmokeId(prefix: string): string {

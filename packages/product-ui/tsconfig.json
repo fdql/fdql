@@ -4,6 +4,7 @@
   "references": [
     { "path": "../data-format" },
     { "path": "../design-tokens" },
+    { "path": "../fdql-language" },
     { "path": "../hotkeys" },
     { "path": "../repo-contracts" },
     { "path": "../repo-mocks" },

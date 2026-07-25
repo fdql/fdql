@@ -18,10 +18,15 @@ const electronMocks = vi.hoisted(() => ({
   getAllWindows: vi.fn(),
   handle: vi.fn(),
   notificationIsSupported: vi.fn(() => false),
+  once: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
-  app: { getPath: vi.fn(() => '/tmp/firebase-desk-test'), getVersion: vi.fn(() => '0.0.0') },
+  app: {
+    getPath: vi.fn(() => '/tmp/firebase-desk-test'),
+    getVersion: vi.fn(() => '0.0.0'),
+    once: electronMocks.once,
+  },
   BrowserWindow: {
     getAllWindows: electronMocks.getAllWindows,
     getFocusedWindow: electronMocks.getFocusedWindow,

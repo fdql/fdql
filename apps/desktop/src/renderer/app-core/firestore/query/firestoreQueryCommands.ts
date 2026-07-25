@@ -18,11 +18,17 @@ import { elapsedMs } from '../../shared/time.ts';
 import {
   firestoreQueryDraftMetadata,
   firestoreQueryMetadata,
+  isCurrentFirestoreQueryExecution,
   selectFirestoreLoadedPageCount,
   selectFirestoreResultRows,
   selectFirestoreTabResultState,
 } from './firestoreQuerySelectors.ts';
-import type { FirestoreQueryPage, FirestoreQueryRuntimeState } from './firestoreQueryState.ts';
+import type {
+  FirestoreQueryPage,
+  FirestoreQueryRuntimeState,
+  SubmittedFirestoreQuery,
+  SubmittedFirestoreSubcollectionLoad,
+} from './firestoreQueryState.ts';
 import {
   firestoreLoadMoreFailed,
   firestoreLoadMoreStarted,
@@ -35,6 +41,8 @@ import {
   firestoreRefreshStarted,
   firestoreRefreshSucceeded,
   firestoreSubcollectionsLoaded,
+  firestoreSubcollectionsLoadFailed,
+  firestoreSubcollectionsLoadStarted,
 } from './firestoreQueryTransitions.ts';
 
 interface FirestoreQueryTabLike {
@@ -139,6 +147,7 @@ export function runFirestoreQueryCommand(
     path: input.activeDraft.path,
     state: firestoreQueryStarted(state, {
       clearSelection: input.clearSelection,
+      draft: input.activeDraft,
       limit: input.activeDraft.limit,
       query: input.query,
       tabId: target.tabId,
@@ -151,7 +160,8 @@ export function loadMoreFirestoreQueryCommand(
   input: { readonly isDocumentQuery: boolean; readonly tabId: string | null; },
 ): FirestoreLoadMoreCommandResult {
   if (input.isDocumentQuery || !input.tabId) return { shouldFetchNextPage: false, state };
-  return { shouldFetchNextPage: true, state: firestoreLoadMoreStarted(state, input.tabId) };
+  const next = firestoreLoadMoreStarted(state, input.tabId);
+  return { shouldFetchNextPage: next !== state, state: next };
 }
 
 export async function executeFirestoreQueryCommand(
@@ -166,7 +176,7 @@ export async function executeFirestoreQueryCommand(
     readonly tab: FirestoreQueryExecutionTabLike;
   },
 ): Promise<void> {
-  const { query, limit, runId } = input.request;
+  const { query, limit } = input.request;
   const isDocumentQuery = isFirestoreDocumentPath(query.path);
   const startedAt = env.now();
   try {
@@ -176,33 +186,47 @@ export async function executeFirestoreQueryCommand(
     const hasMore = !isDocumentQuery && Boolean(pages[pages.length - 1]?.nextCursor);
     const transition = (current: FirestoreQueryRuntimeState) =>
       input.isRefresh
-        ? firestoreRefreshSucceeded(current, input.tab.id, pages, hasMore)
-        : firestoreQuerySucceeded(current, input.tab.id, pages, hasMore);
+        ? firestoreRefreshSucceeded(
+          current,
+          input.request.token.tabId,
+          pages,
+          hasMore,
+          input.request,
+        )
+        : firestoreQuerySucceeded(
+          current,
+          input.request.token.tabId,
+          pages,
+          hasMore,
+          input.request,
+        );
     completeExecutedFirestoreQuery(store, env, {
       commandOptions: input.commandOptions,
-      draft: input.draft,
       durationMs: elapsedMs(startedAt, env.now()),
       errorMessage: null,
+      execution: input.request,
       isDocumentQuery,
       loadedPages: selectFirestoreLoadedPageCount(pages, isDocumentQuery, pages.length > 0),
       resultCount: selectFirestoreResultRows(pages).length,
-      runId,
-      tab: input.tab,
       transition,
     });
   } catch (error) {
     const loadErrorMessage = messageFromError(error, 'Could not load Firestore data.');
     completeExecutedFirestoreQuery(store, env, {
       commandOptions: input.commandOptions,
-      draft: input.draft,
       durationMs: elapsedMs(startedAt, env.now()),
       errorMessage: loadErrorMessage,
+      execution: input.request,
       isDocumentQuery,
       loadedPages: 0,
       resultCount: 0,
-      runId,
-      tab: input.tab,
-      transition: (current) => firestoreQueryFailed(current, input.tab.id, loadErrorMessage),
+      transition: (current) =>
+        firestoreQueryFailed(
+          current,
+          input.request.token.tabId,
+          loadErrorMessage,
+          input.request,
+        ),
     });
   }
 }
@@ -217,10 +241,18 @@ export async function executeFirestoreLoadMoreCommand(
   },
 ): Promise<void> {
   const stateSnapshot = store.get();
-  const tabResult = selectFirestoreTabResultState(stateSnapshot, input.tab);
+  if (!isCurrentFirestoreQueryExecution(stateSnapshot, input.request)) return;
+  const tabId = input.request.token.tabId;
+  const tabResult = selectFirestoreTabResultState(stateSnapshot, {
+    id: tabId,
+    kind: 'firestore-query',
+  });
+  if (tabResult.execution?.token !== input.request.token) return;
   const cursor = tabResult.pages[tabResult.pages.length - 1]?.nextCursor;
   if (!cursor) {
-    store.update((state) => firestoreLoadMoreSucceeded(state, input.tab.id, { items: [] }, false));
+    store.update((state) =>
+      firestoreLoadMoreSucceeded(state, tabId, { items: [] }, false, input.request)
+    );
     return;
   }
   const startedAt = env.now();
@@ -228,13 +260,14 @@ export async function executeFirestoreLoadMoreCommand(
     const page = await env.runQuery(input.request.query, pageRequest(cursor, input.request.limit));
     let currentRun = false;
     store.update((state) => {
-      if (!isCurrentFirestoreQueryRun(state, input.tab.id, input.request.runId)) return state;
+      if (!isCurrentFirestoreQueryExecution(state, input.request)) return state;
       currentRun = true;
       return firestoreLoadMoreSucceeded(
         state,
-        input.tab.id,
+        tabId,
         firestoreQueryPage(page.items, page.nextCursor),
         Boolean(page.nextCursor),
+        input.request,
       );
     });
     if (currentRun) {
@@ -245,16 +278,15 @@ export async function executeFirestoreLoadMoreCommand(
         hasMore: Boolean(page.nextCursor),
         request: input.request,
         resultCount: page.items.length,
-        tab: input.tab,
       }));
     }
   } catch (error) {
     const moreErrorMessage = messageFromError(error, 'Could not load Firestore data.');
     let currentRun = false;
     store.update((state) => {
-      if (!isCurrentFirestoreQueryRun(state, input.tab.id, input.request.runId)) return state;
+      if (!isCurrentFirestoreQueryExecution(state, input.request)) return state;
       currentRun = true;
-      return firestoreLoadMoreFailed(state, input.tab.id, moreErrorMessage);
+      return firestoreLoadMoreFailed(state, tabId, moreErrorMessage, input.request);
     });
     if (currentRun) {
       void env.recordActivity?.(firestoreLoadMoreActivity({
@@ -264,7 +296,6 @@ export async function executeFirestoreLoadMoreCommand(
         hasMore: false,
         request: input.request,
         resultCount: 0,
-        tab: input.tab,
       }));
     }
   }
@@ -293,14 +324,46 @@ export function continueFirestorePageReloadCommand(
   return { shouldFetchNextPage: true, state };
 }
 
-export function loadFirestoreSubcollectionsCommand(
+export interface FirestoreSubcollectionsLoadStartResult {
+  readonly request: SubmittedFirestoreSubcollectionLoad | null;
+  readonly state: FirestoreQueryRuntimeState;
+}
+
+export function startFirestoreSubcollectionsLoadCommand(
   state: FirestoreQueryRuntimeState,
   input: {
     readonly documentPath: string;
+    readonly execution: SubmittedFirestoreQuery;
+  },
+): FirestoreSubcollectionsLoadStartResult {
+  const token = Object.freeze({
+    documentPath: input.documentPath,
+    queryToken: input.execution.token,
+  });
+  const request = Object.freeze({
+    documentPath: input.documentPath,
+    execution: input.execution,
+    token,
+  });
+  const next = firestoreSubcollectionsLoadStarted(state, request);
+  return next === state ? { request: null, state } : { request, state: next };
+}
+
+export function completeFirestoreSubcollectionsLoadCommand(
+  state: FirestoreQueryRuntimeState,
+  input: {
+    readonly request: SubmittedFirestoreSubcollectionLoad;
     readonly subcollections: ReadonlyArray<FirestoreCollectionNode>;
   },
 ): FirestoreQueryRuntimeState {
-  return firestoreSubcollectionsLoaded(state, input.documentPath, input.subcollections);
+  return firestoreSubcollectionsLoaded(state, input);
+}
+
+export function failFirestoreSubcollectionsLoadCommand(
+  state: FirestoreQueryRuntimeState,
+  request: SubmittedFirestoreSubcollectionLoad,
+): FirestoreQueryRuntimeState {
+  return firestoreSubcollectionsLoadFailed(state, request);
 }
 
 export function openFirestoreDocumentInNewTabCommand(
@@ -333,24 +396,22 @@ function completeExecutedFirestoreQuery(
   env: FirestoreQueryExecutionEnvironment,
   input: {
     readonly commandOptions?: AppCoreCommandOptions | undefined;
-    readonly draft: FirestoreQueryDraft;
     readonly durationMs?: number | undefined;
     readonly errorMessage: string | null;
+    readonly execution: NonNullable<FirestoreQueryRuntimeState['queryRequests'][string]>;
     readonly isDocumentQuery: boolean;
     readonly loadedPages: number;
     readonly resultCount: number;
-    readonly runId: number;
-    readonly tab: FirestoreQueryExecutionTabLike;
     readonly transition: (state: FirestoreQueryRuntimeState) => FirestoreQueryRuntimeState;
   },
 ): void {
   const current = store.get();
-  if (!isCurrentFirestoreQueryRun(current, input.tab.id, input.runId)) return;
+  if (!isCurrentFirestoreQueryExecution(current, input.execution)) return;
   const transitioned = input.transition(current);
   const result = completeFirestoreQueryCommand(transitioned, {
     commandOptions: input.commandOptions,
-    connectionId: input.tab.connectionId,
-    draft: input.draft,
+    connectionId: input.execution.query.connectionId,
+    draft: input.execution.draft,
     durationMs: input.durationMs,
     errorMessage: input.errorMessage,
     isDocumentQuery: input.isDocumentQuery,
@@ -358,8 +419,8 @@ function completeExecutedFirestoreQuery(
     loadedPages: input.loadedPages,
     pendingPageReloadCount: 0,
     resultCount: input.resultCount,
-    runId: input.runId,
-    tabId: input.tab.id,
+    runId: input.execution.runId,
+    tabId: input.execution.token.tabId,
   });
   store.set(result.state);
   if (result.activity) void env.recordActivity?.(result.activity);
@@ -391,14 +452,6 @@ async function loadQueryPages(
   return pages;
 }
 
-function isCurrentFirestoreQueryRun(
-  state: FirestoreQueryRuntimeState,
-  tabId: string,
-  runId: number,
-): boolean {
-  return state.queryRequests[tabId]?.runId === runId;
-}
-
 function pageRequest(cursor: PageRequest['cursor'] | undefined, limit: number): PageRequest {
   return cursor ? { cursor, limit } : { limit };
 }
@@ -418,7 +471,6 @@ function firestoreLoadMoreActivity(
     readonly hasMore: boolean;
     readonly request: NonNullable<FirestoreQueryRuntimeState['queryRequests'][string]>;
     readonly resultCount: number;
-    readonly tab: FirestoreQueryExecutionTabLike;
   },
 ): ActivityLogAppendInput {
   return {
@@ -439,7 +491,7 @@ function firestoreLoadMoreActivity(
         input.resultCount === 1 ? '' : 's'
       } from ${input.request.query.path}`,
     target: {
-      connectionId: input.tab.connectionId,
+      connectionId: input.request.query.connectionId,
       path: input.request.query.path,
       type: 'firestore-query',
     },
@@ -499,6 +551,7 @@ export function refreshFirestoreQueryCommand(
       : null,
     path: input.activeDraft.path,
     state: firestoreRefreshStarted(state, {
+      draft: input.activeDraft,
       limit: input.activeDraft.limit,
       pagesToReload: input.pagesToReload,
       query: input.query,

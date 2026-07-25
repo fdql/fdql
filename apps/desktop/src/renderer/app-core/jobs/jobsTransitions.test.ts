@@ -5,7 +5,12 @@ import type {
 import { describe, expect, it } from 'vitest';
 import { selectJobsButtonModel } from './jobsSelectors.ts';
 import { createInitialJobsState } from './jobsState.ts';
-import { jobsDrawerOpened, jobsEventReceived, jobsLoadSucceeded } from './jobsTransitions.ts';
+import {
+  jobsDrawerOpened,
+  jobsEventReceived,
+  jobsLoadStarted,
+  jobsLoadSucceeded,
+} from './jobsTransitions.ts';
 
 describe('jobsTransitions', () => {
   it('clears failed job badge when the drawer opens', () => {
@@ -55,6 +60,33 @@ describe('jobsTransitions', () => {
     ]);
 
     expect(selectJobsButtonModel(state)).toEqual({ badge: null, variant: 'ghost' });
+  });
+
+  it('preserves subscription events received during an older list request', () => {
+    const loading = jobsLoadStarted(createInitialJobsState());
+    const eventJob = {
+      ...job('job-1', 'running'),
+      updatedAt: '2026-04-29T00:02:00.000Z',
+    };
+    const withEvent = jobsEventReceived(loading, { job: eventJob, type: 'job-updated' });
+    const loaded = jobsLoadSucceeded(withEvent, [job('job-1', 'queued')]);
+
+    expect(loaded.jobs).toEqual([eventJob]);
+    expect(loaded.eventsDuringLoad).toEqual({});
+  });
+
+  it('does not regress a job from an older event', () => {
+    const newer = {
+      ...job('job-1', 'succeeded'),
+      updatedAt: '2026-04-29T00:02:00.000Z',
+    };
+    const state = jobsLoadSucceeded(createInitialJobsState(), [newer]);
+    const updated = jobsEventReceived(state, {
+      job: { ...job('job-1', 'running'), updatedAt: '2026-04-29T00:01:00.000Z' },
+      type: 'job-updated',
+    });
+
+    expect(updated.jobs).toEqual([newer]);
   });
 });
 

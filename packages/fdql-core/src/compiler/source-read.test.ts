@@ -1,0 +1,411 @@
+import { describe, expect, it } from 'vitest';
+import type { FdqlProviderDialect } from '../provider.ts';
+import { testProviderDialect } from '../test-helpers/provider.ts';
+import { compileSingleFdqlRead } from './source-read.ts';
+
+const options = { providers: [testProviderDialect] };
+
+describe('FDQL compiler source reads', () => {
+  it('plans provider reads with provider clauses', () => {
+    const result = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem where p.active = true
+mem order by p.createdAt desc
+mem limit 25
+return mem.id(p) as id, p.name`,
+      options,
+    );
+
+    expect(result).toMatchObject({
+      diagnostics: [],
+      ok: true,
+      plan: {
+        provider: {
+          limit: 25,
+          orderBy: { direction: 'desc' },
+          source: {
+            provider: 'mem',
+            sourceType: 'collection',
+            target: { collection: 'people' },
+          },
+        },
+      },
+    });
+  });
+
+  it('passes completed provider read clauses to provider query validation', () => {
+    const result = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem where p.active = true
+mem order by p.createdAt desc
+mem limit 25
+return mem.id(p) as id`,
+      { providers: [queryValidationProvider()] },
+    );
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'TEST_PROVIDER_QUERY', line: 4 }),
+    );
+  });
+
+  it('plans provider aggregate source reads', () => {
+    const count = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate $people
+  yield mem.count() as total
+return total`,
+      options,
+    );
+    const filtered = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate $people as p
+  mem where p.active = true
+  yield mem.count() as total, mem.sum(p.score) as score
+return total, score`,
+      options,
+    );
+
+    expect(count).toMatchObject({
+      diagnostics: [],
+      ok: true,
+      plan: {
+        providerAggregate: {
+          items: [{ alias: '__fdql_0', functionName: 'mem.count' }],
+          outputs: [{ alias: 'total', itemAlias: '__fdql_0', kind: 'field' }],
+          rowAlias: '__aggregate',
+        },
+      },
+    });
+    expect(filtered).toMatchObject({
+      diagnostics: [],
+      ok: true,
+      plan: {
+        provider: { predicate: expect.objectContaining({ kind: 'binary' }) },
+        providerAggregate: {
+          items: [
+            { alias: '__fdql_0', functionName: 'mem.count' },
+            { alias: '__fdql_1', functionName: 'mem.sum' },
+          ],
+          outputs: [
+            { alias: 'total', itemAlias: '__fdql_0', kind: 'field' },
+            { alias: 'score', itemAlias: '__fdql_1', kind: 'field' },
+          ],
+          rowAlias: 'p',
+        },
+      },
+    });
+  });
+
+  it('requires explicit return stages', () => {
+    const read = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem limit 1`,
+      options,
+    );
+    const aggregate = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate $people
+  yield mem.count() as total`,
+      options,
+    );
+
+    expect(read.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_MISSING_RETURN' }),
+    );
+    expect(aggregate.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_MISSING_RETURN' }),
+    );
+  });
+
+  it('requires declared provider source aliases and registered providers', () => {
+    const undeclared = compileSingleFdqlRead(
+      `from $people as p
+mem limit 1
+return p.name`,
+      options,
+    );
+    const missingProvider = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+return p.name`,
+      {},
+    );
+    const unknownProvider = compileSingleFdqlRead(
+      `alias $people = fb.collection("people")
+from $people as p
+fb limit 1
+return p.name`,
+      options,
+    );
+
+    expect(undeclared.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNDECLARED_ALIAS' }),
+    );
+    expect(missingProvider.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNKNOWN_NAMESPACE' }),
+    );
+    expect(unknownProvider.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNKNOWN_NAMESPACE' }),
+    );
+  });
+
+  it('locates undeclared source aliases on the source token', () => {
+    const result = compileSingleFdqlRead(
+      `from $pepole as p
+mem limit 1
+return p.name`,
+      options,
+    );
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_UNDECLARED_ALIAS',
+        column: 6,
+        endColumn: 13,
+        endLine: 1,
+        line: 1,
+      }),
+    );
+  });
+
+  it('locates diagnostics on multiline statement header tokens', () => {
+    const undeclared = compileSingleFdqlRead(
+      `from
+  $pepole
+  as p
+mem limit 1
+return p.name`,
+      options,
+    );
+    const unknownBinding = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+then filter
+  pepole.active = true
+return p.name`,
+      options,
+    );
+
+    expect(undeclared.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_UNDECLARED_ALIAS',
+        column: 3,
+        endColumn: 10,
+        endLine: 2,
+        line: 2,
+      }),
+    );
+    expect(unknownBinding.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'FDQL_UNKNOWN_ROW_BINDING',
+        column: 3,
+        endColumn: 9,
+        endLine: 5,
+        line: 5,
+      }),
+    );
+  });
+
+  it('blocks unbounded reads and duplicate singleton stages', () => {
+    const unbounded = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+return p.name`,
+      options,
+    );
+    const duplicate = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem order by p.name asc
+mem order by p.createdAt asc
+mem limit 1
+mem limit 1
+return mem.id(p) as id`,
+      options,
+    );
+
+    expect(unbounded.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNBOUNDED_PROVIDER_READ' }),
+    );
+    expect(duplicate.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'FDQL_DUPLICATE_STAGE', line: 4 }),
+        expect.objectContaining({ code: 'FDQL_DUPLICATE_STAGE', line: 6 }),
+      ]),
+    );
+  });
+
+  it('validates return stages and provider predicates', () => {
+    const duplicateReturn = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+return p.name
+return p.teamId`,
+      options,
+    );
+    const unknownFunction = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem limit 1
+return fb.unknown(p), p.name`,
+      options,
+    );
+    const invalidPredicate = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from $people as p
+mem where "paid" = p.status
+mem limit 1
+return p.name`,
+      options,
+    );
+
+    expect(duplicateReturn.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_DUPLICATE_STAGE', line: 5 }),
+    );
+    expect(unknownFunction.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNKNOWN_NAMESPACE', line: 4 }),
+    );
+    expect(invalidPredicate.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNSUPPORTED_PROVIDER_WHERE' }),
+    );
+  });
+
+  it('validates row binding roots through return and row-shaping stages', () => {
+    const validPipelineAggregateReturn = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+alias $teams = mem.collection("teams")
+from $orders as order
+mem limit 1
+then mem.aggregate $teams as team
+  yield mem.count() as total
+return total`,
+      options,
+    );
+    const validPipelineAggregateMap = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+alias $teams = mem.collection("teams")
+from $orders as order
+mem limit 1
+then mem.aggregate $teams as team
+  yield { mem.count() as total } as stats
+return stats.total`,
+      options,
+    );
+    const invalidPipelineAggregateCollision = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+alias $teams = mem.collection("teams")
+from $orders as order
+mem limit 1
+then mem.aggregate $teams
+  yield mem.count() as order
+return order`,
+      options,
+    );
+    const validLocalAggregate = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+from $orders as order
+mem limit 10
+then aggregate
+  yield count() as total
+return total`,
+      options,
+    );
+    const invalidWithReplacement = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+from $orders as order
+mem limit 1
+then with order.status as status
+return order`,
+      options,
+    );
+    const validWithWildcard = compileSingleFdqlRead(
+      `alias $orders = mem.collection("orders")
+from $orders as order
+mem limit 1
+then with *, order.status as status
+return order`,
+      options,
+    );
+
+    expect(validPipelineAggregateReturn.diagnostics).toEqual([]);
+    expect(validPipelineAggregateReturn.ok).toBe(true);
+    expect(validPipelineAggregateMap.diagnostics).toEqual([]);
+    expect(validPipelineAggregateMap.ok).toBe(true);
+    expect(invalidPipelineAggregateCollision.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_ROW_BINDING_COLLISION' }),
+    );
+    expect(validLocalAggregate.diagnostics).toEqual([]);
+    expect(validLocalAggregate.ok).toBe(true);
+    expect(invalidWithReplacement.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNKNOWN_ROW_BINDING' }),
+    );
+    expect(validWithWildcard.diagnostics).toEqual([]);
+    expect(validWithWildcard.ok).toBe(true);
+  });
+
+  it('validates provider aggregate source clauses and yield', () => {
+    const missingYield = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate $people
+return total`,
+      options,
+    );
+    const whereWithoutAlias = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate $people
+  mem where p.active = true
+  yield mem.count() as total
+return total`,
+      options,
+    );
+    const unsupportedClause = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate $people as p
+  mem order by p.name asc
+  yield mem.count() as total
+return total`,
+      options,
+    );
+    const fieldWithoutAlias = compileSingleFdqlRead(
+      `alias $people = mem.collection("people")
+from mem.aggregate $people
+  yield mem.sum(p.score) as score
+return score`,
+      options,
+    );
+
+    expect(missingYield.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_MISSING_PROVIDER_AGGREGATE_YIELD' }),
+    );
+    expect(whereWithoutAlias.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_PROVIDER_AGGREGATE' }),
+    );
+    expect(unsupportedClause.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_UNSUPPORTED_PROVIDER_AGGREGATE_CLAUSE' }),
+    );
+    expect(fieldWithoutAlias.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'FDQL_INVALID_PROVIDER_AGGREGATE' }),
+    );
+  });
+});
+
+function queryValidationProvider(): FdqlProviderDialect {
+  return {
+    ...testProviderDialect,
+    validateQuery(input) {
+      if (!input.predicate || !input.orderBy) return;
+      input.diagnostics.push({
+        code: 'TEST_PROVIDER_QUERY',
+        ...(input.orderByLine === undefined ? {} : { line: input.orderByLine }),
+        message: 'Provider query validation ran.',
+        severity: 'error',
+      });
+    },
+  };
+}

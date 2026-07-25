@@ -18,7 +18,8 @@ export class ProjectsStore {
 
   async list(): Promise<ReadonlyArray<ProjectSummary>> {
     if (this.cache) return cloneProjects(this.cache);
-    this.cache = await this.readFile();
+    const projects = await this.readFile();
+    this.cache ??= projects;
     return cloneProjects(this.cache);
   }
 

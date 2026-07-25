@@ -1,4 +1,5 @@
 {
   "extends": "../config-tsconfig/node.json",
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "references": [{ "path": "../fdql" }, { "path": "../firestore-sql" }]
 }

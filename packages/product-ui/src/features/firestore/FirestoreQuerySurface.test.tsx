@@ -1,6 +1,7 @@
 import type {
   FirestoreDocumentResult,
   FirestoreQueryDraft,
+  FirestoreQueryDraftEdit,
   FirestoreSaveDocumentResult,
   FirestoreUpdateDocumentFieldsResult,
   SettingsRepository,
@@ -8,7 +9,7 @@ import type {
 } from '@firebase-desk/repo-contracts';
 import { MockSettingsRepository } from '@firebase-desk/repo-mocks';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { AppearanceProvider } from '../../appearance/AppearanceProvider.tsx';
 import type { DeleteDocumentOptions } from './deleteDocumentModel.ts';
@@ -177,6 +178,17 @@ const documentWithSubcollections: FirestoreDocumentResult = {
 };
 
 describe('FirestoreQuerySurface editing UX', () => {
+  it('forwards granular query draft edits', () => {
+    const onDraftEdit = vi.fn<(edit: FirestoreQueryDraftEdit) => void>();
+    renderSurface({ onDraftEdit });
+
+    fireEvent.change(screen.getByLabelText('Query path'), {
+      target: { value: 'customers' },
+    });
+
+    expect(onDraftEdit).toHaveBeenCalledWith({ type: 'path-set', path: 'customers' });
+  });
+
   it('quick toggles a boolean field from the selection preview', async () => {
     const onUpdateDocumentFields = vi.fn<UpdateDocumentFields>();
     renderSurface({ onUpdateDocumentFields });
@@ -249,6 +261,73 @@ describe('FirestoreQuerySurface editing UX', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'set null active' })[0]!);
 
     await waitFor(() => expect(onResultsStaleChange).toHaveBeenCalledWith(true));
+  });
+
+  it('syncs saved field results without marking results stale', async () => {
+    const savedDocument = {
+      ...document,
+      data: { ...document.data, active: null },
+      updateTime: '2026-04-29T00:01:00.000Z',
+    };
+    const onResultDocumentSaved = vi.fn();
+    const onResultsStaleChange = vi.fn();
+    const onUpdateDocumentFields = vi.fn<UpdateDocumentFields>().mockResolvedValue({
+      status: 'saved',
+      document: savedDocument,
+    });
+    renderSurface({
+      onResultDocumentSaved,
+      onResultsStaleChange,
+      onUpdateDocumentFields,
+    });
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'set null active' })[0]!);
+
+    await waitFor(() => expect(onResultDocumentSaved).toHaveBeenCalledWith(savedDocument));
+    expect(onResultsStaleChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it('syncs saved document results without marking results stale', async () => {
+    const savedDocument = {
+      ...document,
+      data: { active: false },
+      updateTime: '2026-04-29T00:01:00.000Z',
+    };
+    const onResultDocumentSaved = vi.fn();
+    const onResultsStaleChange = vi.fn();
+    const onSaveDocument = vi.fn<SaveDocument>().mockResolvedValue({
+      status: 'saved',
+      document: savedDocument,
+    });
+    renderSurface({ onResultDocumentSaved, onResultsStaleChange, onSaveDocument });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit document' }));
+    fireEvent.change(screen.getByLabelText('JSON value'), {
+      target: { value: '{"active":false}' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(onResultDocumentSaved).toHaveBeenCalledWith(savedDocument));
+    expect(onResultsStaleChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it('does not sync result rows when field writes conflict', async () => {
+    const remoteDocument = {
+      ...document,
+      data: { active: false },
+      updateTime: '2026-04-29T00:01:00.000Z',
+    };
+    const onResultDocumentSaved = vi.fn();
+    const onUpdateDocumentFields = vi.fn<UpdateDocumentFields>().mockResolvedValue({
+      status: 'conflict',
+      remoteDocument,
+    });
+    renderSurface({ onResultDocumentSaved, onUpdateDocumentFields });
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'set null active' })[0]!);
+
+    expect(await screen.findByRole('dialog', { name: 'Resolve save conflict' })).toBeTruthy();
+    expect(onResultDocumentSaved).not.toHaveBeenCalled();
   });
 
   it('uses controlled result view state', () => {
@@ -389,6 +468,17 @@ describe('FirestoreQuerySurface editing UX', () => {
     );
   });
 
+  it('closes pending dialogs when the target scope changes', async () => {
+    render(<ScopedCreateRequestSurface />);
+
+    expect(await screen.findByRole('dialog', { name: 'New document' })).toBeTruthy();
+    fireEvent.click(screen.getByText('Change target'));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'New document' })).toBeNull();
+    });
+  });
+
   it('opens editable conflict merge and saves merged JSON with remote update time', async () => {
     const remoteDocument: FirestoreDocumentResult = {
       ...document,
@@ -523,6 +613,19 @@ describe('FirestoreQuerySurface editing UX', () => {
     );
   });
 
+  it('syncs deleted result rows without marking results stale', async () => {
+    const onDeleteDocument = vi.fn<DeleteDocument>();
+    const onResultDocumentDeleted = vi.fn();
+    const onResultsStaleChange = vi.fn();
+    renderSurface({ onDeleteDocument, onResultDocumentDeleted, onResultsStaleChange });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete document' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(onResultDocumentDeleted).toHaveBeenCalledWith('orders/ord_1'));
+    expect(onResultsStaleChange).not.toHaveBeenCalledWith(true);
+  });
+
   it('shows delete document errors once', async () => {
     const onSaveDocument = vi.fn<SaveDocument>();
     const onDeleteDocument = vi.fn<DeleteDocument>(() => {
@@ -543,8 +646,11 @@ function renderSurface(
     document: inputDocument = document,
     onDeleteDocument,
     onCreateDocument,
+    onDraftEdit,
     onGenerateDocumentId,
     onResultViewChange,
+    onResultDocumentDeleted,
+    onResultDocumentSaved,
     onResultsStaleChange,
     onRun,
     onSaveDocument,
@@ -561,8 +667,11 @@ function renderSurface(
     readonly document?: FirestoreDocumentResult;
     readonly onCreateDocument?: CreateDocument;
     readonly onDeleteDocument?: DeleteDocument;
+    readonly onDraftEdit?: (edit: FirestoreQueryDraftEdit) => void;
     readonly onGenerateDocumentId?: (collectionPath: string) => Promise<string> | string;
     readonly onResultViewChange?: (resultView: FirestoreResultView) => void;
+    readonly onResultDocumentDeleted?: (documentPath: string) => void;
+    readonly onResultDocumentSaved?: (document: FirestoreDocumentResult) => void;
     readonly onResultsStaleChange?: (stale: boolean) => void;
     readonly onRun?: () => void;
     readonly onSaveDocument?: SaveDocument;
@@ -586,11 +695,12 @@ function renderSurface(
         {...(onCreateDocument ? { onCreateDocument } : {})}
         {...(onDeleteDocument ? { onDeleteDocument } : {})}
         {...(onGenerateDocumentId ? { onGenerateDocumentId } : {})}
-        onDraftChange={() => {}}
+        onDraftEdit={onDraftEdit ?? (() => {})}
         onLoadMore={() => {}}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onResultViewChange={onResultViewChange}
+        onResultDocumentDeleted={onResultDocumentDeleted}
+        onResultDocumentSaved={onResultDocumentSaved}
         onResultsStaleChange={onResultsStaleChange}
         onRun={onRun ?? (() => {})}
         onSaveDocument={onSaveDocument ?? vi.fn<SaveDocument>()}
@@ -607,6 +717,34 @@ type SaveDocument = (
   data: Record<string, unknown>,
   options?: { readonly lastUpdateTime?: string; },
 ) => FirestoreSaveDocumentResult | void | Promise<FirestoreSaveDocumentResult | void>;
+
+function ScopedCreateRequestSurface() {
+  const [scope, setScope] = useState('emu:orders');
+  const [settings] = useState(() => new MockSettingsRepository());
+  return (
+    <AppearanceProvider settings={settings}>
+      <button type='button' onClick={() => setScope('emu:auditLogs')}>Change target</button>
+      <FirestoreQuerySurface
+        createDocumentRequest={{ collectionPath: 'orders', requestId: 1 }}
+        draft={draft}
+        hasMore={false}
+        rows={[document]}
+        selectedDocument={document}
+        selectedDocumentPath={document.path}
+        settings={settings}
+        targetScopeKey={scope}
+        onCreateDocument={() => {}}
+        onDraftEdit={() => {}}
+        onGenerateDocumentId={() => 'generated_id'}
+        onLoadMore={() => {}}
+        onOpenDocumentInNewTab={() => {}}
+        onRun={() => {}}
+        onSelectDocument={() => {}}
+      />
+    </AppearanceProvider>
+  );
+}
+
 type UpdateDocumentFields = (
   documentPath: string,
   operations: ReadonlyArray<{

@@ -1,7 +1,9 @@
 import type {
   ActivityLogRepository,
   AuthRepository,
+  FdqlRepository,
   FirestoreRepository,
+  FirestoreSqlRepository,
   PickServiceAccountFileResult,
   ProjectsRepository,
   ScriptRunnerRepository,
@@ -10,7 +12,9 @@ import type { BackgroundJobRepository } from '@firebase-desk/repo-contracts/jobs
 import { createActivityHandlers } from './activity-handlers.ts';
 import { type AppHandlerDeps, createAppHandlers } from './app-handlers.ts';
 import { createAuthHandlers } from './auth-handlers.ts';
+import { createFdqlHandlers } from './fdql-handlers.ts';
 import { createFirestoreHandlers } from './firestore-handlers.ts';
+import { createFirestoreSqlHandlers } from './firestore-sql-handlers.ts';
 import type { IpcHandlerMap } from './handler-types.ts';
 import { createJobsHandlers } from './jobs-handlers.ts';
 import { createProjectsHandlers } from './projects-handlers.ts';
@@ -30,6 +34,8 @@ export interface CreateIpcHandlersDeps extends AppHandlerDeps {
   readonly firestoreRepository: FirestoreRepository & {
     readonly invalidateConnection: (connectionId: string) => void;
   };
+  readonly fdqlRepository: Pick<FdqlRepository, 'cancel' | 'compile' | 'run'>;
+  readonly firestoreSqlRepository: Pick<FirestoreSqlRepository, 'cancel' | 'compile' | 'run'>;
   readonly pickServiceAccountFile: () => Promise<PickServiceAccountFileResult>;
   readonly projectsRepository: ProjectsRepository & {
     readonly validateServiceAccount: NonNullable<ProjectsRepository['validateServiceAccount']>;
@@ -50,6 +56,8 @@ export function createIpcHandlers(deps: CreateIpcHandlersDeps): IpcHandlerMap {
       projectsRepository: deps.projectsRepository,
     }),
     ...createFirestoreHandlers(deps.firestoreRepository),
+    ...createFdqlHandlers(deps.fdqlRepository),
+    ...createFirestoreSqlHandlers(deps.firestoreSqlRepository),
     ...createScriptRunnerHandlers(deps.scriptRunnerRepository),
     ...createAuthHandlers(deps.authRepository),
     ...createSettingsHandlers(deps.settingsRepository, deps.activityLogRepository),

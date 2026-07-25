@@ -17,15 +17,23 @@ import {
   ChevronLeft,
   ChevronRight,
   Code2,
+  CopyPlus,
   Database,
   Folder,
+  ListFilter,
+  ListTree,
   Trash2,
   Users,
   X,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 
-export type WorkspaceTabKind = 'firestore-query' | 'auth-users' | 'js-query';
+export type WorkspaceTabKind =
+  | 'firestore-query'
+  | 'auth-users'
+  | 'js-query'
+  | 'firestore-sql'
+  | 'fdql';
 
 export interface WorkspaceTabModel {
   readonly id: string;
@@ -44,6 +52,7 @@ export interface WorkspaceTabStripProps {
   readonly onCloseTab: (id: string) => void;
   readonly onCloseTabsToLeft: (id: string) => void;
   readonly onCloseTabsToRight: (id: string) => void;
+  readonly onDuplicateTab: (id: string) => void;
   readonly onCloseOtherTabs: (id: string) => void;
   readonly onReorderTabs: (activeId: string, overId: string) => void;
   readonly onSelectTab: (id: string) => void;
@@ -60,6 +69,7 @@ export function WorkspaceTabStrip(
     onCloseOtherTabs,
     onCloseTabsToLeft,
     onCloseTabsToRight,
+    onDuplicateTab,
     onReorderTabs,
     onSelectTab,
     onSortByProject,
@@ -138,6 +148,7 @@ export function WorkspaceTabStrip(
         <SortableContext items={tabs.map((tab) => tab.id)} strategy={horizontalListSortingStrategy}>
           <div
             ref={scrollRef}
+            aria-label='Workspace tabs'
             className='flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
             role='tablist'
           >
@@ -152,6 +163,7 @@ export function WorkspaceTabStrip(
                 onCloseOtherTabs={onCloseOtherTabs}
                 onCloseTabsToLeft={onCloseTabsToLeft}
                 onCloseTabsToRight={onCloseTabsToRight}
+                onDuplicateTab={onDuplicateTab}
                 onSelectTab={onSelectTab}
                 onSortByProject={onSortByProject}
               />
@@ -184,6 +196,7 @@ interface SortableTabProps {
   readonly onCloseTab: (id: string) => void;
   readonly onCloseTabsToLeft: (id: string) => void;
   readonly onCloseTabsToRight: (id: string) => void;
+  readonly onDuplicateTab: (id: string) => void;
   readonly onCloseOtherTabs: (id: string) => void;
   readonly onSelectTab: (id: string) => void;
   readonly onSortByProject: () => void;
@@ -199,6 +212,7 @@ function SortableTab(
     onCloseTab,
     onCloseTabsToLeft,
     onCloseTabsToRight,
+    onDuplicateTab,
     onSelectTab,
     onSortByProject,
   }: SortableTabProps,
@@ -227,6 +241,7 @@ function SortableTab(
           role='tab'
           style={style}
           tabIndex={active ? 0 : -1}
+          aria-label={`${tab.title} — ${project?.name ?? 'No project'}`}
           aria-selected={active}
           onClick={() => onSelectTab(tab.id)}
         >
@@ -251,6 +266,13 @@ function SortableTab(
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className='min-w-52 p-1.5'>
+        <TabContextMenuItem
+          icon={<CopyPlus size={13} aria-hidden='true' />}
+          onSelect={() => onDuplicateTab(tab.id)}
+        >
+          Duplicate tab
+        </TabContextMenuItem>
+        <ContextMenuSeparator />
         <TabContextMenuItem
           icon={<X size={13} aria-hidden='true' />}
           onSelect={() => onCloseTab(tab.id)}
@@ -312,6 +334,8 @@ function iconForTabKind(kind: WorkspaceTabKind): ReactNode {
   if (kind === 'firestore-query') return <Database size={14} aria-hidden='true' />;
   if (kind === 'auth-users') return <Users size={14} aria-hidden='true' />;
   if (kind === 'js-query') return <Code2 size={14} aria-hidden='true' />;
+  if (kind === 'firestore-sql') return <ListTree size={14} aria-hidden='true' />;
+  if (kind === 'fdql') return <ListFilter size={14} aria-hidden='true' />;
   return <Folder size={14} aria-hidden='true' />;
 }
 

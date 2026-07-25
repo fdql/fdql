@@ -33,39 +33,48 @@ export class AdminFirestoreProvider {
     this.resolver = resolver;
   }
 
-  async getFirestore(connectionId: string): Promise<Firestore> {
+  async getFirestore(connectionId: string, databaseId?: string | undefined): Promise<Firestore> {
     const config = await this.resolver.resolveConnection(connectionId);
-    return this.getFirestoreForConfig(connectionId, config);
+    return this.getFirestoreForConfig(connectionId, config, databaseId);
   }
 
-  async getFirestoreConnection(connectionId: string): Promise<AdminFirestoreConnection> {
+  async getFirestoreConnection(
+    connectionId: string,
+    databaseId?: string | undefined,
+  ): Promise<AdminFirestoreConnection> {
     const config = await this.resolver.resolveConnection(connectionId);
-    return { config, db: await this.getFirestoreForConfig(connectionId, config) };
+    return { config, db: await this.getFirestoreForConfig(connectionId, config, databaseId) };
   }
 
   private async getFirestoreForConfig(
     connectionId: string,
     config: FirebaseConnectionConfig,
+    databaseId?: string | undefined,
   ): Promise<Firestore> {
-    const cacheKey = cacheKeyFor(config);
-    const cached = this.cache.get(connectionId);
+    const cacheSlot = cacheSlotFor(connectionId, databaseId);
+    const cacheKey = cacheKeyFor(config, databaseId);
+    const cached = this.cache.get(cacheSlot);
     if (cached?.cacheKey === cacheKey) return cached.db;
     if (cached) await this.deleteCached(cached);
 
     const app = initializeApp(appOptionsFor(config), appNameFor(connectionId, cacheKey));
     const db = withFirestoreEmulatorHost(
       config,
-      () => initializeFirestore(app, firestoreSettingsFor(config)),
+      () =>
+        databaseId
+          ? initializeFirestore(app, firestoreSettingsFor(config), databaseId)
+          : initializeFirestore(app, firestoreSettingsFor(config)),
     );
-    this.cache.set(connectionId, { app, cacheKey, db });
+    this.cache.set(cacheSlot, { app, cacheKey, db });
     return db;
   }
 
   async invalidateConnection(connectionId: string): Promise<void> {
-    const cached = this.cache.get(connectionId);
-    if (!cached) return;
-    this.cache.delete(connectionId);
-    await this.deleteCached(cached);
+    const entries = [...this.cache.entries()].filter(([key]) => key.startsWith(`${connectionId}:`));
+    for (const [key] of entries) {
+      this.cache.delete(key);
+    }
+    await Promise.all(entries.map(([, cached]) => this.deleteCached(cached)));
   }
 
   async clear(): Promise<void> {
@@ -169,13 +178,21 @@ function stringField(value: Record<string, unknown>, field: string): string {
   return result;
 }
 
-function cacheKeyFor({ project, credentialJson }: FirebaseConnectionConfig): string {
+function cacheKeyFor(
+  { project, credentialJson }: FirebaseConnectionConfig,
+  databaseId?: string,
+): string {
   return JSON.stringify({
     credential: Boolean(credentialJson),
+    databaseId: databaseId ?? null,
     emulatorHost: project.emulator?.firestoreHost ?? null,
     projectId: project.projectId,
     target: project.target,
   });
+}
+
+function cacheSlotFor(connectionId: string, databaseId?: string): string {
+  return `${connectionId}:${databaseId ?? '(default)'}`;
 }
 
 function appNameFor(connectionId: string, cacheKey: string): string {

@@ -50,6 +50,10 @@ const base = import.meta.env.BASE_URL.endsWith('/')
           <p>Query collections, inspect nested values, edit documents, and run collection jobs.</p>
         </article>
         <article>
+          <h3>Firestore SQL <span class='mini-badge'>Beta</span></h3>
+          <p>Write read-only SQL for joins, focused projections, sample-data runs, and snippets.</p>
+        </article>
+        <article>
           <h3>Authentication</h3>
           <p>Search users, review provider data, and edit custom claims without switching tools.</p>
         </article>
@@ -95,6 +99,7 @@ const base = import.meta.env.BASE_URL.endsWith('/')
         </div>
         <div class='link-list'>
           <a href={`${base}docs/workflows/firestore/`}>Firestore workflow</a>
+          <a href={`${base}docs/workflows/firestore-sql/`}>Firestore SQL beta</a>
           <a href={`${base}docs/workflows/auth/`}>Authentication workflow</a>
           <a href={`${base}docs/workflows/js-query/`}>JavaScript Query workflow</a>
           <a href={`${base}docs/workflows/activity/`}>Activity workflow</a>

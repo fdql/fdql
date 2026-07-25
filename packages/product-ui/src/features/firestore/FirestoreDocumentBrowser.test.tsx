@@ -1,7 +1,7 @@
-import type { FirestoreDocumentResult, SettingsRepository } from '@firebase-desk/repo-contracts';
+import type { FirestoreDocumentResult } from '@firebase-desk/repo-contracts';
 import { MockSettingsRepository } from '@firebase-desk/repo-mocks';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { FirestoreDocumentBrowser } from './FirestoreDocumentBrowser.tsx';
 import type { SubcollectionLoadState } from './resultModel.tsx';
@@ -15,26 +15,73 @@ vi.mock('@firebase-desk/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@firebase-desk/ui')>();
   return {
     ...actual,
-    ResizablePanelGroup: ({ children }: { readonly children: ReactNode; }) => <div>{children}</div>,
+    ResizablePanelGroup: (
+      {
+        children,
+        onLayoutChanged,
+      }: {
+        readonly children: ReactNode;
+        readonly onLayoutChanged?: (() => void) | undefined;
+      },
+    ) => (
+      <div>
+        <button type='button' onClick={() => onLayoutChanged?.()}>
+          layout changed
+        </button>
+        {children}
+      </div>
+    ),
     ResizablePanel: (
       {
         children,
         defaultSize,
+        elementRef,
+        maxSize,
+        minSize,
         onResize,
       }: {
         readonly children: ReactNode;
         readonly defaultSize?: string | number | undefined;
+        readonly elementRef?: Ref<HTMLDivElement> | undefined;
+        readonly maxSize?: string | number | undefined;
+        readonly minSize?: string | number | undefined;
         readonly onResize?: (
           size: { readonly inPixels: number; readonly percentage: number; },
         ) => void;
       },
     ) => (
-      <div data-testid={`panel-${String(defaultSize ?? 'auto')}`}>
+      <div
+        data-max-size={String(maxSize ?? 'none')}
+        data-min-size={String(minSize ?? 'none')}
+        data-testid={`panel-${String(defaultSize ?? 'auto')}`}
+        ref={(node) => {
+          if (!node || !elementRef) return;
+          node.getBoundingClientRect = () => ({
+            bottom: 0,
+            height: 0,
+            left: 0,
+            right: 512,
+            top: 0,
+            width: 512,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+          });
+          if (typeof elementRef === 'function') elementRef(node);
+          else elementRef.current = node;
+        }}
+      >
         <button
           type='button'
           onClick={() => onResize?.({ inPixels: 512, percentage: 30 })}
         >
           resize {String(defaultSize ?? 'auto')}
+        </button>
+        <button
+          type='button'
+          onClick={() => onResize?.({ inPixels: 42, percentage: 4 })}
+        >
+          collapse {String(defaultSize ?? 'auto')}
         </button>
         {children}
       </div>
@@ -109,68 +156,62 @@ describe('FirestoreDocumentBrowser', () => {
     expect(screen.getByTestId('overview').textContent).toBe('table:orders/ord_1');
   });
 
-  it('restores and saves the inspector pane width', async () => {
+  it('reports per-tab inspector width changes without saving global settings', async () => {
     const settings = new MockSettingsRepository();
     await settings.save({ inspectorWidth: 444 });
     const save = vi.spyOn(settings, 'save');
+    const onInspectorWidthChange = vi.fn();
 
     render(
       <FirestoreDocumentBrowser
         hasMore={false}
+        inspectorWidth={444}
         queryPath='orders'
         resultView='table'
         rows={[]}
         settings={settings}
         onLoadMore={() => {}}
+        onInspectorWidthChange={onInspectorWidthChange}
         onResultViewChange={() => {}}
       />,
     );
 
-    await waitFor(() => expect(screen.getByTestId('panel-444px')).toBeTruthy());
+    expect(screen.getByTestId('panel-444px').getAttribute('data-max-size')).toBe('none');
 
-    fireEvent.click(screen.getByRole('button', { name: 'resize 444px' }));
+    fireEvent.click(screen.getByRole('button', { name: 'layout changed' }));
 
-    await waitFor(() => expect(save).toHaveBeenCalledWith({ inspectorWidth: 512 }));
+    expect(onInspectorWidthChange).toHaveBeenCalledWith(512);
+    expect(save).not.toHaveBeenCalled();
   });
 
-  it('keeps a user resize when settings load resolves late', async () => {
-    const snapshotSource = new MockSettingsRepository();
-    await snapshotSource.save({ inspectorWidth: 444 });
-    const load = deferred<Awaited<ReturnType<SettingsRepository['load']>>>();
-    const settings: SettingsRepository = {
-      load: vi.fn(() => load.promise),
-      save: vi.fn(async () => await snapshotSource.load()),
-      getHotkeyOverrides: vi.fn(async () => ({})),
-      setHotkeyOverrides: vi.fn(async () => {}),
-    };
+  it('collapses the result overview when resized to the rail', () => {
+    const onInspectorOverviewCollapsedChange = vi.fn();
 
     render(
       <FirestoreDocumentBrowser
         hasMore={false}
+        inspectorUi={{
+          overviewCollapsed: false,
+          resultTreeExpandedIds: null,
+          sections: {
+            fieldsInResults: false,
+            jsonContext: true,
+            selectionPreview: true,
+          },
+          selectionPreviewExpandedPathsByDocumentPath: {},
+        }}
+        inspectorWidth={360}
         queryPath='orders'
         resultView='table'
         rows={[]}
-        settings={settings}
         onLoadMore={() => {}}
+        onInspectorOverviewCollapsedChange={onInspectorOverviewCollapsedChange}
         onResultViewChange={() => {}}
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'resize 360px' }));
-    await waitFor(() => expect(screen.getByTestId('panel-512px')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'collapse 360px' }));
 
-    load.resolve(await snapshotSource.load());
-    await Promise.resolve();
-
-    expect(screen.queryByTestId('panel-444px')).toBeNull();
-    expect(screen.getByTestId('panel-512px')).toBeTruthy();
+    expect(onInspectorOverviewCollapsedChange).toHaveBeenCalledWith(true);
   });
 });
-
-function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void; } {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolver) => {
-    resolve = resolver;
-  });
-  return { promise, resolve };
-}

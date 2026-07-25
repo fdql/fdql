@@ -5,6 +5,7 @@ import type {
   FirestoreFieldPatchOperation,
   FirestoreFieldStaleBehavior,
   FirestoreQueryDraft,
+  FirestoreQueryDraftEdit,
   FirestoreSaveDocumentOptions,
   FirestoreSaveDocumentResult,
   FirestoreUpdateDocumentFieldsOptions,
@@ -38,6 +39,7 @@ import {
   validateFirestoreValue,
 } from './fieldEditModel.ts';
 import { FirestoreDocumentBrowser } from './FirestoreDocumentBrowser.tsx';
+import type { FirestoreInspectorSectionId, FirestoreInspectorUiState } from './inspectorState.ts';
 import { QueryBuilder } from './QueryBuilder.tsx';
 import { findDocumentByPath, isCollectionPath } from './resultModel.tsx';
 import type { FirestoreResultView } from './types.ts';
@@ -57,6 +59,8 @@ export interface FirestoreQuerySurfaceProps {
   readonly density?: DensityName | undefined;
   readonly errorMessage?: string | null;
   readonly hasMore: boolean;
+  readonly inspectorUi?: FirestoreInspectorUiState | undefined;
+  readonly inspectorWidth?: number | undefined;
   readonly isFetchingMore?: boolean;
   readonly isLoading?: boolean;
   readonly onCreateDocument?: (
@@ -70,7 +74,7 @@ export interface FirestoreQuerySurfaceProps {
     documentPath: string,
     options: DeleteDocumentOptions,
   ) => Promise<void> | void;
-  readonly onDraftChange: (draft: FirestoreQueryDraft) => void;
+  readonly onDraftEdit: (edit: FirestoreQueryDraftEdit) => void;
   readonly onGenerateDocumentId?: (
     collectionPath: string,
   ) => Promise<string> | string;
@@ -84,11 +88,20 @@ export interface FirestoreQuerySurfaceProps {
   readonly onLoadSubcollections?: (
     documentPath: string,
   ) => Promise<ReadonlyArray<FirestoreCollectionNode>>;
+  readonly onInspectorOverviewCollapsedChange?: ((collapsed: boolean) => void) | undefined;
+  readonly onInspectorSectionOpenChange?:
+    | ((section: FirestoreInspectorSectionId, open: boolean) => void)
+    | undefined;
+  readonly onInspectorWidthChange?: ((width: number) => void) | undefined;
   readonly onOpenDocumentInNewTab: (documentPath: string) => void;
-  readonly onReset: () => void;
   readonly onRefreshResults?: () => void;
   readonly onResultViewChange?: ResultViewChangeHandler | undefined;
+  readonly onResultTreeExpandedIdsChange?:
+    | ((expandedIds: ReadonlyArray<string>) => void)
+    | undefined;
   readonly onResultsStaleChange?: ((stale: boolean, scopeKey?: string) => void) | undefined;
+  readonly onResultDocumentDeleted?: ((documentPath: string) => void) | undefined;
+  readonly onResultDocumentSaved?: ((document: FirestoreDocumentResult) => void) | undefined;
   readonly onRun: () => void;
   readonly onSaveDocument?: (
     documentPath: string,
@@ -104,17 +117,22 @@ export interface FirestoreQuerySurfaceProps {
     | FirestoreUpdateDocumentFieldsResult
     | void;
   readonly onSelectDocument: (documentPath: string) => void;
+  readonly onSelectionPreviewExpandedPathsChange?:
+    | ((documentPath: string, expandedPaths: ReadonlyArray<string>) => void)
+    | undefined;
   readonly onStartCollectionJob?:
     | ((request: FirestoreCollectionJobRequest) => Promise<void> | void)
     | undefined;
   readonly projects?: ReadonlyArray<ProjectSummary> | undefined;
   readonly rows: ReadonlyArray<FirestoreDocumentResult>;
   readonly resultView?: FirestoreResultView | undefined;
+  readonly resultQueryPath?: string | null | undefined;
   readonly resultsScopeKey?: string | undefined;
   readonly resultsStale?: boolean | undefined;
   readonly selectedDocument?: FirestoreDocumentResult | null;
   readonly selectedDocumentPath?: string | null;
   readonly settings?: SettingsRepository | undefined;
+  readonly targetScopeKey?: string | undefined;
 }
 
 export interface FirestoreCreateDocumentRequest {
@@ -158,36 +176,46 @@ export function FirestoreQuerySurface(
     density,
     errorMessage = null,
     hasMore,
+    inspectorUi,
+    inspectorWidth,
     isFetchingMore = false,
     isLoading = false,
     onCreateDocument,
     onCollectionJobRequestHandled,
     onCreateDocumentRequestHandled,
     onDeleteDocument,
-    onDraftChange,
+    onDraftEdit,
     onGenerateDocumentId,
     onPickCollectionJobExportFile,
     onPickCollectionJobImportFile,
     onLoadMore,
     onLoadSubcollections,
+    onInspectorOverviewCollapsedChange,
+    onInspectorSectionOpenChange,
+    onInspectorWidthChange,
     onOpenDocumentInNewTab,
-    onReset,
     onRefreshResults,
     onResultViewChange,
+    onResultTreeExpandedIdsChange,
     onResultsStaleChange,
+    onResultDocumentDeleted,
+    onResultDocumentSaved,
     onRun,
     onSaveDocument,
     onUpdateDocumentFields,
     onSelectDocument,
+    onSelectionPreviewExpandedPathsChange,
     onStartCollectionJob,
     projects = [],
     rows,
     resultView,
+    resultQueryPath,
     resultsScopeKey,
     resultsStale,
     selectedDocument = null,
     selectedDocumentPath = null,
     settings,
+    targetScopeKey,
   }: FirestoreQuerySurfaceProps,
 ) {
   const [uncontrolledResultView, setUncontrolledResultView] = useState<FirestoreResultView>(
@@ -217,13 +245,17 @@ export function FirestoreQuerySurface(
   const [uncontrolledResultsStale, setUncontrolledResultsStale] = useState(false);
   const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null);
   const [actionNoticeMessage, setActionNoticeMessage] = useState<string | null>(null);
+  const [dialogScopeKey, setDialogScopeKey] = useState(targetScopeKey);
   const effectiveResultView = resultView ?? uncontrolledResultView;
   const effectiveResultsStale = resultsStale ?? uncontrolledResultsStale;
   const onResultViewChangeRef = useRef(onResultViewChange);
   const onResultsStaleChangeRef = useRef(onResultsStaleChange);
   const resultsScopeKeyRef = useRef(resultsScopeKey);
+  const previousTargetScopeKeyRef = useRef(targetScopeKey);
+  const dialogScopeIsCurrent = dialogScopeKey === targetScopeKey;
   const fieldSuggestions = useFirestoreFieldCatalog({
     onSettingsError: setActionErrorMessage,
+    observationQueryPath: resultQueryPath,
     queryPath: draft.path,
     rows,
     settings,
@@ -232,28 +264,56 @@ export function FirestoreQuerySurface(
   const fieldActionsEnabled = Boolean(onUpdateDocumentFields);
 
   useEffect(() => {
+    if (previousTargetScopeKeyRef.current === targetScopeKey) return;
+    previousTargetScopeKeyRef.current = targetScopeKey;
+    setDialogScopeKey(targetScopeKey);
+    setEditorDocument(null);
+    setFieldEditor(null);
+    setDeleteDocumentTarget(null);
+    setDeleteFieldTarget(null);
+    setCreateDocumentState(null);
+    setCollectionJob(null);
+    setConflictMerge(null);
+    setPendingStaleFieldPatch(null);
+    setActionErrorMessage(null);
+    setActionNoticeMessage(null);
+  }, [targetScopeKey]);
+
+  useEffect(() => {
     if (!createDocumentRequest || createDocumentRequest.requestId === handledCreateRequestId) {
       return;
     }
     setHandledCreateRequestId(createDocumentRequest.requestId);
+    setDialogScopeKey(targetScopeKey);
     setCreateDocumentState({
       collectionPath: createDocumentRequest.collectionPath,
       collectionPathEditable: createDocumentRequest.collectionPathEditable ?? false,
     });
     onCreateDocumentRequestHandled?.(createDocumentRequest.requestId);
-  }, [createDocumentRequest, handledCreateRequestId, onCreateDocumentRequestHandled]);
+  }, [
+    createDocumentRequest,
+    handledCreateRequestId,
+    onCreateDocumentRequestHandled,
+    targetScopeKey,
+  ]);
 
   useEffect(() => {
     if (!collectionJobRequest || collectionJobRequest.requestId === handledCollectionJobRequestId) {
       return;
     }
     setHandledCollectionJobRequestId(collectionJobRequest.requestId);
+    setDialogScopeKey(targetScopeKey);
     setCollectionJob({
       collectionPath: collectionJobRequest.collectionPath,
       kind: collectionJobRequest.kind,
     });
     onCollectionJobRequestHandled?.(collectionJobRequest.requestId);
-  }, [collectionJobRequest, handledCollectionJobRequestId, onCollectionJobRequestHandled]);
+  }, [
+    collectionJobRequest,
+    handledCollectionJobRequestId,
+    onCollectionJobRequestHandled,
+    targetScopeKey,
+  ]);
 
   useEffect(() => {
     onResultViewChangeRef.current = onResultViewChange;
@@ -282,6 +342,7 @@ export function FirestoreQuerySurface(
     validateFirestoreDocumentData(data);
     const result = await onSaveDocument?.(documentPath, data, options);
     if (result?.status === 'conflict') {
+      setDialogScopeKey(targetScopeKey);
       setConflictMerge({
         documentPath,
         localData: data,
@@ -292,7 +353,11 @@ export function FirestoreQuerySurface(
       setActionNoticeMessage(null);
       return false;
     }
-    setResultsStaleState(true);
+    if (result?.status === 'saved' && onResultDocumentSaved) {
+      onResultDocumentSaved(result.document);
+    } else {
+      setResultsStaleState(true);
+    }
     setActionErrorMessage(null);
     setActionNoticeMessage(null);
     conflictContext?.onResolve?.();
@@ -312,6 +377,7 @@ export function FirestoreQuerySurface(
     validateFieldPatchOperations(operations);
     const result = await onUpdateDocumentFields?.(documentPath, operations, options);
     if (result?.status === 'conflict') {
+      setDialogScopeKey(targetScopeKey);
       setConflictMerge({
         documentPath,
         localData: context.localData,
@@ -325,6 +391,7 @@ export function FirestoreQuerySurface(
     if (result?.status === 'document-changed') {
       setActionNoticeMessage(null);
       if (options.staleBehavior === 'confirm' && result.remoteDocument) {
+        setDialogScopeKey(targetScopeKey);
         setPendingStaleFieldPatch({
           documentPath,
           localData: context.localData,
@@ -338,10 +405,15 @@ export function FirestoreQuerySurface(
       }
       return false;
     }
-    setResultsStaleState(true);
+    const syncedSavedDocument = result?.status === 'saved' && Boolean(onResultDocumentSaved);
+    if (result?.status === 'saved' && onResultDocumentSaved) {
+      onResultDocumentSaved(result.document);
+    } else {
+      setResultsStaleState(true);
+    }
     setActionErrorMessage(null);
     setActionNoticeMessage(
-      result?.status === 'saved' && result.documentChanged
+      !syncedSavedDocument && result?.status === 'saved' && result.documentChanged
         ? 'Saved field. Document changed elsewhere; refresh to view the latest data.'
         : null,
     );
@@ -414,7 +486,11 @@ export function FirestoreQuerySurface(
   async function deleteDocument(documentPath: string, options: DeleteDocumentOptions) {
     try {
       await onDeleteDocument?.(documentPath, options);
-      setResultsStaleState(true);
+      if (onResultDocumentDeleted) {
+        onResultDocumentDeleted(documentPath);
+      } else {
+        setResultsStaleState(true);
+      }
       setActionErrorMessage(null);
     } catch (caught) {
       setActionErrorMessage(messageFromError(caught, 'Could not delete document.'));
@@ -468,6 +544,7 @@ export function FirestoreQuerySurface(
 
   function openCreateDocument(collectionPath: string) {
     if (!isCollectionPath(collectionPath)) return;
+    setDialogScopeKey(targetScopeKey);
     setCreateDocumentState({ collectionPath, collectionPathEditable: false });
   }
 
@@ -527,8 +604,7 @@ export function FirestoreQuerySurface(
             draft={draft}
             fieldSuggestions={fieldSuggestions}
             isLoading={isLoading}
-            onDraftChange={onDraftChange}
-            onReset={onReset}
+            onDraftEdit={onDraftEdit}
             onRun={runQuery}
           />
         }
@@ -536,7 +612,9 @@ export function FirestoreQuerySurface(
         isLoading={isLoading}
         actionErrorMessage={actionErrorMessage}
         actionNoticeMessage={actionNoticeMessage}
-        queryPath={draft.path}
+        inspectorUi={inspectorUi}
+        inspectorWidth={inspectorWidth}
+        queryPath={resultQueryPath ?? draft.path}
         resultView={effectiveResultView}
         resultsScopeKey={resultsScopeKey}
         resultsStale={effectiveResultsStale}
@@ -545,13 +623,30 @@ export function FirestoreQuerySurface(
         selectedDocumentPath={selectedDocumentPath}
         settings={settings}
         onCollectionJob={onStartCollectionJob
-          ? (kind, collectionPath) => setCollectionJob({ collectionPath, kind })
+          ? (kind, collectionPath) => {
+            setDialogScopeKey(targetScopeKey);
+            setCollectionJob({ collectionPath, kind });
+          }
           : undefined}
-        onDeleteDocument={onDeleteDocument ? setDeleteDocumentTarget : undefined}
-        onDeleteField={fieldActionsEnabled ? setDeleteFieldTarget : undefined}
-        onEditDocument={setEditorDocument}
+        onDeleteDocument={onDeleteDocument
+          ? (document) => {
+            setDialogScopeKey(targetScopeKey);
+            setDeleteDocumentTarget(document);
+          }
+          : undefined}
+        onDeleteField={fieldActionsEnabled
+          ? (target) => {
+            setDialogScopeKey(targetScopeKey);
+            setDeleteFieldTarget(target);
+          }
+          : undefined}
+        onEditDocument={(document) => {
+          setDialogScopeKey(targetScopeKey);
+          setEditorDocument(document);
+        }}
         onEditField={fieldActionsEnabled
           ? (target) => {
+            setDialogScopeKey(targetScopeKey);
             const document = documentForTarget(target, rows, selectedDocument);
             setFieldEditor({
               ...target,
@@ -563,20 +658,25 @@ export function FirestoreQuerySurface(
           : undefined}
         onLoadMore={onLoadMore}
         onLoadSubcollections={onLoadSubcollections}
+        onInspectorOverviewCollapsedChange={onInspectorOverviewCollapsedChange}
+        onInspectorSectionOpenChange={onInspectorSectionOpenChange}
+        onInspectorWidthChange={onInspectorWidthChange}
         onOpenDocumentInNewTab={onOpenDocumentInNewTab}
         onResultViewChange={setResultViewState}
+        onResultTreeExpandedIdsChange={onResultTreeExpandedIdsChange}
         onRefreshResults={refreshResults}
         onSettingsError={setActionErrorMessage}
         onCreateDocument={onCreateDocument && onGenerateDocumentId
           ? openCreateDocument
           : undefined}
         onSelectDocument={onSelectDocument}
+        onSelectionPreviewExpandedPathsChange={onSelectionPreviewExpandedPathsChange}
         onSetFieldValue={fieldActionsEnabled ? setFieldValue : undefined}
         onSetFieldNull={fieldActionsEnabled ? setFieldNull : undefined}
       />
       <DocumentEditorModal
         document={editorDocument}
-        open={Boolean(editorDocument)}
+        open={dialogScopeIsCurrent && Boolean(editorDocument)}
         onSaveDocument={(documentPath, data) =>
           saveDocument(documentPath, data, saveOptionsFor(editorDocument), {
             onResolve: () => setEditorDocument(null),
@@ -586,7 +686,7 @@ export function FirestoreQuerySurface(
         }}
       />
       <FieldEditModal
-        open={Boolean(fieldEditor)}
+        open={dialogScopeIsCurrent && Boolean(fieldEditor)}
         target={fieldEditor}
         onSaveField={saveField}
         onOpenChange={(open) => {
@@ -595,7 +695,7 @@ export function FirestoreQuerySurface(
       />
       <DeleteDocumentDialog
         document={deleteDocumentTarget}
-        open={Boolean(deleteDocumentTarget)}
+        open={dialogScopeIsCurrent && Boolean(deleteDocumentTarget)}
         onConfirm={deleteDocument}
         onOpenChange={(open) => {
           if (!open) setDeleteDocumentTarget(null);
@@ -606,7 +706,7 @@ export function FirestoreQuerySurface(
         description={deleteFieldTarget
           ? `Delete field ${fieldPathLabel(deleteFieldTarget.fieldPath)}?`
           : 'Delete field?'}
-        open={Boolean(deleteFieldTarget)}
+        open={dialogScopeIsCurrent && Boolean(deleteFieldTarget)}
         title='Delete field'
         onConfirm={() => {
           if (deleteFieldTarget) void deleteField(deleteFieldTarget);
@@ -618,7 +718,7 @@ export function FirestoreQuerySurface(
       <ConfirmDialog
         confirmLabel='Save field'
         description='The document changed elsewhere, but this field still matches your loaded value. Save this field change anyway?'
-        open={Boolean(pendingStaleFieldPatch)}
+        open={dialogScopeIsCurrent && Boolean(pendingStaleFieldPatch)}
         title='Document changed elsewhere'
         onConfirm={() => {
           void confirmStaleFieldPatch();
@@ -633,7 +733,7 @@ export function FirestoreQuerySurface(
         hint={createDocumentState?.collectionPathEditable
           ? 'Firestore creates a collection when the first document is written. Enter the collection path and first document data.'
           : null}
-        open={Boolean(createDocumentState)}
+        open={dialogScopeIsCurrent && Boolean(createDocumentState)}
         title={createDocumentState?.collectionPathEditable ? 'New collection' : 'New document'}
         onCreateDocument={createDocument}
         onGenerateDocumentId={async (collectionPath) =>
@@ -642,7 +742,7 @@ export function FirestoreQuerySurface(
           if (!open) setCreateDocumentState(null);
         }}
       />
-      {collectionJob
+      {dialogScopeIsCurrent && collectionJob
         ? (
           <CollectionJobDialog
             activeProject={activeProject}
@@ -663,7 +763,7 @@ export function FirestoreQuerySurface(
           />
         )
         : null}
-      {conflictMerge
+      {dialogScopeIsCurrent && conflictMerge
         ? (
           <ConflictMergeModal
             documentPath={conflictMerge.documentPath}

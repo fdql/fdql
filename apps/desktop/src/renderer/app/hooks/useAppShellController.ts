@@ -13,12 +13,20 @@ import { type AppShellController, createAppShellController } from '../appShellOr
 import { type RepositorySet, useRepositories } from '../RepositoryProvider.tsx';
 import { selectionActions, selectionStore } from '../stores/selectionStore.ts';
 import { tabActions, tabsStore, type WorkspaceTabKind } from '../stores/tabsStore.ts';
-import { clampSidebarWidth, DEFAULT_SIDEBAR_WIDTH, resolveProject } from '../workspaceModel.ts';
+import {
+  clampSidebarWidth,
+  COLLAPSED_SIDEBAR_WIDTH,
+  DEFAULT_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+  resolveProject,
+} from '../workspaceModel.ts';
 import type { WorkspacePersistenceFailure } from '../workspacePersistence.ts';
 import { useAppShellHotkeys } from './useAppShellHotkeys.ts';
 import { useAuthTabState } from './useAuthTabState.ts';
 import { useDestructiveActionController } from './useDestructiveActionController.ts';
 import { useDocumentDensity } from './useDocumentDensity.ts';
+import { useFdqlTabState } from './useFdqlTabState.ts';
+import { useFirestoreSqlTabState } from './useFirestoreSqlTabState.ts';
 import { useFirestoreTabState } from './useFirestoreTabState.ts';
 import { useJsTabState } from './useJsTabState.ts';
 import {
@@ -50,12 +58,13 @@ export function useAppShellController(
   const repositories = useRepositories();
   const desktopAppApi = getDesktopAppApi();
   const tabsState = useSelector(tabsStore, (state) => state);
-  const selection = useSelector(selectionStore, (state) => state);
+  const featureSelection = useSelector(selectionStore, (state) => state);
   const projectsQuery = useProjects();
   const projects = projectsQuery.data ?? [];
   const activeTab = tabsState.tabs.find((tab) => tab.id === tabsState.activeTabId)
     ?? tabsState.tabs[0];
   const activeProject = activeTab ? resolveProject(projects, activeTab.connectionId) : null;
+  const selection = { ...featureSelection, treeItemId: tabsState.selectedTreeItemId };
 
   const [density, setDensity] = useState<DensityName>(defaultDensity);
   const [addProjectOpen, setAddProjectOpen] = useState(false);
@@ -64,7 +73,7 @@ export function useAppShellController(
   const [firstRunGuideSaving, setFirstRunGuideSaving] = useState(false);
   const [firstRunGuideError, setFirstRunGuideError] = useState<string | null>(null);
   const [credentialWarning, setCredentialWarning] = useState<string | null>(null);
-  const [lastAction, setLastAction] = useState('Ready');
+  const [lastAction, setLastAction] = useState('Restoring workspace');
   const [workspacePersistenceError, setWorkspacePersistenceError] = useState<
     WorkspacePersistenceFailure | null
   >(null);
@@ -75,8 +84,10 @@ export function useAppShellController(
   const [collectionJobRequest, setCollectionJobRequest] = useState<
     {
       readonly collectionPath: string;
+      readonly connectionId: string;
       readonly kind: 'copy' | 'delete' | 'duplicate' | 'export' | 'import';
       readonly requestId: number;
+      readonly tabId: string;
     } | null
   >(null);
 
@@ -87,10 +98,6 @@ export function useAppShellController(
     store: activityStore,
   });
   const recordActivity = activity.record;
-  const jobs = useJobsController({
-    onStatus: setLastAction,
-    repository: repositories.jobs,
-  });
   const persistedWorkspace = usePersistedWorkspaceState({
     onError: setWorkspacePersistenceError,
     settings: repositories.settings,
@@ -157,15 +164,18 @@ export function useAppShellController(
   const firestoreTab = useFirestoreTabState({
     activeProject,
     activeTab,
-    initialDrafts: persistedWorkspace.snapshot?.drafts,
     onQueryActivity: recordActivity,
     selectedTreeItemId: selection.treeItemId,
+  });
+  const jobs = useJobsController({
+    onJobSucceeded: firestoreTab.markCollectionJobSucceeded,
+    onStatus: setLastAction,
+    repository: repositories.jobs,
   });
   const workspaceTree = useWorkspaceTree({
     activeTab,
     openFirestoreTab,
     openFirestoreTabInNewTab,
-    openJsTabInNewTab,
     openToolTab,
     projects,
     selectedTreeItemId: selection.treeItemId,
@@ -203,12 +213,12 @@ export function useAppShellController(
   const firestoreWrite = useFirestoreWriteController({
     activeProject,
     activeTab,
-    clearSelectedDocument: (tabId) => firestoreTab.selectDocument(tabId, null),
     dataMode,
     firestore: repositories.firestore,
     onStatus: setLastAction,
     recordActivity,
     refreshAfterLiveWrite: workspaceTree.refreshLoadedRoots,
+    resultProject: resolveProject(projects, firestoreTab.activeQueryConnectionId),
   });
   const authTab = useAuthTabState({
     activeProject,
@@ -223,11 +233,23 @@ export function useAppShellController(
     recordActivity,
     selectedTreeItemId: selection.treeItemId,
   });
+  const fdqlTab = useFdqlTabState({
+    activeTab,
+    initialSources: persistedWorkspace.snapshot?.fdqlSources,
+    selectedTreeItemId: selection.treeItemId,
+  });
+  const sqlTab = useFirestoreSqlTabState({
+    activeTab,
+    initialContexts: persistedWorkspace.snapshot?.sqlContexts,
+    initialSources: persistedWorkspace.snapshot?.sqlSources,
+    selectedTreeItemId: selection.treeItemId,
+  });
   const projectCommands = useProjectCommandController({
     projects: repositories.projects,
     recordActivity,
     reloadProjects: projectsQuery.reload,
     setLastAction,
+    upsertProject: projectsQuery.upsert,
   });
   const editingProject = editingProjectId
     ? projects.find((project) => project.id === editingProjectId) ?? null
@@ -235,17 +257,35 @@ export function useAppShellController(
   const sidebarDefaultWidth = clampSidebarWidth(initialSidebarWidth);
   const workspaceSnapshot = useMemo(() => ({
     authFilter: authTab.authFilter,
-    drafts: firestoreTab.drafts,
+    fdqlSources: fdqlTab.sources,
     scripts: jsTab.scripts,
+    sqlContexts: sqlTab.contexts,
+    sqlSources: sqlTab.sources,
     tabsState,
-  }), [authTab.authFilter, firestoreTab.drafts, jsTab.scripts, tabsState]);
+  }), [
+    authTab.authFilter,
+    fdqlTab.sources,
+    jsTab.scripts,
+    sqlTab.contexts,
+    sqlTab.sources,
+    tabsState,
+  ]);
 
   useDocumentDensity(density);
   usePersistWorkspaceSnapshot(workspaceSnapshot, {
-    enabled: persistedWorkspace.restored,
+    enabled: persistedWorkspace.restored && persistedWorkspace.persistenceEnabled,
     onError: setWorkspacePersistenceError,
+    skipInitialSave: Boolean(persistedWorkspace.snapshot),
     settings: repositories.settings,
   });
+  useEffect(() => {
+    if (!persistedWorkspace.restored) return;
+    if (persistedWorkspace.recoveryDiagnostic) {
+      setLastAction(persistedWorkspace.recoveryDiagnostic);
+      return;
+    }
+    setLastAction((current) => current === 'Restoring workspace' ? 'Ready' : current);
+  }, [persistedWorkspace.recoveryDiagnostic, persistedWorkspace.restored]);
   useEffect(() => {
     if (!workspacePersistenceError) return;
     setLastAction(`Workspace persistence failed: ${workspacePersistenceError.message}`);
@@ -298,21 +338,37 @@ export function useAppShellController(
     editingProject,
     firestoreTab,
     firestoreWrite,
+    fdqlTab,
     firstRunGuide,
     focusAuthFilter,
     focusTreeFilter,
     jsTab,
+    sqlTab,
     jobs,
     lastAction,
     layout: {
       sidebarCollapsed,
       sidebarDefaultWidth,
-      onSidebarResize: (size) => persistSidebarWidth(repositories, size),
+      onSidebarResize: (size, previousSize) => {
+        if (size <= COLLAPSED_SIDEBAR_WIDTH + 1) {
+          if (
+            previousSize !== undefined
+            && previousSize > COLLAPSED_SIDEBAR_WIDTH + 1
+          ) {
+            setSidebarCollapsed(true);
+          }
+          return;
+        }
+        if (size < MIN_SIDEBAR_WIDTH) return;
+        if (sidebarCollapsed) setSidebarCollapsed(false);
+        persistSidebarWidth(repositories, size);
+      },
     },
     nextCreateDocumentRequestId: () => nextCreateDocumentRequestId.current++,
     collectionJobRequest,
     nextCollectionJobRequestId: () => nextCollectionJobRequestId.current++,
     projects,
+    projectsLoading: projectsQuery.isLoading,
     jobsRepository: {
       pickExportFile: repositories.jobs.pickExportFile,
       pickImportFile: repositories.jobs.pickImportFile,
@@ -329,6 +385,7 @@ export function useAppShellController(
     settings,
     sidebarCollapsed,
     tabs: {
+      duplicateTab: tabActions.duplicateTab,
       goBackInteraction: tabActions.goBackInteraction,
       goForwardInteraction: tabActions.goForwardInteraction,
       openOrSelectTab: tabActions.openOrSelectTab,
@@ -353,15 +410,15 @@ export function useAppShellController(
       clearAuthSelection: () => selectionActions.selectAuthUser(null),
       recordInteraction: tabActions.recordInteraction,
       requestDestructiveAction: destructiveAction.request,
-      restorePath: tabActions.restorePath,
       selectAuthUser: selectionActions.selectAuthUser,
-      selectTreeItem: selectionActions.selectTreeItem,
+      selectTreeItem: tabActions.selectTreeItem,
       setAddProjectOpen,
       setCredentialWarning,
       setCollectionJobRequest,
       setEditingProjectId,
       setLastAction,
       setSidebarCollapsed,
+      setTabInspectorWidth: tabActions.setInspectorWidth,
       setTabsState: (state) => tabsStore.setState(() => state),
       updateActiveTabConnection: tabActions.updateConnection,
     },
@@ -371,12 +428,14 @@ export function useAppShellController(
 
   return controller;
 
-  function openToolTab(kind: Exclude<WorkspaceTabKind, 'firestore-query'>, connectionId: string) {
-    return tabActions.openOrSelectTab({ kind, connectionId });
-  }
-
-  function openJsTabInNewTab(connectionId: string) {
-    return tabActions.openTab({ kind: 'js-query', connectionId });
+  function openToolTab(
+    kind: Exclude<WorkspaceTabKind, 'firestore-query'>,
+    connectionId: string,
+    options?: { readonly newTab?: boolean; } | undefined,
+  ) {
+    return options?.newTab
+      ? tabActions.openTab({ kind, connectionId })
+      : tabActions.openOrSelectTab({ kind, connectionId });
   }
 
   function openFirestoreTab(connectionId: string, path: string) {

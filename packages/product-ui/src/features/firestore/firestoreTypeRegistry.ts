@@ -98,6 +98,8 @@ export function firestoreValueType(value: unknown): string {
   if (nativeType) return nativeType;
   const encodedType = encodedFirestoreType(value);
   if (encodedType) return encodedType;
+  const fdqlType = encodedFdqlType(value);
+  if (fdqlType) return fdqlType;
   return typeof value;
 }
 
@@ -154,6 +156,11 @@ export function nativeFirestoreValueType(value: unknown): FirestoreEditableType 
 export function encodedFirestoreType(value: unknown): string | null {
   if (!isPlainObject(value)) return null;
   return typeof value['__type__'] === 'string' ? value['__type__'] : null;
+}
+
+export function encodedFdqlType(value: unknown): string | null {
+  if (!isPlainObject(value)) return null;
+  return typeof value['__fdqlType'] === 'string' ? value['__fdqlType'] : null;
 }
 
 export function isKnownEncodedFirestoreType(value: unknown): value is FirestoreKnownEncodedType {

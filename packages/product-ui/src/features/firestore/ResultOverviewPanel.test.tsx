@@ -65,6 +65,65 @@ describe('ResultOverviewPanel', () => {
     expect(screen.getByText('orders/ord_1')).toBeTruthy();
   });
 
+  it('shows selection preview before collapsed field catalog by default', () => {
+    const { container } = render(
+      <ResultContextPanel
+        resultView='table'
+        rows={[{
+          id: 'ord_1',
+          path: 'orders/ord_1',
+          data: { customer: { name: 'Ada' }, total: 10 },
+          hasSubcollections: false,
+        }]}
+        selectedDocument={{
+          id: 'ord_1',
+          path: 'orders/ord_1',
+          data: { customer: { name: 'Ada' }, total: 10 },
+          hasSubcollections: false,
+        }}
+        onCollapse={() => {}}
+      />,
+    );
+
+    const text = container.textContent ?? '';
+    expect(text.indexOf('Selection preview')).toBeLessThan(text.indexOf('Fields in results'));
+    const sections = Array.from(container.querySelectorAll('details'));
+    expect(sections[0]?.open).toBe(true);
+    expect(sections[1]?.open).toBe(false);
+  });
+
+  it('reports controlled section and selection expansion changes', () => {
+    const onSectionOpenChange = vi.fn();
+    const onSelectionPreviewExpandedPathsChange = vi.fn();
+    const { container } = render(
+      <ResultContextPanel
+        resultView='table'
+        rows={[]}
+        sections={{ fieldsInResults: false, jsonContext: true, selectionPreview: true }}
+        selectedDocument={{
+          id: 'ord_1',
+          path: 'orders/ord_1',
+          data: { customer: { profile: { name: 'Ada' } } },
+          hasSubcollections: false,
+        }}
+        selectionPreviewExpandedPaths={new Set(['["customer"]'])}
+        onCollapse={() => {}}
+        onSectionOpenChange={onSectionOpenChange}
+        onSelectionPreviewExpandedPathsChange={onSelectionPreviewExpandedPathsChange}
+      />,
+    );
+
+    const selectionDetails = container.querySelector('details')!;
+    selectionDetails.open = false;
+    fireEvent(selectionDetails, new Event('toggle'));
+    fireEvent.click(screen.getByText('profile').closest('button')!);
+
+    expect(onSectionOpenChange).toHaveBeenCalledWith('selectionPreview', false);
+    expect(onSelectionPreviewExpandedPathsChange).toHaveBeenCalledWith(
+      new Set(['["customer"]', '["customer","profile"]']),
+    );
+  });
+
   it('expands collapsed overview strip', () => {
     const onExpand = vi.fn();
 

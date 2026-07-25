@@ -21,6 +21,8 @@ Firestore is the deepest Firebase Desk surface.
 - Switch result views between table, tree, and JSON.
 - Inspect document size estimates, metadata, and nested values.
 
+Use [Firestore SQL beta](../firestore-sql/) when a read-only question is easier to express with select fields, joins, map/array expansion, or generated JavaScript Query snippets.
+
 ![Firestore query results in table view with an orders collection selected.](/firebase-desk/screenshots/workspace.png)
 
 ## Write

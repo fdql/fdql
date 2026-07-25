@@ -7,21 +7,12 @@ import {
   emptyFirestoreQueryResultState,
   type FirestoreQueryResultState,
   type FirestoreQueryRuntimeState,
+  type SubmittedFirestoreQuery,
 } from './firestoreQueryState.ts';
 
 interface FirestoreQueryTabLike {
   readonly id: string;
   readonly kind: string;
-}
-
-export function selectFirestoreActiveDraft(
-  state: FirestoreQueryRuntimeState,
-  tab: FirestoreQueryTabLike | undefined,
-  defaultDraft: FirestoreQueryDraft,
-  activePath: string,
-): FirestoreQueryDraft {
-  if (!tab) return defaultDraft;
-  return state.drafts[tab.id] ?? { ...defaultDraft, path: activePath || defaultDraft.path };
 }
 
 export function selectFirestoreActiveQueryRequest(
@@ -31,6 +22,26 @@ export function selectFirestoreActiveQueryRequest(
 ) {
   const request = tab?.kind === 'firestore-query' ? state.queryRequests[tab.id] ?? null : null;
   return request?.query.connectionId === activeConnectionId ? request : null;
+}
+
+export function isCurrentFirestoreQueryExecution(
+  state: FirestoreQueryRuntimeState,
+  execution: SubmittedFirestoreQuery,
+): boolean {
+  const { token } = execution;
+  return token.connectionId === execution.query.connectionId
+    && token.epoch === (state.tabEpochs[token.tabId] ?? 0)
+    && token.path === execution.query.path
+    && token.requestId === execution.requestId
+    && execution.runId === execution.requestId
+    && state.queryRequests[token.tabId]?.token === token;
+}
+
+export function selectFirestoreResultExecution(
+  state: FirestoreQueryRuntimeState,
+  tab: FirestoreQueryTabLike | undefined,
+): SubmittedFirestoreQuery | null {
+  return selectFirestoreTabResultState(state, tab).execution;
 }
 
 export function selectFirestoreResultRows(

@@ -28,6 +28,7 @@ const DEFAULT_SNAPSHOT: SettingsSnapshot = {
   firestoreWrites: DEFAULT_FIRESTORE_WRITE_SETTINGS,
   updates: DEFAULT_UPDATE_SETTINGS,
   workspaceState: null,
+  workspaceStateClearedAt: null,
 };
 
 export class MockSettingsRepository implements SettingsRepository {
@@ -70,6 +71,9 @@ export class MockSettingsRepository implements SettingsRepository {
       workspaceState: patch.workspaceState === undefined
         ? cloneWorkspaceState(this.snapshot.workspaceState)
         : cloneWorkspaceState(patch.workspaceState),
+      workspaceStateClearedAt: patch.workspaceStateClearedAt === undefined
+        ? this.snapshot.workspaceStateClearedAt ?? null
+        : patch.workspaceStateClearedAt,
     };
     return this.load();
   }
@@ -95,6 +99,7 @@ function cloneSnapshot(snapshot: SettingsSnapshot): SettingsSnapshot {
     firestoreWrites: normalizeFirestoreWriteSettings(snapshot.firestoreWrites),
     updates: { ...snapshot.updates },
     workspaceState: cloneWorkspaceState(snapshot.workspaceState),
+    workspaceStateClearedAt: snapshot.workspaceStateClearedAt ?? null,
   };
 }
 

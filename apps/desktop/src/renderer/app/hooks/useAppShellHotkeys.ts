@@ -10,6 +10,7 @@ interface UseAppShellHotkeysInput {
   readonly onNewTab: () => void;
   readonly onOpenSettings: () => void;
   readonly onRunQuery: () => void;
+  readonly onRunFdql: () => void;
   readonly onRunScript: () => void;
 }
 
@@ -22,6 +23,7 @@ export function useAppShellHotkeys(
     onForward,
     onNewTab,
     onOpenSettings,
+    onRunFdql,
     onRunQuery,
     onRunScript,
   }: UseAppShellHotkeysInput,
@@ -51,9 +53,14 @@ export function useAppShellHotkeys(
     onFocusSearch();
   });
   useHotkey('query.run', (event) => {
-    if (activeTabKind !== 'firestore-query' && activeTabKind !== 'js-query') return;
+    if (
+      activeTabKind !== 'firestore-query'
+      && activeTabKind !== 'js-query'
+      && activeTabKind !== 'fdql'
+    ) return;
     event.preventDefault();
     if (activeTabKind === 'firestore-query') onRunQuery();
-    else onRunScript();
+    else if (activeTabKind === 'js-query') onRunScript();
+    else onRunFdql();
   });
 }

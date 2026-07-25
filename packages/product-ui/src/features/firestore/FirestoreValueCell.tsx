@@ -11,7 +11,7 @@ import {
 } from './firestoreTypeRegistry.ts';
 
 interface TypedValueSummary {
-  readonly label: string;
+  readonly label?: string | undefined;
   readonly title?: string;
   readonly value: string;
 }
@@ -29,12 +29,18 @@ export function FirestoreValueCell({ value }: { readonly value: unknown; }): Rea
   }
   return (
     <span
-      className='inline-flex max-w-full select-text items-center gap-1.5 overflow-hidden align-middle'
+      className={`inline-flex max-w-full select-text items-center overflow-hidden align-middle ${
+        typed.label ? 'gap-1.5' : ''
+      }`}
       title={typed.title ?? typed.value}
     >
-      <span className='shrink-0 rounded border border-border-subtle bg-bg-subtle px-1 py-0.5 font-mono text-[10px] leading-none text-text-muted'>
-        {typed.label}
-      </span>
+      {typed.label
+        ? (
+          <span className='shrink-0 rounded border border-border-subtle bg-bg-subtle px-1 py-0.5 font-mono text-[10px] leading-none text-text-muted'>
+            {typed.label}
+          </span>
+        )
+        : null}
       <span className='min-w-0 truncate font-mono text-xs text-text-primary'>
         {truncateFieldDisplayValue(typed.value)}
       </span>
@@ -82,6 +88,8 @@ function typedValueSummary(value: unknown): TypedValueSummary | null {
     return bytesSummary({ base64: value.base64 });
   }
   if (!isPlainObject(value)) return null;
+  const fdqlType = value['__fdqlType'];
+  if (typeof fdqlType === 'string') return fdqlTypedValueSummary(fdqlType, value);
   const type = value['__type__'];
   if (typeof type !== 'string') return null;
   switch (type) {
@@ -110,10 +118,30 @@ function typedValueSummary(value: unknown): TypedValueSummary | null {
   }
 }
 
+function fdqlTypedValueSummary(type: string, value: Record<string, unknown>): TypedValueSummary {
+  switch (type) {
+    case 'timestamp':
+      return timestampSummary(value);
+    case 'geoPoint':
+      return geoPointSummary(value);
+    case 'bytes':
+      return bytesSummary(value);
+    case 'providerValue':
+      return providerValueSummary(value);
+    default: {
+      const title = safeJson(value);
+      return {
+        label: shortLabel(type),
+        ...(title ? { title } : {}),
+        value: `Object(${Math.max(Object.keys(value).length - 1, 0)})`,
+      };
+    }
+  }
+}
+
 function timestampSummary(value: Record<string, unknown>): TypedValueSummary {
   const raw = typeof value['value'] === 'string' ? value['value'] : '';
   return {
-    label: 'time',
     ...(raw ? { title: raw } : {}),
     value: formatUserTimestamp(raw),
   };
@@ -145,6 +173,18 @@ function bytesSummary(value: Record<string, unknown>): TypedValueSummary {
     label: 'bytes',
     ...(base64 ? { title: base64 } : {}),
     value: `${base64ByteCount(base64)} bytes`,
+  };
+}
+
+function providerValueSummary(value: Record<string, unknown>): TypedValueSummary {
+  const display = typeof value['display'] === 'string' ? value['display'] : '';
+  const provider = typeof value['provider'] === 'string' ? value['provider'] : 'provider';
+  const valueType = typeof value['valueType'] === 'string' ? value['valueType'] : 'value';
+  const title = safeJson(value);
+  return {
+    label: shortLabel(provider),
+    ...(title ? { title } : {}),
+    value: display || `${provider}.${valueType}`,
   };
 }
 

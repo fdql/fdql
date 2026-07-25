@@ -8,6 +8,7 @@ describe('useProjectCommandController', () => {
     const setLastAction = vi.fn();
     const reloadProjects = vi.fn().mockResolvedValue([project]);
     const recordActivity = vi.fn();
+    const upsertProject = vi.fn();
     const projects = {
       add: vi.fn().mockResolvedValue(project),
       remove: vi.fn().mockResolvedValue(undefined),
@@ -19,6 +20,7 @@ describe('useProjectCommandController', () => {
         recordActivity,
         reloadProjects,
         setLastAction,
+        upsertProject,
       })
     );
 
@@ -29,6 +31,7 @@ describe('useProjectCommandController', () => {
     expect(projects.update).toHaveBeenCalledWith('emu', { name: 'Local Emulator' });
     expect(reloadProjects).toHaveBeenCalledTimes(1);
     expect(setLastAction).toHaveBeenCalledWith('Updated Local Emulator');
+    expect(upsertProject).toHaveBeenCalledWith(project);
     expect(recordActivity).toHaveBeenCalledWith(expect.objectContaining({
       action: 'Update account',
       status: 'success',

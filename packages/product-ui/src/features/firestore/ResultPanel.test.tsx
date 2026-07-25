@@ -192,6 +192,44 @@ describe('ResultPanel', () => {
     expect(onSelectDocument).toHaveBeenCalledWith('orders/ord_1');
   });
 
+  it('uses controlled tree expansion when provided', () => {
+    const onResultTreeExpandedIdsChange = vi.fn();
+
+    render(
+      <ResultPanel
+        errorMessage={null}
+        hasMore={false}
+        isFetchingMore={false}
+        isLoading={false}
+        queryPath='orders'
+        resultTreeExpandedIds={['root:orders']}
+        resultView='tree'
+        rows={[{
+          id: 'ord_1',
+          path: 'orders/ord_1',
+          data: {},
+          hasSubcollections: false,
+        }]}
+        selectedDocumentPath={null}
+        subcollectionStates={{}}
+        onLoadMore={() => {}}
+        onResultTreeExpandedIdsChange={onResultTreeExpandedIdsChange}
+        onResultViewChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId('expanded').textContent).toBe('root:orders');
+
+    fireEvent.click(screen.getByRole('button', { name: 'tree' }));
+
+    expect(onResultTreeExpandedIdsChange).toHaveBeenCalledWith([
+      'root:orders',
+      'doc:orders/ord_1',
+      'doc:orders/ord_1:fields',
+      'doc:orders/ord_1:subcollections',
+    ]);
+  });
+
   it('selects the document when tree field nodes are selected', () => {
     const onSelectDocument = vi.fn();
 

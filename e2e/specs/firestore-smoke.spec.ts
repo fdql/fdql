@@ -10,6 +10,7 @@ import {
 } from '../fixtures/firestore-rest.ts';
 import {
   addLocalEmulatorAccount,
+  EMULATOR_ACCOUNT_NAME,
   openAuthentication,
   openFirestore,
   openLiveApp,
@@ -132,7 +133,9 @@ async function querySeededOrders(page: Page): Promise<void> {
 
 async function querySameCollectionInTwoTabs(page: Page): Promise<void> {
   const tree = page.getByRole('tree', { name: 'Account tree' });
-  const workspaceTabs = page.locator('[role="tablist"]').first();
+  const workspaceTabs = page.getByRole('tablist', { name: 'Workspace tabs' });
+  const ordersTreeItem = tree.getByRole('treeitem', { name: /orders/ });
+  const customersTreeItem = tree.getByRole('treeitem', { name: /customers/ });
 
   await page.getByLabel('Query path').fill('orders');
   await page.getByLabel('Result limit').fill('1');
@@ -142,9 +145,65 @@ async function querySameCollectionInTwoTabs(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Run' }).click();
   await expectResultDocumentId(page, 'ord_1123');
 
-  await tree.getByRole('treeitem', { name: /orders/ }).dblclick();
+  const queryPath = page.getByLabel('Query path');
+  await queryPath.fill('');
+  await queryPath.pressSequentially('customers');
+  await expect(queryPath).toBeFocused();
+  await expect(workspaceTabs.getByRole('tab', {
+    name: `customers — ${EMULATOR_ACCOUNT_NAME}`,
+  })).toHaveCount(1);
+  await expect(customersTreeItem).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('Select connection')).toContainText(EMULATOR_ACCOUNT_NAME);
+  await expect(page.getByLabel('Result limit')).toHaveValue('1');
+  await expect(queryField(page, 'Sort field')).toHaveValue('total');
+  await expect(page.getByLabel('Sort direction')).toHaveValue('desc');
+  await expect(resultDocumentIdCell(page, 'ord_1123')).toHaveCount(0);
+
+  await ordersTreeItem.click();
+  await expect(workspaceTabs.getByRole('tab')).toHaveCount(2);
+  await expect(workspaceTabs.getByRole('tab', {
+    name: `orders — ${EMULATOR_ACCOUNT_NAME}`,
+  })).toHaveCount(1);
+  await expect(ordersTreeItem).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('Query path')).toHaveValue('orders');
+  await expect(page.getByLabel('Result limit')).toHaveValue('25');
+  await expect(queryField(page, 'Sort field')).toHaveValue('');
+
+  await page.getByLabel('Result limit').fill('1');
+  await queryField(page, 'Sort field').fill('total');
+  await page.getByLabel('Sort direction').selectOption('desc');
+  await page.getByRole('button', { name: 'Run' }).click();
+  await expectResultDocumentId(page, 'ord_1123');
+
+  await customersTreeItem.click();
+  await expect(workspaceTabs.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByLabel('Query path')).toHaveValue('customers');
+  await expect(page.getByLabel('Result limit')).toHaveValue('1');
+  await expect(queryField(page, 'Sort field')).toHaveValue('total');
+  await expect(resultDocumentIdCell(page, 'ord_1123')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Back' }).click();
+  await expect(page.getByLabel('Query path')).toHaveValue('orders');
+  await expect(ordersTreeItem).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('Result limit')).toHaveValue('1');
+  await expect(queryField(page, 'Sort field')).toHaveValue('total');
+
+  await page.getByRole('button', { name: 'Forward' }).click();
+  await expect(page.getByLabel('Query path')).toHaveValue('customers');
+  await expect(customersTreeItem).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('Result limit')).toHaveValue('1');
+
+  await ordersTreeItem.click();
+  await page.getByRole('button', { name: 'Run' }).click();
+  await expectResultDocumentId(page, 'ord_1123');
+
+  await ordersTreeItem.dblclick();
+  await expect(workspaceTabs.getByRole('tab')).toHaveCount(3);
   await expect(workspaceTabs.getByRole('tab', { name: /orders/ })).toHaveCount(2);
-  await page.getByLabel('Query path').fill('orders');
+  await expect(workspaceTabs.getByRole('tab', { selected: true })).toHaveAccessibleName(
+    `orders — ${EMULATOR_ACCOUNT_NAME}`,
+  );
+  await expect(page.getByLabel('Query path')).toHaveValue('orders');
   await page.getByLabel('Result limit').fill('2');
   await clearFiltersAndSort(page);
   await ensureFilterRow(page);
@@ -192,6 +251,14 @@ async function querySameCollectionInTwoTabs(page: Page): Promise<void> {
   await expect(resultsChangedBanner(page)).toBeVisible();
   await page.getByRole('button', { name: 'Run' }).click();
   await expect(resultsChangedBanner(page)).toHaveCount(0);
+
+  await workspaceTabs.getByRole('tab', { name: /orders/ }).nth(1).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Duplicate tab' }).click();
+  await expect(workspaceTabs.getByRole('tab', { name: /orders/ })).toHaveCount(3);
+  await expect(page.getByLabel('Query path')).toHaveValue('orders');
+  await expect(page.getByLabel('Result limit')).toHaveValue('2');
+  await expect(queryField(page, 'Filter 1 field')).toHaveValue('status');
+  await expect(resultDocumentIdCell(page, 'ord_1024')).toHaveCount(0);
 }
 
 async function createCollectionFromSidebar(page: Page, suffix: string): Promise<void> {
@@ -330,7 +397,7 @@ async function fieldPatchWrites(page: Page, suffix: string): Promise<void> {
   await statusDialog.getByLabel('Field string value').fill('patched');
   await statusDialog.getByRole('button', { name: 'Save' }).click();
   await expectDialogHidden(statusDialog, 'Field patch dialog stayed open');
-  await expect(page.getByText(/Document changed elsewhere/)).toBeVisible();
+  await expect(resultsChangedBanner(page)).toBeVisible();
   await refreshChangedResults(page);
 
   let patched = await getFirestoreEmulatorDocument(path);
@@ -564,11 +631,12 @@ async function collectionJobs(page: Page, suffix: string, exportPath: string): P
   await setFirestoreEmulatorDocument(docsOnlyParent, { mode: 'docs-only' });
   await setFirestoreEmulatorDocument(docsOnlyChild, { kept: true });
   await runCollectionQuery(page, docsOnlyCollection);
-  page.once('dialog', (dialog) => dialog.accept());
   await openCollectionJob(page, 'Delete collection');
   const docsOnlyDialog = page.getByRole('dialog', { name: 'Collection job' });
   await expect(docsOnlyDialog.getByText(/Subcollections may remain/)).toBeVisible();
   await docsOnlyDialog.getByRole('button', { name: 'Start job' }).click();
+  await expect(docsOnlyDialog.getByText(`Delete collection ${docsOnlyCollection}?`)).toBeVisible();
+  await docsOnlyDialog.getByRole('button', { name: 'Delete collection' }).click();
   await expectDialogHidden(docsOnlyDialog, 'Docs-only delete job dialog stayed open');
   await expect.poll(async () => await listFirestoreEmulatorCollection(docsOnlyCollection))
     .toHaveLength(0);
@@ -582,11 +650,14 @@ async function collectionJobs(page: Page, suffix: string, exportPath: string): P
   await setFirestoreEmulatorDocument(recursiveParent, { mode: 'recursive' });
   await setFirestoreEmulatorDocument(recursiveChild, { deleted: true });
   await runCollectionQuery(page, recursiveCollection);
-  page.once('dialog', (dialog) => dialog.accept());
   await openCollectionJob(page, 'Delete collection');
   const recursiveDialog = page.getByRole('dialog', { name: 'Collection job' });
   await recursiveDialog.getByRole('checkbox', { name: 'Include subcollections' }).check();
   await recursiveDialog.getByRole('button', { name: 'Start job' }).click();
+  await expect(recursiveDialog.getByText(
+    `Delete collection ${recursiveCollection} including subcollections?`,
+  )).toBeVisible();
+  await recursiveDialog.getByRole('button', { name: 'Delete collection' }).click();
   await expectDialogHidden(recursiveDialog, 'Recursive delete job dialog stayed open');
   await expect.poll(async () => await getFirestoreEmulatorDocument(recursiveParent)).toBeNull();
   await expect.poll(async () => await getFirestoreEmulatorDocument(recursiveChild)).toBeNull();

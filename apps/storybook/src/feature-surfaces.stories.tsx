@@ -15,6 +15,9 @@ import { type ComponentProps, useState } from 'react';
 
 const settings = new MockSettingsRepository();
 type FirestoreQueryDraft = ComponentProps<typeof FirestoreQuerySurface>['draft'];
+type FirestoreQueryDraftEdit = Parameters<
+  ComponentProps<typeof FirestoreQuerySurface>['onDraftEdit']
+>[0];
 const projects: ComponentProps<typeof WorkspaceTabStrip>['projects'] = [
   {
     id: 'emu',
@@ -241,6 +244,7 @@ export const WorkspaceTabStripDefault: Story = {
       onCloseOtherTabs={() => {}}
       onCloseTabsToLeft={() => {}}
       onCloseTabsToRight={() => {}}
+      onDuplicateTab={() => {}}
       onReorderTabs={() => {}}
       onSelectTab={() => {}}
       onSortByProject={() => {}}
@@ -269,10 +273,9 @@ function FirestoreQueryStorySurface() {
       selectedDocument={selected}
       selectedDocumentPath={selected?.path ?? null}
       settings={settings}
-      onDraftChange={setDraft}
+      onDraftEdit={(edit) => setDraft((current) => applyFirestoreDraftEdit(current, edit))}
       onLoadMore={() => {}}
       onOpenDocumentInNewTab={() => {}}
-      onReset={() => setDraft(initialFirestoreDraft)}
       onRun={() => {}}
       onDeleteDocument={(path, options) => {
         const deletedPaths = new Set([path, ...options.deleteDescendantDocumentPaths]);
@@ -285,6 +288,50 @@ function FirestoreQueryStorySurface() {
       onSelectDocument={setSelectedPath}
     />
   );
+}
+
+function applyFirestoreDraftEdit(
+  draft: FirestoreQueryDraft,
+  edit: FirestoreQueryDraftEdit,
+): FirestoreQueryDraft {
+  if (edit.type === 'path-set') return { ...draft, path: edit.path };
+  if (edit.type === 'limit-set') return { ...draft, limit: edit.limit };
+  if (edit.type === 'sort-field-set') return { ...draft, sortField: edit.sortField };
+  if (edit.type === 'sort-direction-set') {
+    return { ...draft, sortDirection: edit.sortDirection };
+  }
+  if (edit.type === 'filter-add') {
+    return withStoryFilters(draft, [...(draft.filters ?? []), edit.filter]);
+  }
+  if (edit.type === 'filter-remove') {
+    return withStoryFilters(
+      draft,
+      (draft.filters ?? []).filter((filter) => filter.id !== edit.filterId),
+    );
+  }
+  if (edit.type === 'filter-patch') {
+    return withStoryFilters(
+      draft,
+      (draft.filters ?? []).map((filter) =>
+        filter.id === edit.filterId ? Object.assign({}, filter, edit.patch) : filter
+      ),
+    );
+  }
+  return initialFirestoreDraft;
+}
+
+function withStoryFilters(
+  draft: FirestoreQueryDraft,
+  filters: NonNullable<FirestoreQueryDraft['filters']>,
+): FirestoreQueryDraft {
+  const firstFilter = filters[0];
+  return {
+    ...draft,
+    filters,
+    filterField: firstFilter?.field ?? '',
+    filterOp: firstFilter?.op ?? '==',
+    filterValue: firstFilter?.value ?? '',
+  };
 }
 
 function storyDocuments(

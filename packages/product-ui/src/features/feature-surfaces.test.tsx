@@ -539,6 +539,7 @@ describe('feature surfaces', () => {
           onCloseTab={onCloseTab}
           onCloseTabsToLeft={() => {}}
           onCloseTabsToRight={() => {}}
+          onDuplicateTab={() => {}}
           onReorderTabs={() => {}}
           onSelectTab={onSelectTab}
           onSortByProject={() => {}}
@@ -590,6 +591,7 @@ describe('feature surfaces', () => {
           onCloseTab={() => {}}
           onCloseTabsToLeft={() => {}}
           onCloseTabsToRight={() => {}}
+          onDuplicateTab={() => {}}
           onReorderTabs={() => {}}
           onSelectTab={() => {}}
           onSortByProject={() => {}}
@@ -632,10 +634,9 @@ describe('feature surfaces', () => {
         hasMore
         rows={documents}
         selectedDocument={selectedDocument}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSaveDocument={onSaveDocument}
         onSelectDocument={onSelectDocument}
@@ -675,16 +676,15 @@ describe('feature surfaces', () => {
         draft={draft}
         hasMore={false}
         rows={documents}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSelectDocument={() => {}}
       />,
     );
 
-    expect(screen.getAllByText('time').length).toBeGreaterThan(0);
+    expect(screen.queryByText('time')).toBeNull();
     expect(screen.getByText(expectedUserTimestamp(encodedUpdatedAt.value))).toBeTruthy();
     expect(screen.getByText('geo')).toBeTruthy();
     expect(screen.getByText('-36.8485, 174.7633')).toBeTruthy();
@@ -701,10 +701,9 @@ describe('feature surfaces', () => {
         hasMore={false}
         rows={documents}
         settings={settings}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSelectDocument={() => {}}
       />,
@@ -744,7 +743,7 @@ describe('feature surfaces', () => {
       </div>,
     );
 
-    expect(screen.getAllByText('time').length).toBeGreaterThan(0);
+    expect(screen.queryByText('time')).toBeNull();
     expect(screen.getByText(expectedUserTimestamp(nativeUpdatedAt.isoString))).toBeTruthy();
     expect(screen.getByText('geo')).toBeTruthy();
     expect(screen.getByText('-36.8485, 174.7633')).toBeTruthy();
@@ -767,11 +766,10 @@ describe('feature surfaces', () => {
           data: { status: 'paid' },
           hasSubcollections: true,
         }]}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onLoadSubcollections={onLoadSubcollections}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSelectDocument={() => {}}
       />,
@@ -797,11 +795,10 @@ describe('feature surfaces', () => {
           data: { status: 'paid' },
           hasSubcollections: true,
         }]}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onLoadSubcollections={onLoadSubcollections}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSelectDocument={() => {}}
       />,
@@ -887,10 +884,9 @@ describe('feature surfaces', () => {
         hasMore={false}
         isLoading
         rows={documents}
-        onDraftChange={() => {}}
+        onDraftEdit={() => {}}
         onLoadMore={() => {}}
         onOpenDocumentInNewTab={() => {}}
-        onReset={() => {}}
         onRun={() => {}}
         onSelectDocument={() => {}}
       />,

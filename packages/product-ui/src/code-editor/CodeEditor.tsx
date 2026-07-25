@@ -1,6 +1,8 @@
+import { FDQL_LANGUAGE_ID } from '@firebase-desk/fdql-language';
 import type { editor as MonacoEditorTypes } from 'monaco-editor';
 import { lazy, Suspense, useEffect, useRef } from 'react';
 import { useAppearance } from '../appearance/AppearanceProvider.tsx';
+import { attachFdqlDiagnostics, registerFdqlLanguage } from './fdqlMonaco.ts';
 
 type MonacoEditorApiModule = typeof import('monaco-editor');
 type MonacoExtraLibDefaults = {
@@ -17,6 +19,12 @@ interface MonacoTypeScriptContribution {
 export interface CodeEditorExtraLib {
   readonly content: string;
   readonly filePath: string;
+}
+
+export interface CodeEditorCursorTarget {
+  readonly column: number;
+  readonly key: number | string;
+  readonly line: number;
 }
 
 const MonacoEditor = lazy(async () => {
@@ -36,6 +44,7 @@ export interface CodeEditorProps {
   readonly language: string;
   readonly onChange?: (value: string) => void;
   readonly readOnly?: boolean;
+  readonly revealCursorTarget?: CodeEditorCursorTarget | null | undefined;
   readonly value: string;
 }
 
@@ -47,20 +56,42 @@ export function CodeEditor(
     language,
     onChange,
     readOnly = false,
+    revealCursorTarget = null,
     value,
   }: CodeEditorProps,
 ) {
   const { resolvedTheme } = useAppearance();
+  const diagnosticsSubscription = useRef<{ dispose(): void; } | null>(null);
+  const editorRef = useRef<MonacoEditorTypes.IStandaloneCodeEditor | null>(null);
   const options: MonacoEditorTypes.IStandaloneEditorConstructionOptions = {
     minimap: { enabled: false },
     readOnly,
   };
+  if (language === FDQL_LANGUAGE_ID) {
+    options.acceptSuggestionOnEnter = 'on';
+    options.quickSuggestions = false;
+  }
   if (ariaLabel) options.ariaLabel = ariaLabel;
+
+  useEffect(() => () => diagnosticsSubscription.current?.dispose(), []);
+  useEffect(() => {
+    if (!revealCursorTarget) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+    const position = {
+      column: revealCursorTarget.column,
+      lineNumber: revealCursorTarget.line,
+    };
+    editor.focus();
+    editor.revealPositionInCenter(position);
+    editor.setPosition(position);
+  }, [revealCursorTarget]);
 
   return (
     <Suspense fallback={<div role='status'>Loading editor</div>}>
       <MonacoEditor
         beforeMount={(monaco) => {
+          if (language === FDQL_LANGUAGE_ID) registerFdqlLanguage(monaco);
           registerExtraLibs(extraLibs ?? []);
           exposeMonacoForDiagnostics(monaco);
         }}
@@ -70,6 +101,13 @@ export function CodeEditor(
         theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
         value={value}
         onChange={(nextValue) => onChange?.(nextValue ?? '')}
+        onMount={(editor, monaco) => {
+          editorRef.current = editor;
+          diagnosticsSubscription.current?.dispose();
+          diagnosticsSubscription.current = language === FDQL_LANGUAGE_ID
+            ? attachFdqlDiagnostics(monaco, editor)
+            : null;
+        }}
       />
     </Suspense>
   );

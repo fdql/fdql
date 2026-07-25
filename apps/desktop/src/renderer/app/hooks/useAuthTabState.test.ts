@@ -3,8 +3,10 @@
 import type { AuthUser, ProjectSummary } from '@firebase-desk/repo-contracts';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { defaultFirestoreInspectorUiState } from '../../app-core/firestore/query/firestoreQueryState.ts';
 import { useRepositories } from '../RepositoryProvider.tsx';
 import type { WorkspaceTab } from '../stores/tabsStore.ts';
+import { DEFAULT_FIRESTORE_DRAFT } from '../workspaceModel.ts';
 import { useAuthTabState } from './useAuthTabState.ts';
 
 vi.mock('../RepositoryProvider.tsx', () => ({
@@ -174,7 +176,7 @@ describe('useAuthTabState', () => {
     await waitFor(() => expect(result.current.users).toEqual([ada]));
     expect(auth.listUsers).toHaveBeenCalledTimes(2);
 
-    activeTab = { ...tab, kind: 'firestore-query' };
+    activeTab = firestoreTab();
     rerender();
     activeProject = project;
     activeTab = tab;
@@ -277,6 +279,17 @@ describe('useAuthTabState', () => {
     }));
   });
 });
+
+function firestoreTab(): WorkspaceTab {
+  return {
+    connectionId: 'prod',
+    draft: DEFAULT_FIRESTORE_DRAFT,
+    id: 'tab-firestore-prod',
+    inspectorUi: defaultFirestoreInspectorUiState(),
+    inspectorWidth: 360,
+    kind: 'firestore-query',
+  };
+}
 
 const project: ProjectSummary = {
   id: 'emu',

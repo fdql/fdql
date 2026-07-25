@@ -1,17 +1,25 @@
 import {
+  FDQL_EVENT_CHANNEL,
+  FIRESTORE_SQL_EVENT_CHANNEL,
   IPC_CHANNELS,
   type IpcChannel,
   JOB_EVENT_CHANNEL,
   SCRIPT_RUN_EVENT_CHANNEL,
 } from '@firebase-desk/ipc-schemas';
-import type { ScriptRunEvent } from '@firebase-desk/repo-contracts';
+import type {
+  FdqlRunEvent,
+  FirestoreSqlRunEvent,
+  ScriptRunEvent,
+} from '@firebase-desk/repo-contracts';
 import type { BackgroundJobEvent } from '@firebase-desk/repo-contracts/jobs';
 import {
   AdminAuthProvider,
   AdminFirestoreProvider,
+  createFirebaseFdqlRepository,
   FirebaseAuthRepository,
   type FirebaseConnectionResolver,
   FirebaseFirestoreRepository,
+  FirebaseFirestoreSqlRepository,
 } from '@firebase-desk/repo-firebase';
 import { ProcessScriptRunnerRepository } from '@firebase-desk/script-runner';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
@@ -27,6 +35,7 @@ import { MainProjectsRepository } from '../projects/main-projects-repository.ts'
 import { MainSettingsRepository } from '../settings/main-settings-repository.ts';
 import { ActivityLogStore } from '../storage/activity-log-store.ts';
 import { CredentialsStore } from '../storage/credentials-store.ts';
+import { createFdqlPersistentCacheStore } from '../storage/fdql-persistent-cache.ts';
 import { JobsStore } from '../storage/jobs-store.ts';
 import { ProjectsStore } from '../storage/projects-store.ts';
 import { SettingsStore } from '../storage/settings-store.ts';
@@ -79,6 +88,14 @@ export function registerIpcHandlers(): void {
   };
   const firestoreProvider = new AdminFirestoreProvider(connectionResolver);
   const firestoreRepository = new FirebaseFirestoreRepository(firestoreProvider);
+  const fdqlPersistentCache = createFdqlPersistentCacheStore(userDataPath);
+  app.once('will-quit', () => fdqlPersistentCache.close());
+  const fdqlRepository = createFirebaseFdqlRepository(firestoreProvider, {
+    persistentCache: fdqlPersistentCache,
+  });
+  fdqlRepository.subscribe(broadcastFdqlRunEvent);
+  const firestoreSqlRepository = new FirebaseFirestoreSqlRepository(firestoreProvider);
+  firestoreSqlRepository.subscribe(broadcastFirestoreSqlRunEvent);
   const jobsRepository = new MainBackgroundJobRepository(
     new JobsStore(userDataPath),
     new FirestoreCollectionJobRunner(firestoreProvider, {
@@ -107,6 +124,8 @@ export function registerIpcHandlers(): void {
     dataDirectory: userDataPath,
     firestoreProvider,
     firestoreRepository,
+    fdqlRepository,
+    firestoreSqlRepository,
     jobsRepository,
     openDataDirectory: () => shell.openPath(userDataPath),
     openExternalUrl: (url) => shell.openExternal(url),
@@ -160,6 +179,18 @@ function errorText(error: unknown): string {
 export function broadcastScriptRunEvent(event: ScriptRunEvent): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send(SCRIPT_RUN_EVENT_CHANNEL, toIpcScriptRunEvent(event));
+  }
+}
+
+export function broadcastFirestoreSqlRunEvent(event: FirestoreSqlRunEvent): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(FIRESTORE_SQL_EVENT_CHANNEL, event);
+  }
+}
+
+export function broadcastFdqlRunEvent(event: FdqlRunEvent): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.send(FDQL_EVENT_CHANNEL, event);
   }
 }
 

@@ -1,11 +1,14 @@
 import { HotkeysProvider } from '@firebase-desk/hotkeys';
 import { AppearanceProvider } from '@firebase-desk/product-ui';
+import type { FirestoreQueryDraft } from '@firebase-desk/repo-contracts';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { type ReactNode, StrictMode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActivityState } from '../../app-core/activity/activityState.ts';
 import { createInitialActivityState } from '../../app-core/activity/activityState.ts';
 import { createActivityStore } from '../../app-core/activity/activityStore.ts';
+import { createFirestoreDraft } from '../../app-core/firestore/query/firestoreQueryDraft.ts';
+import { defaultFirestoreInspectorUiState } from '../../app-core/firestore/query/firestoreQueryState.ts';
 import {
   createMockRepositories,
   RepositoryProvider,
@@ -211,13 +214,8 @@ describe('useAppShellController integration', () => {
 
     act(() => currentFirestore(result).onRunQuery());
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
-    act(() =>
-      currentFirestore(result).onDraftChange({
-        ...currentFirestore(result).draft,
-        limit: 9,
-        path: 'customers',
-      })
-    );
+    act(() => currentFirestore(result).onDraftEdit({ type: 'path-set', path: 'customers' }));
+    act(() => currentFirestore(result).onDraftEdit({ type: 'limit-set', limit: 9 }));
 
     await waitFor(async () => {
       const raw = JSON.stringify((await repositories.settings.load()).workspaceState);
@@ -240,6 +238,135 @@ describe('useAppShellController integration', () => {
     expect(result.current.workspace.activeTab).toBeUndefined();
     expect(listUsers).not.toHaveBeenCalled();
     expect(runQuery).not.toHaveBeenCalled();
+  });
+
+  it('keeps canonical tab identity, settings, results, and history aligned', async () => {
+    const repositories = createMockRepositories();
+    const runQuery = repositories.firestore.runQuery.bind(repositories.firestore);
+    vi.spyOn(repositories.firestore, 'runQuery').mockImplementation(async (query, request) =>
+      query.path === 'auditLogs'
+        ? {
+          items: [{
+            data: { severity: 'error' },
+            hasSubcollections: false,
+            id: 'audit_1',
+            path: 'auditLogs/audit_1',
+          }],
+          nextCursor: null,
+        }
+        : await runQuery(query, request)
+    );
+    const { result } = renderController({
+      initialTabs: [{ kind: 'firestore-query', connectionId: 'emu', path: 'orders' }],
+      repositories,
+    });
+    await waitForProjects(result);
+    const auditTabId = tabsStore.state.activeTabId;
+
+    act(() => currentFirestore(result).onRunQuery());
+    await waitFor(() => expect(currentFirestore(result).rows.length).toBeGreaterThan(0));
+
+    act(() => currentFirestore(result).onDraftEdit({ type: 'path-set', path: 'auditLogs' }));
+    await waitFor(() => {
+      expect(currentFirestore(result).draft.path).toBe('auditLogs');
+      expect(currentFirestore(result).rows).toEqual([]);
+      expect(result.current.workspace.tabModels.find((tab) => tab.id === auditTabId)?.title)
+        .toBe('auditLogs');
+      expect(result.current.workspace.selectedTreeItemId).toBe('collection:emu:auditLogs');
+    });
+    act(() =>
+      currentFirestore(result).onDraftEdit({
+        type: 'filter-add',
+        filter: { id: 'severity', field: 'severity', op: '==', value: '"error"' },
+      })
+    );
+    act(() =>
+      currentFirestore(result).onDraftEdit({
+        type: 'sort-field-set',
+        sortField: 'createdAt',
+      })
+    );
+    act(() =>
+      currentFirestore(result).onDraftEdit({
+        type: 'sort-direction-set',
+        sortDirection: 'asc',
+      })
+    );
+    act(() => currentFirestore(result).onDraftEdit({ type: 'limit-set', limit: 7 }));
+
+    act(() => result.current.sidebar.onSelectItem('collection:emu:orders'));
+    await waitFor(() => {
+      expect(currentFirestore(result).draft.path).toBe('orders');
+      expect(tabsStore.state.tabs).toHaveLength(2);
+      expect(result.current.workspace.activeTab?.connectionId).toBe('emu');
+      expect(result.current.workspace.selectedTreeItemId).toBe('collection:emu:orders');
+    });
+
+    act(() => result.current.sidebar.onSelectItem('collection:emu:auditLogs'));
+    await waitFor(() => {
+      expect(tabsStore.state.activeTabId).toBe(auditTabId);
+      expect(currentFirestore(result).draft).toMatchObject({
+        path: 'auditLogs',
+        limit: 7,
+        sortField: 'createdAt',
+        sortDirection: 'asc',
+        filters: [expect.objectContaining({ id: 'severity', value: '"error"' })],
+      });
+      expect(result.current.workspace.selectedTreeItemId).toBe('collection:emu:auditLogs');
+    });
+
+    act(() => currentFirestore(result).onRunQuery());
+    await waitFor(() => {
+      expect(currentFirestore(result).rows).toHaveLength(1);
+      expect(currentFirestore(result).resultQueryPath).toBe('auditLogs');
+    });
+
+    act(() => result.current.workspace.onConnectionChange('stage'));
+    await waitFor(() => {
+      expect(result.current.workspace.activeTab?.connectionId).toBe('stage');
+      expect(currentFirestore(result).draft.path).toBe('auditLogs');
+      expect(currentFirestore(result).rows).toEqual([]);
+      expect(currentFirestore(result).resultQueryPath).toBeNull();
+      expect(result.current.workspace.selectedTreeItemId).toBe('collection:stage:auditLogs');
+    });
+
+    act(() => result.current.header.onBack());
+    await waitFor(() => {
+      expect(result.current.workspace.activeTab?.connectionId).toBe('emu');
+      expect(currentFirestore(result).draft).toMatchObject({
+        path: 'auditLogs',
+        limit: 7,
+        sortField: 'createdAt',
+        sortDirection: 'asc',
+        filters: [expect.objectContaining({ id: 'severity', value: '"error"' })],
+      });
+    });
+    act(() => result.current.header.onBack());
+    await waitFor(() => expect(currentFirestore(result).draft.path).toBe('orders'));
+
+    act(() => result.current.header.onForward());
+    await waitFor(() => {
+      expect(currentFirestore(result).draft).toMatchObject({
+        path: 'auditLogs',
+        limit: 7,
+        sortField: 'createdAt',
+        sortDirection: 'asc',
+        filters: [expect.objectContaining({ id: 'severity', value: '"error"' })],
+      });
+      expect(result.current.workspace.activeTab?.connectionId).toBe('emu');
+    });
+    act(() => result.current.header.onForward());
+    await waitFor(() => {
+      expect(currentFirestore(result).draft).toMatchObject({
+        path: 'auditLogs',
+        limit: 7,
+        sortField: 'createdAt',
+        sortDirection: 'asc',
+        filters: [expect.objectContaining({ id: 'severity', value: '"error"' })],
+      });
+      expect(result.current.workspace.activeTab?.connectionId).toBe('stage');
+      expect(result.current.workspace.selectedTreeItemId).toBe('collection:stage:auditLogs');
+    });
   });
 });
 
@@ -341,46 +468,43 @@ function activityIssueState(): ActivityState {
 }
 
 function firestoreWorkspace(tabId: string): PersistedWorkspaceState {
+  const draft: FirestoreQueryDraft = {
+    ...createFirestoreDraft('customers'),
+    filters: [{ id: 'filter-1', field: 'plan', op: '==', value: '"team"' }],
+    filterField: 'plan',
+    filterValue: '"team"',
+    sortField: 'lastSeenAt',
+    limit: 7,
+  };
   return {
-    version: 1,
+    version: 2,
     authFilter: '',
     scripts: {},
     tabsState: {
       activeTabId: tabId,
       interactionHistory: [{
         activeTabId: tabId,
-        path: 'customers',
+        location: { kind: 'firestore-query', connectionId: 'emu', draft },
         selectedTreeItemId: 'collection:emu:customers',
       }],
       interactionHistoryIndex: 0,
+      selectedTreeItemId: 'collection:emu:customers',
       tabs: [{
         id: tabId,
         kind: 'firestore-query',
-        title: 'customers',
         connectionId: 'emu',
-        history: ['customers'],
-        historyIndex: 0,
+        draft,
+        inspectorUi: defaultFirestoreInspectorUiState(),
         inspectorWidth: 360,
       }],
-    },
-    drafts: {
-      [tabId]: {
-        path: 'customers',
-        filters: [{ id: 'filter-1', field: 'plan', op: '==', value: '"team"' }],
-        filterField: 'plan',
-        filterOp: '==',
-        filterValue: '"team"',
-        sortField: 'lastSeenAt',
-        sortDirection: 'desc',
-        limit: 7,
-      },
     },
   };
 }
 
 function scriptWorkspace(): PersistedWorkspaceState {
+  const firestoreDraft = createFirestoreDraft('orders');
   return {
-    version: 1,
+    version: 2,
     authFilter: '',
     scripts: { 'tab-js-9': 'yield 1;' },
     tabsState: {
@@ -388,24 +512,32 @@ function scriptWorkspace(): PersistedWorkspaceState {
       interactionHistory: [
         {
           activeTabId: 'tab-firestore-8',
-          path: 'orders',
+          location: {
+            kind: 'firestore-query',
+            connectionId: 'emu',
+            draft: firestoreDraft,
+          },
           selectedTreeItemId: 'collection:emu:orders',
         },
         {
           activeTabId: 'closed-tab',
-          path: 'closed',
+          location: {
+            kind: 'firestore-query',
+            connectionId: 'emu',
+            draft: createFirestoreDraft('closed'),
+          },
           selectedTreeItemId: 'collection:emu:closed',
         },
       ],
       interactionHistoryIndex: 1,
+      selectedTreeItemId: 'script:emu',
       tabs: [
         {
           id: 'tab-firestore-8',
           kind: 'firestore-query',
-          title: 'orders',
           connectionId: 'emu',
-          history: ['orders'],
-          historyIndex: 0,
+          draft: firestoreDraft,
+          inspectorUi: defaultFirestoreInspectorUiState(),
           inspectorWidth: 360,
         },
         {
@@ -419,6 +551,5 @@ function scriptWorkspace(): PersistedWorkspaceState {
         },
       ],
     },
-    drafts: {},
   };
 }

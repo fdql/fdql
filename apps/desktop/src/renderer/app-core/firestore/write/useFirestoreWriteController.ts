@@ -26,6 +26,7 @@ import { createFirestoreWriteStore, type FirestoreWriteStore } from './firestore
 import {
   firestoreCreateDocumentRequested,
   firestoreCreateDocumentRequestHandled,
+  firestoreCreateDocumentScopeInvalidated,
 } from './firestoreWriteTransitions.ts';
 
 interface FirestoreWriteTabLike {
@@ -36,7 +37,6 @@ interface FirestoreWriteTabLike {
 export interface UseFirestoreWriteControllerInput {
   readonly activeProject: ProjectSummary | null;
   readonly activeTab: FirestoreWriteTabLike | undefined;
-  readonly clearSelectedDocument: (tabId: string) => void;
   readonly dataMode: DataMode;
   readonly firestore: Pick<
     FirestoreRepository,
@@ -49,6 +49,7 @@ export interface UseFirestoreWriteControllerInput {
   readonly onStatus: (message: string) => void;
   readonly recordActivity: FirestoreWriteCommandEnvironment['recordActivity'];
   readonly refreshAfterLiveWrite: () => Promise<void>;
+  readonly resultProject?: ProjectSummary | null | undefined;
   readonly store?: FirestoreWriteStore | undefined;
 }
 
@@ -59,6 +60,7 @@ export interface FirestoreWriteController {
     data: Record<string, unknown>,
   ) => Promise<void>;
   readonly createDocumentRequest: PendingCreateDocumentRequest | null;
+  readonly clearTabScope: (tabId: string) => void;
   readonly deleteDocument: (
     documentPath: string,
     options: FirestoreDeleteDocumentOptions,
@@ -84,8 +86,14 @@ export function useFirestoreWriteController(
 ): FirestoreWriteController {
   const store = useMemo(() => input.store ?? createFirestoreWriteStore(), [input.store]);
   const state = useAppCoreSelector(store, (snapshot) => snapshot);
-  const project = input.activeProject
+  const currentProject = input.activeProject
     ? { connectionId: input.activeProject.id, projectId: input.activeProject.projectId }
+    : null;
+  const resultTarget = input.resultProject === undefined
+    ? input.activeProject
+    : input.resultProject;
+  const resultProject = resultTarget
+    ? { connectionId: resultTarget.id, projectId: resultTarget.projectId }
     : null;
   const env: FirestoreWriteCommandEnvironment = {
     dataMode: input.dataMode,
@@ -103,8 +111,15 @@ export function useFirestoreWriteController(
     store.update((current) => firestoreCreateDocumentRequestHandled(current, requestId));
   }
 
+  function clearTabScope(tabId: string) {
+    store.update((current) => firestoreCreateDocumentScopeInvalidated(current, tabId));
+  }
+
   async function generateDocumentId(collectionPath: string): Promise<string> {
-    return await generateFirestoreDocumentIdCommand(env, { collectionPath, project });
+    return await generateFirestoreDocumentIdCommand(env, {
+      collectionPath,
+      project: currentProject,
+    });
   }
 
   async function createDocument(
@@ -117,7 +132,7 @@ export function useFirestoreWriteController(
         collectionPath,
         data,
         documentId,
-        project,
+        project: currentProject,
       });
       if (result.notification) input.onStatus(result.notification);
     } catch (error) {
@@ -136,7 +151,7 @@ export function useFirestoreWriteController(
         data,
         documentPath,
         options,
-        project,
+        project: resultProject,
       });
       if (result.notification) input.onStatus(result.notification);
       return result.result;
@@ -156,7 +171,7 @@ export function useFirestoreWriteController(
         documentPath,
         operations,
         options,
-        project,
+        project: resultProject,
       });
       if (result.notification) input.onStatus(result.notification);
       return result.result;
@@ -174,11 +189,8 @@ export function useFirestoreWriteController(
       const result = await deleteFirestoreDocumentCommand(store, env, {
         deleteSubcollectionPaths: options.deleteSubcollectionPaths,
         documentPath,
-        project,
+        project: resultProject,
       });
-      if (input.activeTab?.kind === 'firestore-query') {
-        input.clearSelectedDocument(input.activeTab.id);
-      }
       if (result.notification) input.onStatus(result.notification);
     } catch (error) {
       input.onStatus(`Delete failed: ${messageFromError(error, 'Could not delete document.')}`);
@@ -188,7 +200,12 @@ export function useFirestoreWriteController(
 
   return {
     createDocument,
-    createDocumentRequest: selectCreateDocumentRequestForTab(state, input.activeTab?.id),
+    createDocumentRequest: selectCreateDocumentRequestForTab(
+      state,
+      input.activeTab?.id,
+      input.activeProject?.id,
+    ),
+    clearTabScope,
     deleteDocument,
     generateDocumentId,
     handleCreateDocumentRequestHandled,

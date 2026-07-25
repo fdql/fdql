@@ -1,4 +1,8 @@
 import {
+  FDQL_EVENT_CHANNEL,
+  FdqlRunEventSchema,
+  FIRESTORE_SQL_EVENT_CHANNEL,
+  FirestoreSqlRunEventSchema,
   IPC_CHANNELS,
   type IpcChannel,
   type IpcRequest,
@@ -8,7 +12,14 @@ import {
   ScriptRunEventSchema,
 } from '@firebase-desk/ipc-schemas';
 import { BackgroundJobEventSchema } from '@firebase-desk/ipc-schemas/jobs';
-import type { ScriptRunEvent, ScriptRunEventListener } from '@firebase-desk/repo-contracts';
+import type {
+  FdqlRunEvent,
+  FdqlRunEventListener,
+  FirestoreSqlRunEvent,
+  FirestoreSqlRunEventListener,
+  ScriptRunEvent,
+  ScriptRunEventListener,
+} from '@firebase-desk/repo-contracts';
 import type { BackgroundJobEvent } from '@firebase-desk/repo-contracts/jobs';
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
@@ -91,6 +102,35 @@ const api = {
       invoke('firestore.updateDocumentFields', request),
     deleteDocument: (request: IpcRequest<'firestore.deleteDocument'>) =>
       invoke('firestore.deleteDocument', request),
+  },
+  fdql: {
+    compile: (request: IpcRequest<'fdql.compile'>) => invoke('fdql.compile', request),
+    run: (request: IpcRequest<'fdql.run'>) => invoke('fdql.run', request),
+    cancel: (request: IpcRequest<'fdql.cancel'>) => invoke('fdql.cancel', request),
+    subscribe: (listener: FdqlRunEventListener) => {
+      const handler = (_event: IpcRendererEvent, raw: unknown) => {
+        const parsed = FdqlRunEventSchema.safeParse(raw);
+        if (!parsed.success) return;
+        listener(parsed.data as FdqlRunEvent);
+      };
+      ipcRenderer.on(FDQL_EVENT_CHANNEL, handler);
+      return () => ipcRenderer.removeListener(FDQL_EVENT_CHANNEL, handler);
+    },
+  },
+  firestoreSql: {
+    compile: (request: IpcRequest<'firestoreSql.compile'>) =>
+      invoke('firestoreSql.compile', request),
+    run: (request: IpcRequest<'firestoreSql.run'>) => invoke('firestoreSql.run', request),
+    cancel: (request: IpcRequest<'firestoreSql.cancel'>) => invoke('firestoreSql.cancel', request),
+    subscribe: (listener: FirestoreSqlRunEventListener) => {
+      const handler = (_event: IpcRendererEvent, raw: unknown) => {
+        const parsed = FirestoreSqlRunEventSchema.safeParse(raw);
+        if (!parsed.success) return;
+        listener(parsed.data as FirestoreSqlRunEvent);
+      };
+      ipcRenderer.on(FIRESTORE_SQL_EVENT_CHANNEL, handler);
+      return () => ipcRenderer.removeListener(FIRESTORE_SQL_EVENT_CHANNEL, handler);
+    },
   },
   scriptRunner: {
     run: (request: IpcRequest<'scriptRunner.run'>) => invoke('scriptRunner.run', request),

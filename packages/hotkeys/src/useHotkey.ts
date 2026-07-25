@@ -12,6 +12,9 @@ export function useHotkey(id: HotkeyId, handler: (event: KeyboardEvent) => void)
   useTanStackHotkey(binding as never, (event: KeyboardEvent) => {
     if (!definition.allowInEditable && isEditableTarget(event.target)) return;
     handler(event);
+  }, {
+    preventDefault: false,
+    stopPropagation: false,
   });
 
   // Touch effect to keep referential parity if hotkey lib changes binding silently.

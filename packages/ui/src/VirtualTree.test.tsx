@@ -48,6 +48,18 @@ describe('VirtualTree', () => {
     expect(items[2]?.getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('exposes selection state', () => {
+    render(
+      <VirtualTree
+        flattenedNodes={nodes.map((node) => ({ ...node, selected: node.id === 'a.1' }))}
+        rowHeight={20}
+        onToggle={() => {}}
+      />,
+    );
+
+    expect(screen.getAllByRole('treeitem')[1]?.getAttribute('aria-selected')).toBe('true');
+  });
+
   it('uses roving tabindex (only the focused item is tabbable)', () => {
     render(<VirtualTree flattenedNodes={nodes} rowHeight={20} onToggle={() => {}} />);
     const items = screen.getAllByRole('treeitem');

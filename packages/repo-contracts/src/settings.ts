@@ -119,6 +119,7 @@ export interface SettingsSnapshot {
   readonly firestoreWrites: FirestoreWriteSettings;
   readonly updates: UpdateSettings;
   readonly workspaceState: unknown | null;
+  readonly workspaceStateClearedAt?: number | null | undefined;
 }
 
 export interface SettingsPatch {
@@ -135,6 +136,7 @@ export interface SettingsPatch {
   readonly firestoreWrites?: FirestoreWriteSettings | undefined;
   readonly updates?: UpdateSettings | undefined;
   readonly workspaceState?: unknown | null | undefined;
+  readonly workspaceStateClearedAt?: number | null | undefined;
 }
 
 export const DEFAULT_DENSITY: DensityName = defaultDensity;

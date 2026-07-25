@@ -1,6 +1,6 @@
 import type { FirestoreDocumentResult } from '@firebase-desk/repo-contracts';
 import { ChevronRight, FileText, Folder } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { FieldContextMenu } from './FieldContextMenu.tsx';
 import { type FieldEditTarget, fieldPathFromTreeKey } from './fieldEditModel.ts';
 import {
@@ -13,8 +13,10 @@ const NESTED_VALUE_CHILD_BATCH_SIZE = 100;
 
 export interface NestedValueTreeProps {
   readonly document?: FirestoreDocumentResult | undefined;
+  readonly expandedPaths?: ReadonlySet<string> | undefined;
   readonly onDeleteField?: ((target: FieldEditTarget) => void) | undefined;
   readonly onEditField?: ((target: FieldEditTarget, jsonMode: boolean) => void) | undefined;
+  readonly onExpandedPathsChange?: ((expandedPaths: ReadonlySet<string>) => void) | undefined;
   readonly onSetFieldValue?: ((target: FieldEditTarget, value: unknown) => void) | undefined;
   readonly onSetFieldNull?: ((target: FieldEditTarget) => void) | undefined;
   readonly value: Record<string, unknown>;
@@ -23,22 +25,39 @@ export interface NestedValueTreeProps {
 export function NestedValueTree(
   {
     document,
+    expandedPaths,
     onDeleteField,
     onEditField,
+    onExpandedPathsChange,
     onSetFieldNull,
     onSetFieldValue,
     value,
   }: NestedValueTreeProps,
 ) {
   const actionProps = { document, onDeleteField, onEditField, onSetFieldNull, onSetFieldValue };
+  const defaultExpandedPaths = useMemo(() => topLevelExpandedPaths(value), [value]);
+  const [uncontrolledExpandedPaths, setUncontrolledExpandedPaths] = useState(defaultExpandedPaths);
+  const resolvedExpandedPaths = expandedPaths ?? uncontrolledExpandedPaths;
+  useEffect(() => {
+    if (expandedPaths === undefined) setUncontrolledExpandedPaths(defaultExpandedPaths);
+  }, [defaultExpandedPaths, expandedPaths]);
+  function setExpanded(pathKey: string, expanded: boolean) {
+    const next = new Set(resolvedExpandedPaths);
+    if (expanded) next.add(pathKey);
+    else next.delete(pathKey);
+    if (expandedPaths === undefined) setUncontrolledExpandedPaths(next);
+    onExpandedPathsChange?.(next);
+  }
   return (
     <div className='max-h-[48vh] select-text overflow-auto rounded-md border border-border-subtle font-mono text-xs'>
       {Object.entries(value).map(([key, entry]) => (
         <NestedValueNode
           key={key}
           actionProps={actionProps}
+          expandedPaths={resolvedExpandedPaths}
           level={0}
           nodeKey={key}
+          onExpandedChange={setExpanded}
           parentPath={[]}
           value={entry}
         />
@@ -58,14 +77,18 @@ interface TreeActionProps {
 function NestedValueNode(
   {
     actionProps,
+    expandedPaths,
     level,
     nodeKey,
+    onExpandedChange,
     parentPath,
     value,
   }: {
     readonly actionProps: TreeActionProps;
+    readonly expandedPaths: ReadonlySet<string>;
     readonly level: number;
     readonly nodeKey: string;
+    readonly onExpandedChange: (pathKey: string, expanded: boolean) => void;
     readonly parentPath: ReadonlyArray<string>;
     readonly value: unknown;
   },
@@ -75,9 +98,11 @@ function NestedValueNode(
     return (
       <ExpandableNestedValueNode
         actionProps={actionProps}
+        expandedPaths={expandedPaths}
         fieldPath={fieldPath}
         label={nodeKey}
         level={level}
+        onExpandedChange={onExpandedChange}
         parentPath={parentPath}
         value={value}
       />
@@ -98,22 +123,26 @@ function NestedValueNode(
 function ExpandableNestedValueNode(
   {
     actionProps,
+    expandedPaths,
     fieldPath,
     label,
     level,
+    onExpandedChange,
     parentPath,
     value,
   }: {
     readonly actionProps: TreeActionProps;
+    readonly expandedPaths: ReadonlySet<string>;
     readonly fieldPath: ReadonlyArray<string> | null;
     readonly label: string;
     readonly level: number;
+    readonly onExpandedChange: (pathKey: string, expanded: boolean) => void;
     readonly parentPath: ReadonlyArray<string>;
     readonly value: unknown;
   },
 ): ReactNode {
-  const defaultExpanded = level === 0;
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const pathKey = nestedPathKey(fieldPath ?? [...parentPath, label]);
+  const expanded = expandedPaths.has(pathKey);
   const [visibleCount, setVisibleCount] = useState(NESTED_VALUE_CHILD_BATCH_SIZE);
   const branch = (
     <TreeBranch
@@ -122,7 +151,7 @@ function ExpandableNestedValueNode(
       label={label}
       level={level}
       meta={valueType(value)}
-      onToggle={setExpanded}
+      onToggle={(nextExpanded) => onExpandedChange(pathKey, nextExpanded)}
     >
       {expanded
         ? renderExpandedBranchChildren(
@@ -131,6 +160,8 @@ function ExpandableNestedValueNode(
           level,
           fieldPath ?? parentPath,
           actionProps,
+          expandedPaths,
+          onExpandedChange,
           setVisibleCount,
         )
         : null}
@@ -254,6 +285,8 @@ function renderExpandedBranchChildren(
   level: number,
   parentPath: ReadonlyArray<string>,
   actionProps: TreeActionProps,
+  expandedPaths: ReadonlySet<string>,
+  onExpandedChange: (pathKey: string, expanded: boolean) => void,
   setVisibleCount: (update: (current: number) => number) => void,
 ): ReactNode {
   const { entries, hasMore, remaining } = expandableEntryWindow(value, visibleCount);
@@ -263,8 +296,10 @@ function renderExpandedBranchChildren(
         <NestedValueNode
           key={childKey}
           actionProps={actionProps}
+          expandedPaths={expandedPaths}
           level={level + 1}
           nodeKey={childKey}
+          onExpandedChange={onExpandedChange}
           parentPath={parentPath}
           value={childValue}
         />
@@ -353,6 +388,18 @@ function expandableEntryWindow(
     entries.push([key, (value as Record<string, unknown>)[key]] as const);
   }
   return { entries, hasMore, remaining: null };
+}
+
+function topLevelExpandedPaths(value: Record<string, unknown>): ReadonlySet<string> {
+  return new Set(
+    Object.entries(value)
+      .filter(([, entry]) => isExpandableValue(entry))
+      .map(([key]) => nestedPathKey([key])),
+  );
+}
+
+function nestedPathKey(path: ReadonlyArray<string>): string {
+  return JSON.stringify(path);
 }
 
 function valueType(value: unknown): string {

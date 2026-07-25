@@ -1,7 +1,11 @@
 /// <reference types="vite/client" />
 
 import type { IpcRequest, IpcResponse } from '@firebase-desk/ipc-schemas';
-import type { ScriptRunEventListener } from '@firebase-desk/repo-contracts';
+import type {
+  FdqlRunEventListener,
+  FirestoreSqlRunEventListener,
+  ScriptRunEventListener,
+} from '@firebase-desk/repo-contracts';
 import type { BackgroundJobEvent } from '@firebase-desk/repo-contracts/jobs';
 
 declare global {
@@ -116,6 +120,32 @@ declare global {
     readonly subscribe: (listener: ScriptRunEventListener) => () => void;
   }
 
+  interface DesktopFirestoreSqlApi {
+    readonly compile: (
+      request: IpcRequest<'firestoreSql.compile'>,
+    ) => Promise<IpcResponse<'firestoreSql.compile'>>;
+    readonly run: (
+      request: IpcRequest<'firestoreSql.run'>,
+    ) => Promise<IpcResponse<'firestoreSql.run'>>;
+    readonly cancel: (
+      request: IpcRequest<'firestoreSql.cancel'>,
+    ) => Promise<IpcResponse<'firestoreSql.cancel'>>;
+    readonly subscribe: (listener: FirestoreSqlRunEventListener) => () => void;
+  }
+
+  interface DesktopFdqlApi {
+    readonly compile: (
+      request: IpcRequest<'fdql.compile'>,
+    ) => Promise<IpcResponse<'fdql.compile'>>;
+    readonly run: (
+      request: IpcRequest<'fdql.run'>,
+    ) => Promise<IpcResponse<'fdql.run'>>;
+    readonly cancel: (
+      request: IpcRequest<'fdql.cancel'>,
+    ) => Promise<IpcResponse<'fdql.cancel'>>;
+    readonly subscribe: (listener: FdqlRunEventListener) => () => void;
+  }
+
   interface DesktopAuthApi {
     readonly listUsers: (
       request: IpcRequest<'auth.listUsers'>,
@@ -139,6 +169,8 @@ declare global {
     readonly projects: DesktopProjectsApi;
     readonly settings: DesktopSettingsApi;
     readonly firestore: DesktopFirestoreApi;
+    readonly fdql: DesktopFdqlApi;
+    readonly firestoreSql: DesktopFirestoreSqlApi;
     readonly scriptRunner: DesktopScriptRunnerApi;
     readonly auth: DesktopAuthApi;
     readonly channels: ReadonlyArray<string>;

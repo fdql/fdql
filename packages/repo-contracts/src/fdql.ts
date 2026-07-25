@@ -1,0 +1,157 @@
+export interface FdqlDiagnostic {
+  readonly code: string;
+  readonly column?: number | undefined;
+  readonly context?: FdqlDiagnosticContext | undefined;
+  readonly line?: number | undefined;
+  readonly message: string;
+  readonly severity: 'error' | 'warning';
+}
+
+export interface FdqlDiagnosticContext {
+  readonly provider?: string | undefined;
+  readonly rowAlias?: string | undefined;
+  readonly rowPath?: string | undefined;
+  readonly source?: string | undefined;
+  readonly stage?: string | undefined;
+}
+
+export interface FdqlStats {
+  readonly aggregateReads: number;
+  readonly aggregateSourceRows: number;
+  readonly cacheBytes: number;
+  readonly cacheEvictions: number;
+  readonly cacheHits: number;
+  readonly cacheMisses: number;
+  readonly cacheWrites: number;
+  readonly lookupReads: number;
+  readonly providerAggregateReads: Readonly<Record<string, number>>;
+  readonly providerReads: Readonly<Record<string, number>>;
+  readonly readBudget: number;
+  readonly reads: number;
+  readonly rowsOutput: number;
+  readonly rowsScanned: number;
+  readonly stageStats: readonly FdqlStageStats[];
+  readonly stoppedReason?: 'budget' | 'cancelled' | 'completed' | 'timeout' | undefined;
+  readonly unionBranches: number;
+}
+
+export interface FdqlStageStats {
+  readonly aggregateReads: number;
+  readonly durationMs: number;
+  readonly droppedRows: number;
+  readonly endedAtMs: number;
+  readonly inputRows: number;
+  readonly outputRows: number;
+  readonly provider?: string | undefined;
+  readonly reads: number;
+  readonly source?: string | undefined;
+  readonly stage: string;
+  readonly startedAtMs: number;
+}
+
+export interface FdqlLineageSource {
+  readonly provider: string;
+  readonly readContribution: number;
+  readonly rowId?: string | undefined;
+  readonly rowPath?: string | undefined;
+  readonly source: string;
+  readonly stage: string;
+}
+
+export interface FdqlLineageBinding {
+  readonly binding: string;
+  readonly sources: readonly FdqlLineageSource[];
+}
+
+export interface FdqlLineageTraceStep {
+  readonly action: 'attach' | 'derive' | 'drop' | 'output' | 'source';
+  readonly binding?: string | undefined;
+  readonly reason?: string | undefined;
+  readonly stage: string;
+}
+
+export interface FdqlResultRowLineage {
+  readonly bindings: readonly FdqlLineageBinding[];
+  readonly mode: 'compact' | 'trace';
+  readonly readContribution: number;
+  readonly sources: readonly FdqlLineageSource[];
+  readonly trace?: readonly FdqlLineageTraceStep[] | undefined;
+}
+
+export type FdqlRowLineage = FdqlResultRowLineage;
+
+export interface FdqlExecutionDefaults {
+  readonly allowUnboundedReads?: boolean | undefined;
+  readonly cache?: 'off' | 'persistent' | 'run' | undefined;
+  readonly cacheTtlMs?: number | undefined;
+  readonly pageSize?: number | undefined;
+  readonly readBudget?: number | undefined;
+  readonly timeoutMs?: number | undefined;
+}
+
+export interface FdqlCompileRequest {
+  readonly connectionId: string;
+  readonly defaultProjectId?: string | undefined;
+  readonly execution?: FdqlExecutionDefaults | undefined;
+  readonly source: string;
+}
+
+export interface FdqlCompileResult {
+  readonly diagnostics: readonly FdqlDiagnostic[];
+  readonly ok: boolean;
+}
+
+export interface FdqlRunRequest extends FdqlCompileRequest {
+  readonly runId: string;
+}
+
+export interface FdqlRunCommandResult {
+  readonly clearedEntries: number;
+  readonly kind: 'clearCache';
+  readonly message: string;
+}
+
+export interface FdqlRunResult {
+  readonly cancelled?: boolean | undefined;
+  readonly command?: FdqlRunCommandResult | undefined;
+  readonly diagnostics: readonly FdqlDiagnostic[];
+  readonly durationMs: number;
+  readonly rowLineages?: readonly FdqlResultRowLineage[] | undefined;
+  readonly rows: readonly Record<string, unknown>[];
+  readonly stats: FdqlStats | null;
+}
+
+export type FdqlRunEvent =
+  | { readonly runId: string; readonly type: 'started'; }
+  | { readonly diagnostic: FdqlDiagnostic; readonly runId: string; readonly type: 'diagnostic'; }
+  | {
+    readonly count: number;
+    readonly provider: string;
+    readonly runId: string;
+    readonly source: string;
+    readonly type: 'read';
+  }
+  | {
+    readonly lineage?: FdqlResultRowLineage | undefined;
+    readonly row: Record<string, unknown>;
+    readonly runId: string;
+    readonly type: 'row';
+  }
+  | { readonly runId: string; readonly stats: FdqlStats; readonly type: 'stats'; }
+  | { readonly result: FdqlRunResult; readonly runId: string; readonly type: 'completed'; }
+  | { readonly result: FdqlRunResult; readonly runId: string; readonly type: 'cancelled'; }
+  | {
+    readonly diagnostic: FdqlDiagnostic;
+    readonly result: FdqlRunResult;
+    readonly runId: string;
+    readonly type: 'failed';
+  };
+
+export type FdqlRunEventListener = (event: FdqlRunEvent) => void;
+
+export interface FdqlRepository {
+  compile(request: FdqlCompileRequest): Promise<FdqlCompileResult>;
+  run(request: FdqlRunRequest): Promise<FdqlRunResult>;
+  cancel(runId: string): Promise<void>;
+  subscribe(listener: FdqlRunEventListener): () => void;
+}

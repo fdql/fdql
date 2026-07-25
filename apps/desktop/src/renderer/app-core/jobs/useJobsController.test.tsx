@@ -69,6 +69,18 @@ describe('useJobsController', () => {
     expect(repository.clearCompletedCount).toBe(1);
     expect(onStatus).toHaveBeenCalledWith('Queued delete collection');
   });
+
+  it('reports successful job events to result-scope invalidation', async () => {
+    const repository = new FakeJobsRepository([]);
+    const onJobSucceeded = vi.fn();
+    renderHook(() => useJobsController({ onJobSucceeded, repository }));
+    await waitFor(() => expect(repository.listeners.size).toBe(1));
+    const succeeded = job('job-1', 'succeeded');
+
+    act(() => repository.emit({ job: succeeded, type: 'job-updated' }));
+
+    expect(onJobSucceeded).toHaveBeenCalledWith(succeeded);
+  });
 });
 
 class FakeJobsRepository implements BackgroundJobRepository {

@@ -21,6 +21,7 @@
   "dependencies": {
     "@firebase-desk/data-format": "workspace:*",
     "@firebase-desk/design-tokens": "workspace:*",
+    "@firebase-desk/fdql": "workspace:*",
     "@firebase-desk/hotkeys": "workspace:*",
     "@firebase-desk/ipc-schemas": "workspace:*",
     "@firebase-desk/product-ui": "workspace:*",

@@ -48,7 +48,11 @@ export function CollectionJobDialog(
   const [encoding, setEncoding] = useState<FirestoreJsonlExportEncoding>('encoded');
   const [filePath, setFilePath] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<
+    FirestoreCollectionJobRequest | null
+  >(null);
   const [submitting, setSubmitting] = useState(false);
+  const formLocked = submitting || Boolean(pendingConfirmation);
 
   useEffect(() => {
     if (!open) return;
@@ -61,6 +65,7 @@ export function CollectionJobDialog(
     setEncoding('encoded');
     setFilePath('');
     setErrorMessage(null);
+    setPendingConfirmation(null);
     setSubmitting(false);
   }, [activeProject?.id, collectionPath, initialKind, open]);
 
@@ -95,10 +100,22 @@ export function CollectionJobDialog(
     }
     const request = buildRequest();
     if (!request) return;
-    if ((request.type === 'firestore.deleteCollection' || collisionPolicy === 'overwrite')) {
-      const confirmed = window.confirm(confirmMessage(request));
-      if (!confirmed) return;
+    if (requiresConfirmation(request)) {
+      setErrorMessage(null);
+      setPendingConfirmation(request);
+      return;
     }
+    await startJob(request);
+  }
+
+  async function confirmPendingJob() {
+    if (!pendingConfirmation) return;
+    const request = pendingConfirmation;
+    setPendingConfirmation(null);
+    await startJob(request);
+  }
+
+  async function startJob(request: FirestoreCollectionJobRequest) {
     setSubmitting(true);
     try {
       await onStartJob(request);
@@ -195,6 +212,7 @@ export function CollectionJobDialog(
             <select
               aria-label='Collection job type'
               className='h-9 rounded-md border border-border bg-bg-panel px-2 text-sm text-text-primary'
+              disabled={formLocked}
               value={kind}
               onChange={(event) => {
                 const nextKind = event.currentTarget.value as CollectionJobKind;
@@ -218,6 +236,7 @@ export function CollectionJobDialog(
                 <select
                   aria-label='Target project'
                   className='h-9 rounded-md border border-border bg-bg-panel px-2 text-sm text-text-primary'
+                  disabled={formLocked}
                   value={targetConnectionId}
                   onChange={(event) => setTargetConnectionId(event.currentTarget.value)}
                 >
@@ -234,6 +253,7 @@ export function CollectionJobDialog(
                 <span className='font-medium text-text-secondary'>Target collection path</span>
                 <Input
                   aria-label='Target collection path'
+                  disabled={formLocked}
                   value={targetCollectionPath}
                   onChange={(event) => setTargetCollectionPath(event.currentTarget.value)}
                 />
@@ -247,6 +267,7 @@ export function CollectionJobDialog(
                 <select
                   aria-label='Collision policy'
                   className='h-9 rounded-md border border-border bg-bg-panel px-2 text-sm text-text-primary'
+                  disabled={formLocked}
                   value={collisionPolicy}
                   onChange={(event) =>
                     setCollisionPolicy(event.currentTarget.value as FirestoreJobCollisionPolicy)}
@@ -263,6 +284,7 @@ export function CollectionJobDialog(
               <label className='flex items-center gap-2 text-sm text-text-secondary'>
                 <input
                   checked={includeSubcollections}
+                  disabled={formLocked}
                   type='checkbox'
                   onChange={(event) => setIncludeSubcollections(event.currentTarget.checked)}
                 />
@@ -285,6 +307,7 @@ export function CollectionJobDialog(
                   <select
                     aria-label='Export format'
                     className='h-9 rounded-md border border-border bg-bg-panel px-2 text-sm text-text-primary'
+                    disabled={formLocked}
                     value={format}
                     onChange={(event) =>
                       setFormat(event.currentTarget.value as FirestoreExportFormat)}
@@ -300,6 +323,7 @@ export function CollectionJobDialog(
                       <select
                         aria-label='JSONL encoding'
                         className='h-9 rounded-md border border-border bg-bg-panel px-2 text-sm text-text-primary'
+                        disabled={formLocked}
                         value={encoding}
                         onChange={(event) =>
                           setEncoding(event.currentTarget.value as FirestoreJsonlExportEncoding)}
@@ -331,10 +355,12 @@ export function CollectionJobDialog(
                   <Input
                     aria-label={kind === 'export' ? 'Export file path' : 'Import file path'}
                     readOnly
+                    disabled={formLocked}
                     value={filePath}
                   />
                 </label>
                 <Button
+                  disabled={formLocked}
                   type='button'
                   variant='secondary'
                   onClick={() => {
@@ -346,20 +372,55 @@ export function CollectionJobDialog(
               </div>
             )
             : null}
+          {pendingConfirmation
+            ? (
+              <InlineAlert
+                variant={pendingConfirmation.type === 'firestore.deleteCollection'
+                  ? 'danger'
+                  : 'warning'}
+              >
+                {confirmMessage(pendingConfirmation)}
+              </InlineAlert>
+            )
+            : null}
           <div className='flex justify-end gap-2 pt-2'>
-            <Button variant='ghost' onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button
-              disabled={submitting}
-              variant={kind === 'delete' ? 'danger' : 'primary'}
-              onClick={() => void submit()}
-            >
-              Start job
-            </Button>
+            {pendingConfirmation
+              ? (
+                <>
+                  <Button variant='ghost' onClick={() => setPendingConfirmation(null)}>Back</Button>
+                  <Button
+                    disabled={submitting}
+                    variant={pendingConfirmation.type === 'firestore.deleteCollection'
+                      ? 'danger'
+                      : 'warning'}
+                    onClick={() => void confirmPendingJob()}
+                  >
+                    {confirmLabel(pendingConfirmation)}
+                  </Button>
+                </>
+              )
+              : (
+                <>
+                  <Button variant='ghost' onClick={() => onOpenChange(false)}>Cancel</Button>
+                  <Button
+                    disabled={submitting}
+                    variant={kind === 'delete' ? 'danger' : 'primary'}
+                    onClick={() => void submit()}
+                  >
+                    Start job
+                  </Button>
+                </>
+              )}
           </div>
         </div>
       </DialogContent>
     </Dialog>
   );
+}
+
+function requiresConfirmation(request: FirestoreCollectionJobRequest): boolean {
+  return request.type === 'firestore.deleteCollection'
+    || ('collisionPolicy' in request && request.collisionPolicy === 'overwrite');
 }
 
 function confirmMessage(request: FirestoreCollectionJobRequest): string {
@@ -369,4 +430,10 @@ function confirmMessage(request: FirestoreCollectionJobRequest): string {
     }?`;
   }
   return 'Overwrite existing target documents?';
+}
+
+function confirmLabel(request: FirestoreCollectionJobRequest): string {
+  return request.type === 'firestore.deleteCollection'
+    ? 'Delete collection'
+    : 'Overwrite and start';
 }

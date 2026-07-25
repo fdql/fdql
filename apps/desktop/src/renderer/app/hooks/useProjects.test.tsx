@@ -1,4 +1,5 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { createProjectFixture } from '@firebase-desk/repo-mocks';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -37,6 +38,23 @@ describe('useProjects', () => {
     expect(result.current.data).toEqual(initial);
     await waitFor(() => expect(result.current.error?.message).toBe('denied'));
     expect(result.current.isLoading).toBe(false);
+  });
+
+  it('keeps an upserted project when an older load finishes later', async () => {
+    const repositories = createMockRepositories();
+    const project = createProjectFixture({ id: 'new-project', name: 'New project' });
+    let resolveList!: (projects: ReadonlyArray<typeof project>) => void;
+    vi.spyOn(repositories.projects, 'list').mockReturnValue(
+      new Promise((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+    const { result } = renderProjectsHook(repositories);
+
+    act(() => result.current.upsert(project));
+    await act(async () => resolveList([]));
+
+    expect(result.current.data).toEqual([project]);
   });
 });
 

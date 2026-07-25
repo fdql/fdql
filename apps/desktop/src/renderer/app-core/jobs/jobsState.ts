@@ -3,6 +3,7 @@ import type { BackgroundJob } from '@firebase-desk/repo-contracts/jobs';
 export interface JobsState {
   readonly acknowledgedIssueJobIds: ReadonlyArray<string>;
   readonly errorMessage: string | null;
+  readonly eventsDuringLoad: Readonly<Record<string, BackgroundJob | null>>;
   readonly expanded: boolean;
   readonly isLoading: boolean;
   readonly jobs: ReadonlyArray<BackgroundJob>;
@@ -13,6 +14,7 @@ export function createInitialJobsState(input: Partial<JobsState> = {}): JobsStat
   return {
     acknowledgedIssueJobIds: [],
     errorMessage: null,
+    eventsDuringLoad: {},
     expanded: false,
     isLoading: false,
     jobs: [],

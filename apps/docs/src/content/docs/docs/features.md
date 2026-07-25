@@ -18,8 +18,9 @@ description: Complete Firebase Desk feature inventory.
 11. **Jobs drawer**: job status, progress counters, cancellation, cleanup, issue acknowledgement, and history.
 12. **Auth users**: list, search/filter, paginate, inspect, and edit custom claims.
 13. **JavaScript Query**: run scripts, cancel runs, stream logs/output, inspect arrays, objects, documents, and errors.
-14. **Activity log**: local audit trail for operations, issues, metadata, exports, and target reopening.
-15. **Command palette and hotkeys**: keyboard-first access to tabs, query/run actions, theme, and settings.
+14. **Firestore SQL beta**: read-only SQL tab with joins, projections, live stats, cancel, and generated JavaScript Query snippets.
+15. **Activity log**: local audit trail for operations, issues, metadata, exports, and target reopening.
+16. **Command palette and hotkeys**: keyboard-first access to tabs, query/run actions, theme, and settings.
 
 ## Workspace
 
@@ -69,6 +70,24 @@ description: Complete Firebase Desk feature inventory.
 - Mark results stale after relevant writes.
 - Estimate document size.
 - Show empty, loading, success, and error states.
+
+## Firestore SQL beta
+
+- Open a dedicated SQL tab from the workspace tree or command palette.
+- Prepare a query before running it.
+- Run read-only `select` queries.
+- Run top-level `union all`.
+- Join collections with inner or left equality joins.
+- Expand arrays with `unnest()`.
+- Expand maps with `entries()`, `key()`, and `value()`.
+- Read document metadata with `id()`, `path()`, and `project_id()`.
+- Use context aliases for project targets.
+- Review issues for unsupported commands and failed preparation.
+- Stream rows into a result table.
+- Track reads, scanned rows, output rows, and join misses.
+- Cancel an active run.
+- Pick between result rows, issues, and generated Firebase Desk JavaScript Query snippets in the output tabs.
+- Keep SQL writes disabled in the product UI.
 
 ## Authentication
 

@@ -18,6 +18,8 @@ import {
   Code2,
   Database,
   Folder,
+  ListFilter,
+  ListTree,
   Pencil,
   Plus,
   RefreshCw,
@@ -32,6 +34,8 @@ export type AccountTreeItemKind =
   | 'firestore'
   | 'project'
   | 'script'
+  | 'fdql'
+  | 'sql'
   | 'status';
 export type AccountTreeItemStatus = 'idle' | 'loading' | 'error';
 
@@ -326,6 +330,8 @@ function iconForKind(kind: AccountTreeItemKind): ReactNode {
   if (kind === 'firestore') return <Folder size={15} aria-hidden='true' />;
   if (kind === 'auth') return <Users size={15} aria-hidden='true' />;
   if (kind === 'script') return <Code2 size={15} aria-hidden='true' />;
+  if (kind === 'fdql') return <ListFilter size={15} aria-hidden='true' />;
+  if (kind === 'sql') return <ListTree size={15} aria-hidden='true' />;
   if (kind === 'collection') return <Folder size={15} aria-hidden='true' />;
   return <AlertCircle size={15} aria-hidden='true' />;
 }

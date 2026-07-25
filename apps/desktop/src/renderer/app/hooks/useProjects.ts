@@ -38,6 +38,15 @@ export function useProjects() {
     }
   }, [repositories.projects]);
 
+  const upsert = useCallback((project: ProjectSummary) => {
+    requestId.current++;
+    setState((current) => ({
+      data: upsertProject(current.data ?? [], project),
+      error: null,
+      isLoading: false,
+    }));
+  }, []);
+
   useEffect(() => {
     void reload().catch(() => undefined);
     return () => {
@@ -45,5 +54,16 @@ export function useProjects() {
     };
   }, [reload]);
 
-  return { ...state, reload };
+  return { ...state, reload, upsert };
+}
+
+function upsertProject(
+  projects: ReadonlyArray<ProjectSummary>,
+  project: ProjectSummary,
+): ReadonlyArray<ProjectSummary> {
+  const index = projects.findIndex((candidate) => candidate.id === project.id);
+  if (index < 0) return [...projects, project];
+  return projects.map((candidate, candidateIndex) =>
+    candidateIndex === index ? project : candidate
+  );
 }

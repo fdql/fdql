@@ -2,11 +2,12 @@ import type {
   FirestoreFieldCatalogEntry,
   FirestoreFilterOp,
   FirestoreQueryDraft,
+  FirestoreQueryDraftEdit,
   FirestoreQueryFilterDraft,
 } from '@firebase-desk/repo-contracts';
 import { Badge, Button, IconButton, Input, Panel, PanelBody, PanelHeader } from '@firebase-desk/ui';
 import { Folder, Loader2, Play, Plus, RotateCcw, X } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
 import { FieldAutocompleteInput } from './FieldAutocompleteInput.tsx';
 
@@ -14,8 +15,7 @@ interface QueryBuilderProps {
   readonly draft: FirestoreQueryDraft;
   readonly fieldSuggestions?: ReadonlyArray<FirestoreFieldCatalogEntry>;
   readonly isLoading: boolean;
-  readonly onDraftChange: (draft: FirestoreQueryDraft) => void;
-  readonly onReset: () => void;
+  readonly onDraftEdit: (edit: FirestoreQueryDraftEdit) => void;
   readonly onRun: () => void;
 }
 
@@ -47,43 +47,43 @@ export function QueryBuilder(
     draft,
     fieldSuggestions = [],
     isLoading,
-    onDraftChange,
-    onReset,
+    onDraftEdit,
     onRun,
   }: QueryBuilderProps,
 ) {
   const supportsCollectionControls = isCollectionPath(draft.path);
   const filters = filtersForDraft(draft);
-  const sortableFieldSuggestions = fieldSuggestions.filter((suggestion) =>
-    suggestion.types.every((type) => !type.startsWith('array<'))
+  const sortableFieldSuggestions = useMemo(
+    () =>
+      fieldSuggestions.filter((suggestion) =>
+        suggestion.types.every((type) => !type.startsWith('array<'))
+      ),
+    [fieldSuggestions],
   );
   const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
 
-  function updateFilter(index: number, patch: Partial<FirestoreQueryFilterDraft>) {
-    onDraftChange(withFilters(
-      draft,
-      filters.map((filter, filterIndex) =>
-        filterIndex === index ? { ...filter, ...patch } : filter
-      ),
-    ));
+  function updateFilter(
+    filterId: string,
+    patch: Extract<FirestoreQueryDraftEdit, { readonly type: 'filter-patch'; }>['patch'],
+  ) {
+    onDraftEdit({ type: 'filter-patch', filterId, patch });
   }
 
   function addFilter() {
-    onDraftChange(withFilters(draft, [...filters, createEmptyFilter(nextFilterId(filters))]));
+    onDraftEdit({ type: 'filter-add', filter: createEmptyFilter(nextFilterId(filters)) });
   }
 
-  function removeFilter(index: number) {
-    onDraftChange(withFilters(draft, filters.filter((_, filterIndex) => filterIndex !== index)));
+  function removeFilter(filterId: string) {
+    onDraftEdit({ type: 'filter-remove', filterId });
   }
 
-  function confirmRemoveFilter(index: number) {
-    const filter = filters[index];
+  function confirmRemoveFilter(filter: FirestoreQueryFilterDraft, index: number) {
     setConfirmation({
       confirmLabel: 'Remove',
-      description: filter?.field
+      description: filter.field
         ? `Remove filter on ${filter.field}?`
         : `Remove filter ${index + 1}?`,
-      onConfirm: () => removeFilter(index),
+      onConfirm: () => removeFilter(filter.id),
       title: 'Remove filter',
     });
   }
@@ -91,8 +91,8 @@ export function QueryBuilder(
   function confirmReset() {
     setConfirmation({
       confirmLabel: 'Reset',
-      description: 'Reset the query target, filters, sort, and limit for this tab?',
-      onConfirm: onReset,
+      description: 'Reset filters, sort, and limit for this tab?',
+      onConfirm: () => onDraftEdit({ type: 'reset' }),
       title: 'Reset query',
     });
   }
@@ -118,7 +118,8 @@ export function QueryBuilder(
               disabled={isLoading}
               placeholder='orders or orders/ord_1024'
               value={draft.path}
-              onChange={(event) => onDraftChange({ ...draft, path: event.currentTarget.value })}
+              onChange={(event) =>
+                onDraftEdit({ type: 'path-set', path: event.currentTarget.value })}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') onRun();
               }}
@@ -134,7 +135,10 @@ export function QueryBuilder(
                   type='number'
                   value={draft.limit}
                   onChange={(event) =>
-                    onDraftChange({ ...draft, limit: Number(event.currentTarget.value) || 1 })}
+                    onDraftEdit({
+                      type: 'limit-set',
+                      limit: Number(event.currentTarget.value) || 1,
+                    })}
                 />
               )
               : null}
@@ -161,7 +165,7 @@ export function QueryBuilder(
                         placeholder='field name'
                         suggestions={fieldSuggestions}
                         value={filter.field}
-                        onChange={(field) => updateFilter(index, { field })}
+                        onCommit={(field) => updateFilter(filter.id, { field })}
                       />
                       <select
                         aria-label={`Filter ${index + 1} operator`}
@@ -169,7 +173,7 @@ export function QueryBuilder(
                         disabled={isLoading}
                         value={filter.op}
                         onChange={(event) =>
-                          updateFilter(index, {
+                          updateFilter(filter.id, {
                             op: event.currentTarget.value as FirestoreFilterOp,
                           })}
                       >
@@ -182,14 +186,14 @@ export function QueryBuilder(
                         placeholder='value, JSON, or null'
                         value={filter.value}
                         onChange={(event) =>
-                          updateFilter(index, { value: event.currentTarget.value })}
+                          updateFilter(filter.id, { value: event.currentTarget.value })}
                       />
                       <Button
                         disabled={isLoading}
                         size='xs'
                         title='Set filter value to JSON null'
                         variant={filter.value.trim() === 'null' ? 'primary' : 'secondary'}
-                        onClick={() => updateFilter(index, { value: 'null' })}
+                        onClick={() => updateFilter(filter.id, { value: 'null' })}
                       >
                         Null
                       </Button>
@@ -199,7 +203,7 @@ export function QueryBuilder(
                         label={`Remove filter ${index + 1}`}
                         size='xs'
                         variant='ghost'
-                        onClick={() => confirmRemoveFilter(index)}
+                        onClick={() => confirmRemoveFilter(filter, index)}
                       />
                     </div>
                   ))}
@@ -220,7 +224,7 @@ export function QueryBuilder(
                     placeholder='field name'
                     suggestions={sortableFieldSuggestions}
                     value={draft.sortField}
-                    onChange={(sortField) => onDraftChange({ ...draft, sortField })}
+                    onCommit={(sortField) => onDraftEdit({ type: 'sort-field-set', sortField })}
                   />
                   <select
                     aria-label='Sort direction'
@@ -228,8 +232,8 @@ export function QueryBuilder(
                     disabled={isLoading}
                     value={draft.sortDirection}
                     onChange={(event) =>
-                      onDraftChange({
-                        ...draft,
+                      onDraftEdit({
+                        type: 'sort-direction-set',
                         sortDirection: event.currentTarget.value as 'asc' | 'desc',
                       })}
                   >
@@ -271,20 +275,6 @@ function filtersForDraft(draft: FirestoreQueryDraft): ReadonlyArray<FirestoreQue
     op: filter.op,
     value: filter.value,
   }));
-}
-
-function withFilters(
-  draft: FirestoreQueryDraft,
-  filters: ReadonlyArray<FirestoreQueryFilterDraft>,
-): FirestoreQueryDraft {
-  const firstFilter = filters[0];
-  return {
-    ...draft,
-    filters,
-    filterField: firstFilter?.field ?? '',
-    filterOp: firstFilter?.op ?? '==',
-    filterValue: firstFilter?.value ?? '',
-  };
 }
 
 function nextFilterId(filters: ReadonlyArray<FirestoreQueryFilterDraft>): string {

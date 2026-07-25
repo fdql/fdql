@@ -59,7 +59,20 @@ describe('workspace commands', () => {
         ...state.interactionHistory,
         {
           activeTabId: 'missing-tab',
-          path: 'missing',
+          location: {
+            kind: 'firestore-query',
+            connectionId: 'emu',
+            draft: {
+              path: 'missing',
+              filters: [],
+              filterField: '',
+              filterOp: '==',
+              filterValue: '',
+              sortField: '',
+              sortDirection: 'desc',
+              limit: 25,
+            },
+          },
           selectedTreeItemId: 'collection:emu:missing',
         },
       ],

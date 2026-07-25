@@ -8,12 +8,18 @@ import type {
 import type {
   ActivityLogEntry,
   AuthUser,
+  FdqlCompileResult,
+  FdqlRunResult,
   FirestoreCollectionNode,
   FirestoreDocumentResult,
   FirestoreFieldPatchOperation,
   FirestoreQueryDraft,
+  FirestoreQueryDraftEdit,
   FirestoreSaveDocumentOptions,
   FirestoreSaveDocumentResult,
+  FirestoreSqlCompileResult,
+  FirestoreSqlContext,
+  FirestoreSqlRunResult,
   FirestoreUpdateDocumentFieldsOptions,
   FirestoreUpdateDocumentFieldsResult,
   ProjectAddInput,
@@ -31,19 +37,31 @@ import type {
 } from '@firebase-desk/repo-contracts/jobs';
 import type { Badge, IconButton } from '@firebase-desk/ui';
 import type { ComponentProps } from 'react';
+import {
+  firestoreCollectionPathForTarget,
+  firestoreDraftFingerprint,
+} from '../app-core/firestore/query/firestoreQueryDraft.ts';
+import type {
+  FirestoreInspectorSectionId,
+  FirestoreInspectorUiState,
+  SubmittedFirestoreQuery,
+} from '../app-core/firestore/query/firestoreQueryState.ts';
+import { interactionLocationForTab, tabTitle } from '../app-core/workspace/workspaceState.ts';
 import { createCommandPaletteModel } from './commandPaletteModel.ts';
 import type { DestructiveAction } from './hooks/useDestructiveActionController.ts';
-import type { SelectionState } from './stores/selectionStore.ts';
 import type {
+  InteractionHistoryEntry,
   OpenTabInput,
   TabsState,
   WorkspaceTab,
   WorkspaceTabKind,
 } from './stores/tabsStore.ts';
-import { activePath } from './stores/tabsStore.ts';
 import {
+  authNodeId,
+  COLLAPSED_SIDEBAR_WIDTH,
+  collectionNodeId,
   DEFAULT_FIRESTORE_DRAFT,
-  MAX_SIDEBAR_WIDTH,
+  firestoreNodeId,
   MIN_SIDEBAR_WIDTH,
   parseTreeId,
   treeItemIdForTab,
@@ -117,15 +135,15 @@ export interface AppShellController {
     readonly onForward: () => void;
     readonly onNewTab: () => void;
     readonly onOpenSettings: () => void;
+    readonly onRunFdql: () => void;
     readonly onRunQuery: () => void;
     readonly onRunScript: () => void;
   };
   readonly layout: {
     readonly sidebarCollapsed: boolean;
     readonly sidebarDefaultWidth: number;
-    readonly sidebarMaxSize: string;
     readonly sidebarMinSize: string;
-    readonly onSidebarResize: (size: number) => void;
+    readonly onSidebarResize: (size: number, previousSize?: number) => void;
   };
   readonly sidebar: {
     readonly collapsed: boolean;
@@ -209,6 +227,7 @@ export interface AppShellController {
     readonly onCloseTab: (tabId: string) => void;
     readonly onCloseTabsToLeft: (tabId: string) => void;
     readonly onCloseTabsToRight: (tabId: string) => void;
+    readonly onDuplicateTab: (tabId: string) => void;
     readonly onConnectionChange: (connectionId: string) => void;
     readonly onRefreshActiveTab: () => void;
     readonly onReorderTabs: (activeId: string, overId: string) => void;
@@ -240,8 +259,10 @@ export interface AppShellOrchestratorInput {
   readonly credentialWarning: string | null;
   readonly collectionJobRequest: {
     readonly collectionPath: string;
+    readonly connectionId: string;
     readonly kind: 'copy' | 'delete' | 'duplicate' | 'export' | 'import';
     readonly requestId: number;
+    readonly tabId: string;
   } | null;
   readonly dataMode: 'live' | 'mock';
   readonly demoMode?: boolean | undefined;
@@ -250,20 +271,23 @@ export interface AppShellOrchestratorInput {
   readonly editingProject: ProjectSummary | null;
   readonly firestoreTab: AppShellFirestoreTabFacade;
   readonly firestoreWrite: AppShellFirestoreWriteFacade;
+  readonly fdqlTab?: AppShellFdqlFacade | undefined;
   readonly firstRunGuide: AppShellFirstRunGuideFacade;
   readonly focusAuthFilter: () => void;
   readonly focusTreeFilter: () => void;
   readonly jsTab: AppShellJsFacade;
+  readonly sqlTab?: AppShellSqlFacade | undefined;
   readonly jobs: AppShellJobsFacade;
   readonly lastAction: string;
   readonly layout: {
     readonly sidebarCollapsed: boolean;
     readonly sidebarDefaultWidth: number;
-    readonly onSidebarResize: (size: number) => void;
+    readonly onSidebarResize: (size: number, previousSize?: number) => void;
   };
   readonly nextCreateDocumentRequestId: () => number;
   readonly nextCollectionJobRequestId: () => number;
   readonly projects: ReadonlyArray<ProjectSummary>;
+  readonly projectsLoading: boolean;
   readonly projectsRepository: ProjectsRepository;
   readonly projectCommands: AppShellProjectCommandFacade;
   readonly jobsRepository: {
@@ -284,7 +308,10 @@ export interface AppShellOrchestratorInput {
     };
     readonly settings: SettingsRepository;
   };
-  readonly selection: SelectionState;
+  readonly selection: {
+    readonly authUserId: string | null;
+    readonly treeItemId: string | null;
+  };
   readonly settings: AppShellSettingsFacade;
   readonly sidebarCollapsed: boolean;
   readonly tabs: AppShellTabsFacade;
@@ -298,11 +325,9 @@ export interface AppShellUiActions {
   readonly clearAuthSelection: () => void;
   readonly recordInteraction: (input: {
     readonly activeTabId: string;
-    readonly path?: string;
     readonly selectedTreeItemId: string | null;
   }) => void;
   readonly requestDestructiveAction: (action: DestructiveAction) => void;
-  readonly restorePath: (tabId: string, path: string) => void;
   readonly selectAuthUser: (uid: string | null) => void;
   readonly selectTreeItem: (treeItemId: string | null) => void;
   readonly setAddProjectOpen: (open: boolean) => void;
@@ -310,13 +335,16 @@ export interface AppShellUiActions {
   readonly setCollectionJobRequest: (
     request: {
       readonly collectionPath: string;
+      readonly connectionId: string;
       readonly kind: 'copy' | 'delete' | 'duplicate' | 'export' | 'import';
       readonly requestId: number;
+      readonly tabId: string;
     } | null,
   ) => void;
   readonly setEditingProjectId: (id: string | null) => void;
   readonly setLastAction: (message: string) => void;
   readonly setSidebarCollapsed: (collapsed: boolean) => void;
+  readonly setTabInspectorWidth: (tabId: string, width: number) => void;
   readonly setTabsState: (state: TabsState) => void;
   readonly updateActiveTabConnection: (tabId: string, connectionId: string) => void;
 }
@@ -359,18 +387,17 @@ export interface AppShellProjectCommandFacade {
 }
 
 export interface AppShellTabsFacade {
-  readonly goBackInteraction: () => {
-    readonly activeTabId: string;
-    readonly path?: string;
-    readonly selectedTreeItemId: string | null;
-  } | null;
-  readonly goForwardInteraction: () => {
-    readonly activeTabId: string;
-    readonly path?: string;
-    readonly selectedTreeItemId: string | null;
-  } | null;
+  readonly goBackInteraction: (
+    availableConnectionIds?: ReadonlySet<string>,
+    beforeRestore?: (entry: InteractionHistoryEntry) => void,
+  ) => InteractionHistoryEntry | null;
+  readonly goForwardInteraction: (
+    availableConnectionIds?: ReadonlySet<string>,
+    beforeRestore?: (entry: InteractionHistoryEntry) => void,
+  ) => InteractionHistoryEntry | null;
   readonly openOrSelectTab: (input: OpenTabInput) => string;
   readonly openTab: (input: OpenTabInput) => string;
+  readonly duplicateTab: (tabId: string) => string | null;
   readonly reorderTabs: (activeId: string, overId: string) => void;
   readonly selectTab: (tabId: string) => void;
   readonly sortByProject: () => void;
@@ -464,6 +491,7 @@ export interface AppShellJsFacade {
   readonly cancelScript: () => boolean;
   readonly clearTab: (tabId: string) => void;
   readonly clearTabRuntime: (tabId: string) => void;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
   readonly isRunning: boolean;
   readonly isTabRunning: (tabId: string) => boolean;
   readonly runScript: () => boolean;
@@ -474,33 +502,132 @@ export interface AppShellJsFacade {
   readonly setScriptSource: (source: string) => void;
 }
 
+export interface AppShellSqlFacade {
+  readonly cancel: () => boolean;
+  readonly clearTab: (tabId: string) => void;
+  readonly compile: () => boolean;
+  readonly compileResult: FirestoreSqlCompileResult | undefined;
+  readonly context: FirestoreSqlContext;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
+  readonly isRunning: boolean;
+  readonly isTabRunning: (tabId: string) => boolean;
+  readonly result: FirestoreSqlRunResult | undefined;
+  readonly run: () => boolean;
+  readonly runId: string | null;
+  readonly runStartedAt: number | null;
+  readonly setContext: (context: FirestoreSqlContext) => void;
+  readonly setSource: (source: string) => void;
+  readonly source: string;
+}
+
+export interface AppShellFdqlFacade {
+  readonly cancel: () => boolean;
+  readonly clearTab: (tabId: string) => void;
+  readonly clearTabRuntime: (tabId: string) => void;
+  readonly compileResult: FdqlCompileResult | undefined;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
+  readonly isRunning: boolean;
+  readonly isTabRunning: (tabId: string) => boolean;
+  readonly result: FdqlRunResult | undefined;
+  readonly run: () => boolean;
+  readonly runId: string | null;
+  readonly runStartedAt: number | null;
+  readonly setSource: (source: string) => void;
+  readonly source: string;
+}
+
+const emptySqlFacade: AppShellSqlFacade = {
+  cancel: () => false,
+  clearTab: () => undefined,
+  compile: () => false,
+  compileResult: undefined,
+  context: {},
+  duplicateTab: () => undefined,
+  isRunning: false,
+  isTabRunning: () => false,
+  result: undefined,
+  run: () => false,
+  runId: null,
+  runStartedAt: null,
+  setContext: () => undefined,
+  setSource: () => undefined,
+  source: '',
+};
+
+const emptyFdqlFacade: AppShellFdqlFacade = {
+  cancel: () => false,
+  clearTab: () => undefined,
+  clearTabRuntime: () => undefined,
+  compileResult: undefined,
+  duplicateTab: () => undefined,
+  isRunning: false,
+  isTabRunning: () => false,
+  result: undefined,
+  run: () => false,
+  runId: null,
+  runStartedAt: null,
+  setSource: () => undefined,
+  source: '',
+};
+
 export interface AppShellFirestoreTabFacade {
   readonly activeDraft: FirestoreQueryDraft;
+  readonly activeQueryConnectionId?: string | null | undefined;
+  readonly activeQueryPath: string | null;
+  readonly activeResultExecution?: SubmittedFirestoreQuery | null | undefined;
   readonly clearTab: (tabId: string) => void;
-  readonly drafts: Readonly<Record<string, FirestoreQueryDraft>>;
+  readonly duplicateTab: (sourceTabId: string, targetTabId: string) => void;
+  readonly invalidateTab: (tabId: string) => void;
   readonly errorMessage: string | null;
   readonly hasMore: boolean;
   readonly isFetchingMore: boolean;
   readonly isLoading: boolean;
   readonly isTabLoading: (tabId: string) => boolean;
   readonly loadMore: () => void;
+  readonly loadSubcollections: (
+    documentPath: string,
+  ) => Promise<ReadonlyArray<FirestoreCollectionNode>>;
   readonly openTab: (connectionId: string, path: string) => string;
   readonly openTabInNewTab: (connectionId: string, path: string) => string;
   readonly queryRows: ReadonlyArray<FirestoreDocumentResult>;
   readonly refreshQuery: () => string | null;
-  readonly resetDraft: () => void;
+  readonly activeInspectorUi: FirestoreInspectorUiState;
   readonly resultView: FirestoreResultView;
   readonly resultsStale: boolean;
   readonly runQuery: () => string | null;
   readonly selectDocument: (tabId: string, path: string | null) => void;
   readonly selectedDocument: FirestoreDocumentResult | null;
   readonly selectedDocumentPath: string | null;
-  readonly setDraft: (draft: FirestoreQueryDraft) => void;
+  readonly removeResultDocument: (
+    execution: SubmittedFirestoreQuery,
+    documentPath: string,
+  ) => void;
+  readonly replaceResultDocument: (
+    execution: SubmittedFirestoreQuery,
+    document: FirestoreDocumentResult,
+  ) => void;
+  readonly editDraft: (edit: FirestoreQueryDraftEdit) => void;
+  readonly setInspectorOverviewCollapsed: (tabId: string, collapsed: boolean) => void;
+  readonly setInspectorSectionOpen: (
+    tabId: string,
+    section: FirestoreInspectorSectionId,
+    open: boolean,
+  ) => void;
+  readonly setResultTreeExpandedIds: (
+    tabId: string,
+    expandedIds: ReadonlyArray<string>,
+  ) => void;
   readonly setResultView: (tabId: string, resultView: FirestoreResultView) => void;
   readonly setResultsStale: (tabId: string, stale: boolean) => void;
+  readonly setSelectionPreviewExpandedPaths: (
+    tabId: string,
+    documentPath: string,
+    expandedPaths: ReadonlyArray<string>,
+  ) => void;
 }
 
 export interface AppShellFirestoreWriteFacade {
+  readonly clearTabScope: (tabId: string) => void;
   readonly createDocument: (
     collectionPath: string,
     documentId: string,
@@ -513,6 +640,7 @@ export interface AppShellFirestoreWriteFacade {
   readonly requestCreateDocument: (request: {
     readonly collectionPath: string;
     readonly collectionPathEditable?: boolean;
+    readonly connectionId: string;
     readonly requestId: number;
     readonly tabId: string;
   }) => void;
@@ -531,31 +659,88 @@ export interface AppShellFirestoreWriteFacade {
 export function createAppShellController(
   input: AppShellOrchestratorInput,
 ): AppShellController {
+  const sqlTab = input.sqlTab ?? emptySqlFacade;
+  const fdqlTab = input.fdqlTab ?? emptyFdqlFacade;
+  const availableConnectionIds = new Set(input.projects.map((project) => project.id));
+  const openTabIds = new Set(input.tabsState.tabs.map((tab) => tab.id));
+  const activeInteraction = input.tabsState.interactionHistory[
+    input.tabsState.interactionHistoryIndex
+  ];
+  const currentInteractionTab = input.tabsState.tabs.find(
+    (tab) => tab.id === input.tabsState.activeTabId,
+  );
+  const currentInteractionIsDirty = Boolean(
+    activeInteraction
+      && currentInteractionTab
+      && (
+        activeInteraction?.activeTabId !== currentInteractionTab.id
+        || activeInteraction.selectedTreeItemId !== input.tabsState.selectedTreeItemId
+        || JSON.stringify(activeInteraction.location)
+          !== JSON.stringify(interactionLocationForTab(currentInteractionTab))
+      ),
+  );
+  const interactionIsAvailable = (entry: InteractionHistoryEntry) =>
+    openTabIds.has(entry.activeTabId)
+    && availableConnectionIds.has(entry.location.connectionId);
+  const canGoBack = currentInteractionIsDirty
+    || input.tabsState.interactionHistory
+      .slice(0, input.tabsState.interactionHistoryIndex)
+      .some(interactionIsAvailable);
+  const canGoForward = !currentInteractionIsDirty
+    && input.tabsState.interactionHistory
+      .slice(input.tabsState.interactionHistoryIndex + 1)
+      .some(interactionIsAvailable);
   const tabModels = input.tabsState.tabs.map((tab) => ({
     id: tab.id,
     kind: tab.kind,
-    title: tab.title,
+    title: tabTitle(tab),
     connectionId: tab.connectionId,
-    canGoBack: tab.historyIndex > 0,
-    canGoForward: tab.historyIndex < tab.history.length - 1,
+    canGoBack: tab.kind === 'firestore-query'
+      ? tab.id === input.tabsState.activeTabId && canGoBack
+      : tab.historyIndex > 0,
+    canGoForward: tab.kind === 'firestore-query'
+      ? tab.id === input.tabsState.activeTabId && canGoForward
+      : tab.historyIndex < tab.history.length - 1,
   }));
 
   function handleBackInteraction() {
-    const entry = input.tabs.goBackInteraction();
-    if (!entry) return;
-    restoreInteraction(entry.activeTabId, entry.selectedTreeItemId, entry.path);
+    const entry = input.tabs.goBackInteraction(availableConnectionIds, prepareInteractionRestore);
+    if (!entry) {
+      input.ui.setLastAction('No available previous interaction');
+      return;
+    }
+    restoreInteraction(entry);
   }
 
   function handleForwardInteraction() {
-    const entry = input.tabs.goForwardInteraction();
-    if (!entry) return;
-    restoreInteraction(entry.activeTabId, entry.selectedTreeItemId, entry.path);
+    const entry = input.tabs.goForwardInteraction(
+      availableConnectionIds,
+      prepareInteractionRestore,
+    );
+    if (!entry) {
+      input.ui.setLastAction('No available next interaction');
+      return;
+    }
+    restoreInteraction(entry);
   }
 
-  function restoreInteraction(tabId: string, selectedTreeItemId: string | null, path?: string) {
-    if (path) input.ui.restorePath(tabId, path);
-    input.ui.selectTreeItem(selectedTreeItemId);
+  function restoreInteraction(entry: InteractionHistoryEntry) {
+    input.ui.selectTreeItem(entry.selectedTreeItemId);
     input.ui.setLastAction('Restored previous interaction');
+  }
+
+  function prepareInteractionRestore(entry: InteractionHistoryEntry) {
+    const current = input.tabsState.tabs.find((tab) => tab.id === entry.activeTabId);
+    if (current?.kind === 'firestore-query' && entry.location.kind === 'firestore-query') {
+      if (
+        firestoreDraftFingerprint(current.connectionId, current.draft)
+          !== firestoreDraftFingerprint(entry.location.connectionId, entry.location.draft)
+      ) {
+        input.firestoreTab.invalidateTab(current.id);
+      }
+    } else if (current && current.connectionId !== entry.location.connectionId) {
+      clearConnectionScopedTabState(current);
+    }
   }
 
   function handleFocusSearch() {
@@ -569,17 +754,33 @@ export function createAppShellController(
   function requestCloseTab(tabId: string) {
     const tab = input.tabsState.tabs.find((item) => item.id === tabId);
     if (!tab) return;
+    const title = tabTitle(tab);
     const isLastTab = input.tabsState.tabs.length === 1;
     input.ui.requestDestructiveAction({
       confirmLabel: 'Close',
       description: isLastTab
-        ? `Close ${tab.title}? The workspace will have no open tabs.`
-        : `Close ${tab.title}? Unsaved tab state for this tab will be discarded.`,
+        ? `Close ${title}? The workspace will have no open tabs.`
+        : `Close ${title}? Unsaved tab state for this tab will be discarded.`,
       onConfirm: () => {
-        closeTabsWithCleanup([tab], `Closed ${tab.title}`);
+        closeTabsWithCleanup([tab], `Closed ${title}`);
       },
       title: 'Close tab',
     });
+  }
+
+  function duplicateTab(tabId: string) {
+    const tab = input.tabsState.tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+    const nextTabId = input.tabs.duplicateTab(tab.id);
+    if (!nextTabId) return;
+    duplicateTabState(tab, nextTabId);
+    const selectedTreeItemId = treeItemIdForTab({ ...tab, id: nextTabId });
+    input.ui.selectTreeItem(selectedTreeItemId);
+    input.ui.recordInteraction({
+      activeTabId: nextTabId,
+      selectedTreeItemId,
+    });
+    input.ui.setLastAction(`Duplicated ${tabTitle(tab)}`);
   }
 
   function requestCloseOtherTabs(tabId: string) {
@@ -593,7 +794,7 @@ export function createAppShellController(
       }? Their tab state will be discarded.`,
       onConfirm: () => {
         const tabsToClose = input.tabsState.tabs.filter((item) => item.id !== tabId);
-        closeTabsWithCleanup(tabsToClose, `Closed other tabs around ${tab.title}`);
+        closeTabsWithCleanup(tabsToClose, `Closed other tabs around ${tabTitle(tab)}`);
       },
       title: 'Close other tabs',
     });
@@ -674,12 +875,12 @@ export function createAppShellController(
     const tabId = openFirestoreTab(parsed.connectionId, parsed.path);
     input.firestoreWrite.requestCreateDocument({
       collectionPath: parsed.path,
+      connectionId: parsed.connectionId,
       requestId: input.nextCreateDocumentRequestId(),
       tabId,
     });
     input.ui.recordInteraction({
       activeTabId: tabId,
-      path: parsed.path,
       selectedTreeItemId: id,
     });
     input.ui.setLastAction(`Creating document in ${parsed.path}`);
@@ -694,13 +895,14 @@ export function createAppShellController(
     const tabId = input.firestoreTab.openTab(parsed.connectionId, parsed.path);
     input.ui.recordInteraction({
       activeTabId: tabId,
-      path: parsed.path,
       selectedTreeItemId: id,
     });
     input.ui.setCollectionJobRequest({
       collectionPath: parsed.path,
+      connectionId: parsed.connectionId,
       kind,
       requestId: input.nextCollectionJobRequestId(),
+      tabId,
     });
     input.ui.setLastAction(`Opened ${kind} collection job`);
   }
@@ -708,10 +910,11 @@ export function createAppShellController(
   function handleCreateCollectionFromTree(id: string) {
     const parsed = parseTreeId(id);
     if (parsed.kind !== 'firestore' || !parsed.connectionId) return;
-    const tabId = openFirestoreTab(parsed.connectionId, DEFAULT_FIRESTORE_DRAFT.path);
+    const tabId = openFirestoreTab(parsed.connectionId, '');
     input.firestoreWrite.requestCreateDocument({
       collectionPath: '',
       collectionPathEditable: true,
+      connectionId: parsed.connectionId,
       requestId: input.nextCreateDocumentRequestId(),
       tabId,
     });
@@ -763,10 +966,44 @@ export function createAppShellController(
     if (input.jsTab.cancelScript()) input.ui.setLastAction('Cancelled JavaScript query');
   }
 
+  function handleCompileSql() {
+    if (sqlTab.compile()) input.ui.setLastAction('Prepared Firestore SQL');
+  }
+
+  function handleRunSql() {
+    if (sqlTab.isRunning) {
+      handleCancelSql();
+      return;
+    }
+    if (sqlTab.run()) input.ui.setLastAction('Ran Firestore SQL');
+  }
+
+  function handleCancelSql() {
+    if (sqlTab.cancel()) input.ui.setLastAction('Cancelled Firestore SQL');
+  }
+
+  function handleRunFdql() {
+    if (fdqlTab.isRunning) {
+      handleCancelFdql();
+      return;
+    }
+    if (fdqlTab.run()) input.ui.setLastAction('Ran FDQL');
+  }
+
+  function handleCancelFdql() {
+    if (fdqlTab.cancel()) input.ui.setLastAction('Cancelled FDQL');
+  }
+
   function openTab(kind: WorkspaceTabKind) {
     if (!input.activeTab || !input.activeProject) {
       input.ui.setLastAction('Choose a connection item first');
       return null;
+    }
+    if (kind === 'firestore-query') {
+      const path = input.activeTab.kind === 'firestore-query'
+        ? input.activeTab.draft.path
+        : DEFAULT_FIRESTORE_DRAFT.path;
+      return input.firestoreTab.openTabInNewTab(input.activeTab.connectionId, path);
     }
     return input.tabs.openTab({ kind, connectionId: input.activeTab.connectionId });
   }
@@ -787,32 +1024,50 @@ export function createAppShellController(
     input.ui.recordInteraction({
       activeTabId: tabId,
       selectedTreeItemId,
-      ...(tab ? { path: activePath(tab) } : {}),
     });
-    input.ui.setLastAction(`Switched to ${tab?.title ?? 'tab'}`);
+    input.ui.setLastAction(`Switched to ${tab ? tabTitle(tab) : 'tab'}`);
   }
 
   function handleActiveProjectChange(connectionId: string) {
     if (!input.activeTab) return;
     if (input.activeTab.connectionId === connectionId) return;
-    input.ui.updateActiveTabConnection(input.activeTab.id, connectionId);
     clearConnectionScopedTabState(input.activeTab);
+    input.ui.updateActiveTabConnection(input.activeTab.id, connectionId);
     const nextTreeItemId = treeItemIdForTab({ ...input.activeTab, connectionId });
     input.ui.selectTreeItem(nextTreeItemId);
     input.ui.recordInteraction({
       activeTabId: input.activeTab.id,
-      path: activePath(input.activeTab),
       selectedTreeItemId: nextTreeItemId,
     });
     input.ui.setLastAction('Changed tab account');
   }
 
   function clearConnectionScopedTabState(tab: WorkspaceTab) {
-    clearTabRuntimeState(tab);
-    if (tab.kind === 'js-query') input.jsTab.clearTabRuntime(tab.id);
-    else input.jsTab.clearTab(tab.id);
-    input.ui.clearAuthSelection();
-    input.authTab.clear();
+    if (input.collectionJobRequest?.tabId === tab.id) {
+      input.ui.setCollectionJobRequest(null);
+    }
+    if (tab.kind === 'firestore-query') {
+      clearTabRuntimeState(tab);
+      input.firestoreWrite.clearTabScope(tab.id);
+    } else if (tab.kind === 'js-query') input.jsTab.clearTabRuntime(tab.id);
+    else if (tab.kind === 'firestore-sql') sqlTab.clearTab(tab.id);
+    else if (tab.kind === 'fdql') fdqlTab.clearTabRuntime(tab.id);
+    else {
+      input.ui.clearAuthSelection();
+      input.authTab.clear();
+    }
+  }
+
+  function duplicateTabState(sourceTab: WorkspaceTab, targetTabId: string) {
+    if (sourceTab.kind === 'firestore-query') {
+      input.firestoreTab.duplicateTab(sourceTab.id, targetTabId);
+    } else if (sourceTab.kind === 'js-query') {
+      input.jsTab.duplicateTab(sourceTab.id, targetTabId);
+    } else if (sourceTab.kind === 'firestore-sql') {
+      sqlTab.duplicateTab(sourceTab.id, targetTabId);
+    } else if (sourceTab.kind === 'fdql') {
+      fdqlTab.duplicateTab(sourceTab.id, targetTabId);
+    }
   }
 
   function closeTabsWithCleanup(tabsToClose: ReadonlyArray<WorkspaceTab>, successLabel: string) {
@@ -830,16 +1085,24 @@ export function createAppShellController(
   }
 
   function clearTabRuntimeState(tab: WorkspaceTab) {
-    input.firestoreTab.clearTab(tab.id);
+    input.firestoreTab.invalidateTab(tab.id);
   }
 
   function clearClosedTabRuntimeState(tab: WorkspaceTab) {
-    clearTabRuntimeState(tab);
+    if (input.collectionJobRequest?.tabId === tab.id) {
+      input.ui.setCollectionJobRequest(null);
+    }
+    input.firestoreTab.clearTab(tab.id);
+    input.firestoreWrite.clearTabScope(tab.id);
     input.jsTab.clearTab(tab.id);
+    sqlTab.clearTab(tab.id);
+    fdqlTab.clearTab(tab.id);
   }
 
   function isTabBusy(tab: WorkspaceTab): boolean {
     if (tab.kind === 'js-query') return input.jsTab.isTabRunning(tab.id);
+    if (tab.kind === 'firestore-sql') return sqlTab.isTabRunning(tab.id);
+    if (tab.kind === 'fdql') return fdqlTab.isTabRunning(tab.id);
     if (tab.kind === 'firestore-query') return input.firestoreTab.isTabLoading(tab.id);
     if (tab.kind === 'auth-users') return input.authTab.isTabLoading(tab.id);
     return false;
@@ -850,17 +1113,15 @@ export function createAppShellController(
     if (input.activeTab.kind === 'firestore-query') handleRunQuery();
     if (input.activeTab.kind === 'auth-users') input.authTab.refetch();
     if (input.activeTab.kind === 'js-query') handleRunScript();
-    input.ui.setLastAction(`Refreshed ${input.activeTab.title}`);
+    if (input.activeTab.kind === 'fdql') handleRunFdql();
+    if (input.activeTab.kind === 'firestore-sql') handleRunSql();
+    input.ui.setLastAction(`Refreshed ${tabTitle(input.activeTab)}`);
   }
 
   async function handleLoadSubcollections(
     documentPath: string,
   ): Promise<ReadonlyArray<FirestoreCollectionNode>> {
-    if (!input.activeProject) throw new Error('Choose a project before loading subcollections.');
-    return await input.repositories.firestore.listSubcollections(
-      input.activeProject.id,
-      documentPath,
-    );
+    return await input.firestoreTab.loadSubcollections(documentPath);
   }
 
   function handleOpenActivityTarget(entry: ActivityLogEntry) {
@@ -870,8 +1131,7 @@ export function createAppShellController(
       const tabId = openFirestoreTab(intent.connectionId, intent.path);
       input.ui.recordInteraction({
         activeTabId: tabId,
-        path: intent.path,
-        selectedTreeItemId: input.selection.treeItemId,
+        selectedTreeItemId: firestoreTargetTreeItemId(intent.connectionId, intent.path),
       });
       input.ui.setLastAction(`Opened ${intent.path}`);
       return;
@@ -880,7 +1140,7 @@ export function createAppShellController(
     input.ui.selectAuthUser(intent.uid);
     input.ui.recordInteraction({
       activeTabId: tabId,
-      selectedTreeItemId: input.selection.treeItemId,
+      selectedTreeItemId: authNodeId(intent.connectionId),
     });
     input.ui.setLastAction(intent.uid ? `Opened ${intent.uid}` : 'Opened Authentication');
   }
@@ -892,8 +1152,17 @@ export function createAppShellController(
       ? input.authTab.usersIsLoading
       : input.activeTab.kind === 'js-query'
       ? input.jsTab.isRunning
+      : input.activeTab.kind === 'firestore-sql'
+      ? sqlTab.isRunning
+      : input.activeTab.kind === 'fdql'
+      ? fdqlTab.isRunning
       : false
     : false;
+  const scopedCollectionJobRequest = input.activeTab?.kind === 'firestore-query'
+      && input.collectionJobRequest?.tabId === input.activeTab.id
+      && input.collectionJobRequest.connectionId === input.activeTab.connectionId
+    ? input.collectionJobRequest
+    : null;
 
   const tabView: WorkspaceTabViewProps | null = input.activeTab
     ? {
@@ -915,22 +1184,24 @@ export function createAppShellController(
       },
       firestore: {
         activeProject: input.activeProject,
-        collectionJobRequest: input.collectionJobRequest,
+        collectionJobRequest: scopedCollectionJobRequest,
         createDocumentRequest: input.firestoreWrite.createDocumentRequest,
         draft: input.firestoreTab.activeDraft,
         errorMessage: input.firestoreTab.errorMessage,
         hasMore: input.firestoreTab.hasMore,
+        inspectorUi: input.firestoreTab.activeInspectorUi,
+        inspectorWidth: input.activeTab?.inspectorWidth ?? 360,
         isFetchingMore: input.firestoreTab.isFetchingMore,
         isLoading: input.firestoreTab.isLoading,
         onCreateDocument: input.firestoreWrite.createDocument,
         onCollectionJobRequestHandled: (requestId) => {
-          if (input.collectionJobRequest?.requestId === requestId) {
+          if (scopedCollectionJobRequest?.requestId === requestId) {
             input.ui.setCollectionJobRequest(null);
           }
         },
         onCreateDocumentRequestHandled: input.firestoreWrite.handleCreateDocumentRequestHandled,
         onDeleteDocument: input.firestoreWrite.deleteDocument,
-        onDraftChange: input.firestoreTab.setDraft,
+        onDraftEdit: input.firestoreTab.editDraft,
         onGenerateDocumentId: input.firestoreWrite.generateDocumentId,
         onPickCollectionJobExportFile: async (format: FirestoreExportFormat) => {
           const result = await input.jobsRepository.pickExportFile(format);
@@ -943,21 +1214,64 @@ export function createAppShellController(
         onLoadMore: handleLoadMoreFirestore,
         onLoadSubcollections: handleLoadSubcollections,
         onOpenDocumentInNewTab: (path) => {
-          const tabId = input.firestoreTab.openTabInNewTab(input.activeTab!.connectionId, path);
+          const connectionId = input.firestoreTab.activeQueryConnectionId
+            ?? input.activeTab!.connectionId;
+          const tabId = input.firestoreTab.openTabInNewTab(connectionId, path);
           input.ui.recordInteraction({
             activeTabId: tabId,
-            path,
-            selectedTreeItemId: input.selection.treeItemId,
+            selectedTreeItemId: firestoreTargetTreeItemId(connectionId, path),
           });
           input.ui.setLastAction(`Opened ${path} in new tab`);
         },
         onRefreshResults: handleRefreshResults,
+        onInspectorOverviewCollapsedChange: (collapsed) => {
+          if (input.activeTab) {
+            input.firestoreTab.setInspectorOverviewCollapsed(input.activeTab.id, collapsed);
+          }
+        },
+        onInspectorSectionOpenChange: (section, open) => {
+          if (input.activeTab) {
+            input.firestoreTab.setInspectorSectionOpen(input.activeTab.id, section, open);
+          }
+        },
+        onInspectorWidthChange: (width) => {
+          if (input.activeTab) input.ui.setTabInspectorWidth(input.activeTab.id, width);
+        },
         onResultViewChange: handleResultViewChange,
+        onResultTreeExpandedIdsChange: (expandedIds) => {
+          if (input.activeTab) {
+            input.firestoreTab.setResultTreeExpandedIds(input.activeTab.id, expandedIds);
+          }
+        },
         onResultsStaleChange: handleResultsStaleChange,
-        onReset: input.firestoreTab.resetDraft,
+        onResultDocumentDeleted: (documentPath) => {
+          if (input.firestoreTab.activeResultExecution) {
+            input.firestoreTab.removeResultDocument(
+              input.firestoreTab.activeResultExecution,
+              documentPath,
+            );
+          }
+        },
+        onResultDocumentSaved: (document) => {
+          if (input.firestoreTab.activeResultExecution) {
+            input.firestoreTab.replaceResultDocument(
+              input.firestoreTab.activeResultExecution,
+              document,
+            );
+          }
+        },
         onRunQuery: handleRunQuery,
         onSaveDocument: input.firestoreWrite.saveDocument,
         onSelectDocument: (path) => input.firestoreTab.selectDocument(input.activeTab!.id, path),
+        onSelectionPreviewExpandedPathsChange: (documentPath, expandedPaths) => {
+          if (input.activeTab) {
+            input.firestoreTab.setSelectionPreviewExpandedPaths(
+              input.activeTab.id,
+              documentPath,
+              expandedPaths,
+            );
+          }
+        },
         onStartCollectionJob: async (request) => {
           await input.jobs.start(request);
           if (!input.jobs.opened) input.jobs.toggle();
@@ -966,6 +1280,7 @@ export function createAppShellController(
         projects: input.projects,
         rows: input.firestoreTab.queryRows,
         resultView: input.firestoreTab.resultView,
+        resultQueryPath: input.firestoreTab.activeQueryPath,
         resultsStale: input.firestoreTab.resultsStale,
         selectedDocument: input.firestoreTab.selectedDocument,
         selectedDocumentPath: input.firestoreTab.selectedDocumentPath,
@@ -982,6 +1297,31 @@ export function createAppShellController(
         settings: input.repositories.settings,
         source: input.jsTab.scriptSource,
       },
+      fdql: {
+        compileResult: fdqlTab.compileResult,
+        isRunning: fdqlTab.isRunning,
+        onCancel: handleCancelFdql,
+        onRun: handleRunFdql,
+        onSourceChange: fdqlTab.setSource,
+        result: fdqlTab.result,
+        runId: fdqlTab.runId,
+        runStartedAt: fdqlTab.runStartedAt,
+        source: fdqlTab.source,
+      },
+      sql: {
+        compileResult: sqlTab.compileResult,
+        context: sqlTab.context,
+        isRunning: sqlTab.isRunning,
+        onCancel: handleCancelSql,
+        onCompile: handleCompileSql,
+        onRun: handleRunSql,
+        onSourceChange: sqlTab.setSource,
+        result: sqlTab.result,
+        runId: sqlTab.runId,
+        runStartedAt: sqlTab.runStartedAt,
+        onContextChange: sqlTab.setContext,
+        source: sqlTab.source,
+      },
     }
     : null;
 
@@ -992,6 +1332,8 @@ export function createAppShellController(
     onOpenTab: openTab,
     onRunQuery: handleRunQuery,
     onRunScript: handleRunScript,
+    onRunFdql: handleRunFdql,
+    onRunSql: handleRunSql,
     onSelectTab: input.tabs.selectTab,
     resolvedTheme: input.appearance.resolvedTheme,
     tabs: input.tabsState.tabs,
@@ -1045,10 +1387,9 @@ export function createAppShellController(
     },
     header: {
       appVersion: input.appVersion,
-      canGoBack: input.tabsState.interactionHistoryIndex > 0,
-      canGoForward: input.tabsState.interactionHistoryIndex
-        < input.tabsState.interactionHistory.length - 1,
-      canAddProject: !input.demoMode,
+      canGoBack,
+      canGoForward,
+      canAddProject: !input.demoMode && !input.projectsLoading,
       canCheckForUpdates: input.updates.canCheck,
       checkingForUpdates: input.updates.isChecking,
       dataMode: input.dataMode,
@@ -1076,12 +1417,14 @@ export function createAppShellController(
       onOpenSettings: input.settings.openSettings,
       onRunQuery: handleRunQuery,
       onRunScript: handleRunScript,
+      onRunFdql: handleRunFdql,
     },
     layout: {
       sidebarCollapsed: input.sidebarCollapsed,
       sidebarDefaultWidth: input.layout.sidebarDefaultWidth,
-      sidebarMaxSize: input.sidebarCollapsed ? '40px' : `${MAX_SIDEBAR_WIDTH}px`,
-      sidebarMinSize: input.sidebarCollapsed ? '40px' : `${MIN_SIDEBAR_WIDTH}px`,
+      sidebarMinSize: input.sidebarCollapsed
+        ? `${COLLAPSED_SIDEBAR_WIDTH}px`
+        : `${MIN_SIDEBAR_WIDTH}px`,
       onSidebarResize: input.layout.onSidebarResize,
     },
     sidebar: {
@@ -1089,7 +1432,9 @@ export function createAppShellController(
       density: input.density,
       filterValue: input.tree.filter,
       items: input.tree.items,
-      ...(input.demoMode ? {} : { onAddProject: () => input.ui.setAddProjectOpen(true) }),
+      ...(input.demoMode || input.projectsLoading
+        ? {}
+        : { onAddProject: () => input.ui.setAddProjectOpen(true) }),
       onCollapse: () => input.ui.setSidebarCollapsed(true),
       onCreateCollection: handleCreateCollectionFromTree,
       onCreateDocument: handleCreateDocumentFromTree,
@@ -1159,6 +1504,7 @@ export function createAppShellController(
       onCloseTab: requestCloseTab,
       onCloseTabsToLeft: requestCloseTabsToLeft,
       onCloseTabsToRight: requestCloseTabsToRight,
+      onDuplicateTab: duplicateTab,
       onConnectionChange: handleActiveProjectChange,
       onRefreshActiveTab: handleRefreshActiveTab,
       onReorderTabs: input.tabs.reorderTabs,
@@ -1182,6 +1528,13 @@ export interface CloseWorkspaceTabsInput {
   readonly busyTabIds: ReadonlySet<string>;
   readonly successLabel: string;
   readonly tabsToClose: ReadonlyArray<WorkspaceTab>;
+}
+
+function firestoreTargetTreeItemId(connectionId: string, path: string): string {
+  const collectionPath = firestoreCollectionPathForTarget(path);
+  return collectionPath
+    ? collectionNodeId(connectionId, collectionPath)
+    : firestoreNodeId(connectionId);
 }
 
 function messageFromError(error: unknown, fallback: string): string {
