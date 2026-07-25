@@ -288,6 +288,7 @@ export interface AppShellOrchestratorInput {
   readonly nextCreateDocumentRequestId: () => number;
   readonly nextCollectionJobRequestId: () => number;
   readonly projects: ReadonlyArray<ProjectSummary>;
+  readonly projectsLoading: boolean;
   readonly projectsRepository: ProjectsRepository;
   readonly projectCommands: AppShellProjectCommandFacade;
   readonly jobsRepository: {
@@ -1389,7 +1390,7 @@ export function createAppShellController(
       appVersion: input.appVersion,
       canGoBack,
       canGoForward,
-      canAddProject: !input.demoMode,
+      canAddProject: !input.demoMode && !input.projectsLoading,
       canCheckForUpdates: input.updates.canCheck,
       checkingForUpdates: input.updates.isChecking,
       dataMode: input.dataMode,
@@ -1433,7 +1434,9 @@ export function createAppShellController(
       density: input.density,
       filterValue: input.tree.filter,
       items: input.tree.items,
-      ...(input.demoMode ? {} : { onAddProject: () => input.ui.setAddProjectOpen(true) }),
+      ...(input.demoMode || input.projectsLoading
+        ? {}
+        : { onAddProject: () => input.ui.setAddProjectOpen(true) }),
       onCollapse: () => input.ui.setSidebarCollapsed(true),
       onCreateCollection: handleCreateCollectionFromTree,
       onCreateDocument: handleCreateDocumentFromTree,

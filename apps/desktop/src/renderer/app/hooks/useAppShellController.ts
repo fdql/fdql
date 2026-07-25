@@ -363,6 +363,7 @@ export function useAppShellController(
     collectionJobRequest,
     nextCollectionJobRequestId: () => nextCollectionJobRequestId.current++,
     projects,
+    projectsLoading: projectsQuery.isLoading,
     jobsRepository: {
       pickExportFile: repositories.jobs.pickExportFile,
       pickImportFile: repositories.jobs.pickImportFile,

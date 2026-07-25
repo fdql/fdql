@@ -145,10 +145,10 @@ describe('desktop AppShell', () => {
     expect(runQuery).not.toHaveBeenCalled();
   });
 
-  it('opens the add account dialog from the header', () => {
+  it('opens the add account dialog from the header', async () => {
     renderShell();
 
-    const addAccountButton = screen.getAllByRole('button', { name: 'Add account' })[0];
+    const addAccountButton = (await screen.findAllByRole('button', { name: 'Add account' }))[0];
     expect(addAccountButton).toBeDefined();
     fireEvent.click(addAccountButton!);
 

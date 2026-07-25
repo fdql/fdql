@@ -19,6 +19,14 @@ import {
 } from './workspaceModel.ts';
 
 describe('createAppShellController', () => {
+  it('hides add-account actions while projects load', () => {
+    const { input } = createInput({ projectsLoading: true });
+    const controller = createAppShellController(input);
+
+    expect(controller.header.canAddProject).toBe(false);
+    expect(controller.sidebar.onAddProject).toBeUndefined();
+  });
+
   it('requests close confirmation and cleans tab runtime after confirm', () => {
     const tab = firestoreTab();
     const closeWorkspaceTabs = vi.fn((state, commandInput) => ({
@@ -609,6 +617,7 @@ function createInput(
     nextCreateDocumentRequestId: vi.fn(() => 1),
     nextCollectionJobRequestId: vi.fn(() => 1),
     projects: [project, prod],
+    projectsLoading: false,
     jobsRepository: repositories.jobs,
     projectsRepository: repositories.projects,
     projectCommands: {
