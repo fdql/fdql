@@ -176,7 +176,7 @@ describe('desktop AppShell', () => {
     sidebarPanel?.getSize.mockReturnValue({ asPercentage: 3, inPixels: 40 });
     fireEvent.click(await screen.findByRole('button', { name: 'Expand sidebar' }));
 
-    expect(sidebarPanel?.expand).toHaveBeenCalledTimes(1);
+    expect(sidebarPanel?.expand).not.toHaveBeenCalled();
     expect(sidebarPanel?.resize).toHaveBeenCalledWith('320px');
   });
 });

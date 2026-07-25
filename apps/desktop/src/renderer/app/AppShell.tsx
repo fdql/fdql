@@ -57,8 +57,10 @@ export function AppShell(
       if (!sidebarPanel.isCollapsed()) sidebarPanel.collapse();
       return;
     }
-    if (sidebarPanel.isCollapsed()) sidebarPanel.expand();
-    if (sidebarPanel.getSize().inPixels < MIN_SIDEBAR_WIDTH) {
+    if (
+      sidebarPanel.isCollapsed()
+      || sidebarPanel.getSize().inPixels < MIN_SIDEBAR_WIDTH
+    ) {
       sidebarPanel.resize(`${controller.layout.sidebarDefaultWidth}px`);
     }
   }, [controller.layout.sidebarCollapsed, controller.layout.sidebarDefaultWidth]);

@@ -79,9 +79,11 @@ export async function expandEmulatorAccount(page: Page): Promise<void> {
   const tree = page.getByRole('tree', { name: 'Account tree' });
   const account = tree.getByRole('treeitem', { name: new RegExp(EMULATOR_ACCOUNT_NAME) });
   await expect(account).toBeVisible({ timeout: 15_000 });
-  if (await tree.getByText(FIRESTORE_TREE_ITEM_LABEL, { exact: true }).count()) return;
-  await account.click();
-  await expect(tree.getByText(FIRESTORE_TREE_ITEM_LABEL, { exact: true })).toBeVisible();
+  if (await account.getAttribute('aria-expanded') !== 'true') await account.click();
+  await expect(account).toHaveAttribute('aria-expanded', 'true');
+  await expect(tree.getByText(FIRESTORE_TREE_ITEM_LABEL, { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
 }
 
 export async function openFirestore(page: Page): Promise<void> {
