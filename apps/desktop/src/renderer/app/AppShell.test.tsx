@@ -173,9 +173,11 @@ describe('desktop AppShell', () => {
 
     expect(sidebarPanel?.collapse).toHaveBeenCalledTimes(1);
 
+    sidebarPanel?.getSize.mockReturnValue({ asPercentage: 3, inPixels: 40 });
     fireEvent.click(await screen.findByRole('button', { name: 'Expand sidebar' }));
 
     expect(sidebarPanel?.expand).toHaveBeenCalledTimes(1);
+    expect(sidebarPanel?.resize).toHaveBeenCalledWith('320px');
   });
 });
 

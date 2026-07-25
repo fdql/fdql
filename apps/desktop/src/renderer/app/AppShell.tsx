@@ -10,6 +10,7 @@ import { useAppShellController } from './hooks/useAppShellController.ts';
 import {
   COLLAPSED_SIDEBAR_WIDTH,
   DEFAULT_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
   MIN_WORKSPACE_WIDTH,
 } from './workspaceModel.ts';
 import { WorkspaceTabView } from './WorkspaceTabView.tsx';
@@ -57,7 +58,10 @@ export function AppShell(
       return;
     }
     if (sidebarPanel.isCollapsed()) sidebarPanel.expand();
-  }, [controller.layout.sidebarCollapsed]);
+    if (sidebarPanel.getSize().inPixels < MIN_SIDEBAR_WIDTH) {
+      sidebarPanel.resize(`${controller.layout.sidebarDefaultWidth}px`);
+    }
+  }, [controller.layout.sidebarCollapsed, controller.layout.sidebarDefaultWidth]);
 
   return (
     <div className='relative grid h-full overflow-hidden grid-rows-[40px_minmax(0,1fr)] bg-bg-app text-text-primary'>
