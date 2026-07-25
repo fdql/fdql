@@ -167,18 +167,17 @@ export function DiffCodeEditor(
 }
 
 async function loadMonacoReact(): Promise<typeof import('@monaco-editor/react')> {
-  const [module, monaco, , , , typeScriptContribution] = await Promise.all([
+  const [module, monaco, , , , , typeScriptContribution] = await Promise.all([
     import('@monaco-editor/react'),
+    import('monaco-editor/editor/editor.api.js'),
     // @ts-expect-error Monaco does not publish declarations for this ESM entry.
-    import('monaco-editor/esm/vs/editor/editor.api'),
+    import('monaco-editor/editor/contrib/suggest/browser/suggestController.js'),
+    import('monaco-editor/languages/definitions/javascript/register.js'),
+    import('monaco-editor/languages/definitions/typescript/register.js'),
     // @ts-expect-error Monaco does not publish declarations for this ESM entry.
-    import('monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'),
+    import('monaco-editor/language/json/monaco.contribution.js'),
     // @ts-expect-error Monaco does not publish declarations for this ESM entry.
-    import('monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'),
-    // @ts-expect-error Monaco does not publish declarations for this ESM entry.
-    import('monaco-editor/esm/vs/language/json/monaco.contribution'),
-    // @ts-expect-error Monaco does not publish declarations for this ESM entry.
-    import('monaco-editor/esm/vs/language/typescript/monaco.contribution'),
+    import('monaco-editor/language/typescript/monaco.contribution.js'),
   ]);
   monacoTypeScriptContribution = typeScriptContribution as MonacoTypeScriptContribution;
   module.loader.config({ monaco });

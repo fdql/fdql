@@ -21,15 +21,15 @@
     "@firebase-desk/fdql": "workspace:*",
     "@firebase-desk/firestore-sql": "workspace:*",
     "@firebase-desk/repo-contracts": "workspace:*",
-    "firebase-admin": "13.8.0"
+    "firebase-admin": "13.10.0"
   },
   "devDependencies": {
     "@firebase-desk/config-oxlint": "workspace:*",
     "@firebase-desk/config-tsconfig": "workspace:*",
     "@firebase-desk/config-vitest": "workspace:*",
-    "@types/node": "24.12.2",
-    "oxlint": "1.62.0",
+    "@types/node": "24.13.3",
+    "oxlint": "1.75.0",
     "typescript": "6.0.3",
-    "vitest": "4.1.5"
+    "vitest": "4.1.10"
   }
 }

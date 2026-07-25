@@ -10,6 +10,7 @@
   },
   "rules": {
     "import/no-unassigned-import": "off",
+    "unicorn/consistent-function-scoping": "off",
     "no-restricted-imports": [
       "error",
       {

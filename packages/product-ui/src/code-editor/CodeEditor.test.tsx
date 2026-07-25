@@ -53,16 +53,18 @@ const monacoApiMock = vi.hoisted(() => ({
   MarkerSeverity: { Error: 8, Warning: 4 },
 }));
 
-vi.mock('monaco-editor/esm/vs/editor/editor.api', () => monacoApiMock);
-vi.mock('monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution', () => {
+vi.mock('monaco-editor/editor/editor.api.js', () => monacoApiMock);
+vi.mock('monaco-editor/editor/contrib/suggest/browser/suggestController.js', () => ({}));
+vi.mock('monaco-editor/languages/definitions/javascript/register.js', () => {
   monacoMock.javascriptContribution();
   return {};
 });
-vi.mock('monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution', () => {
+vi.mock('monaco-editor/languages/definitions/typescript/register.js', () => {
   monacoMock.typescriptContribution();
   return {};
 });
-vi.mock('monaco-editor/esm/vs/language/typescript/monaco.contribution', () => ({
+vi.mock('monaco-editor/language/json/monaco.contribution.js', () => ({}));
+vi.mock('monaco-editor/language/typescript/monaco.contribution.js', () => ({
   javascriptDefaults: { addExtraLib: monacoMock.javascriptAddExtraLib },
   typescriptDefaults: { addExtraLib: monacoMock.typescriptAddExtraLib },
 }));

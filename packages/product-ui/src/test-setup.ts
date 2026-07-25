@@ -20,14 +20,15 @@ if (!document.queryCommandSupported) {
   });
 }
 
-vi.mock('monaco-editor/esm/vs/editor/editor.api', () => ({
+vi.mock('monaco-editor/editor/editor.api.js', () => ({
   editor: {},
   languages: {},
 }));
-vi.mock('monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution', () => ({}));
-vi.mock('monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution', () => ({}));
-vi.mock('monaco-editor/esm/vs/language/json/monaco.contribution', () => ({}));
-vi.mock('monaco-editor/esm/vs/language/typescript/monaco.contribution', () => ({
+vi.mock('monaco-editor/editor/contrib/suggest/browser/suggestController.js', () => ({}));
+vi.mock('monaco-editor/languages/definitions/javascript/register.js', () => ({}));
+vi.mock('monaco-editor/languages/definitions/typescript/register.js', () => ({}));
+vi.mock('monaco-editor/language/json/monaco.contribution.js', () => ({}));
+vi.mock('monaco-editor/language/typescript/monaco.contribution.js', () => ({
   javascriptDefaults: { addExtraLib: () => ({ dispose: () => {} }) },
   typescriptDefaults: { addExtraLib: () => ({ dispose: () => {} }) },
 }));
