@@ -73,6 +73,9 @@ export async function addLocalEmulatorAccount(page: Page): Promise<void> {
 }
 
 export async function expandEmulatorAccount(page: Page): Promise<void> {
+  const expandSidebar = page.getByRole('button', { name: 'Expand sidebar' });
+  if (await expandSidebar.isVisible()) await expandSidebar.click();
+
   const tree = page.getByRole('tree', { name: 'Account tree' });
   const account = tree.getByRole('treeitem', { name: new RegExp(EMULATOR_ACCOUNT_NAME) });
   await expect(account).toBeVisible({ timeout: 15_000 });
