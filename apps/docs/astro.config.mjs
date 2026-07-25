@@ -7,18 +7,18 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const demoAppRoot = resolve(root, '.build/site/demo/app');
-const demoAppPaths = ['/firebase-desk/demo/app', '/demo/app'];
+const demoAppPaths = ['/fdql/demo/app', '/demo/app'];
 
 export default defineConfig({
-  base: '/firebase-desk',
+  base: '/fdql',
   outDir: './.build/site',
-  site: 'https://viniciusrmcarneiro.github.io',
+  site: 'https://fdql.github.io',
   integrations: [
     starlight({
       title: 'Firebase Desk',
       customCss: ['./src/styles/docs.css'],
       editLink: {
-        baseUrl: 'https://github.com/viniciusrmcarneiro/firebase-desk/edit/main/apps/docs',
+        baseUrl: 'https://github.com/fdql/fdql/edit/main/apps/docs',
       },
       logo: {
         src: './src/assets/app-icon.png',
@@ -27,7 +27,7 @@ export default defineConfig({
       social: [{
         icon: 'github',
         label: 'GitHub',
-        href: 'https://github.com/viniciusrmcarneiro/firebase-desk',
+        href: 'https://github.com/fdql/fdql',
       }],
       sidebar: [
         {
@@ -61,7 +61,7 @@ export default defineConfig({
 
 function serveDemoAppInDev() {
   return {
-    name: 'firebase-desk-demo-dev-static',
+    name: 'fdql-demo-dev-static',
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use(async (request, response, next) => {

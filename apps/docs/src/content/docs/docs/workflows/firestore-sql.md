@@ -100,6 +100,6 @@ Firestore SQL beta should make read work easier without pretending Firestore is 
 
 The repo tracks implementation separately from the dialect spec:
 
-- [Dialect contract](https://github.com/viniciusrmcarneiro/firebase-desk/blob/main/docs/firestore-sql-dialect.md): language contract.
-- [Product behavior](https://github.com/viniciusrmcarneiro/firebase-desk/blob/main/docs/firestore-sql.md): product behavior and execution-plan language.
-- [Implementation status](https://github.com/viniciusrmcarneiro/firebase-desk/blob/main/docs/firestore-sql-implementation-status.md): shipped, partial, spec-only, and deferred work.
+- [Dialect contract](https://github.com/fdql/fdql/blob/main/docs/firestore-sql-dialect.md): language contract.
+- [Product behavior](https://github.com/fdql/fdql/blob/main/docs/firestore-sql.md): product behavior and execution-plan language.
+- [Implementation status](https://github.com/fdql/fdql/blob/main/docs/firestore-sql-implementation-status.md): shipped, partial, spec-only, and deferred work.

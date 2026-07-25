@@ -21,7 +21,7 @@ Each entry has an area, status, action, summary, timestamp, optional duration, o
 
 Open Activity from the status bar. Newest entries appear first.
 
-![Activity drawer showing filters, recent entries, and expanded metadata detail.](/firebase-desk/screenshots/activity.png)
+![Activity drawer showing filters, recent entries, and expanded metadata detail.](/fdql/screenshots/activity.png)
 
 - Search by action, area, status, summary, target label/path/UID, or error message.
 - Filter by area: app, auth, firestore, js-query, projects, settings, or workspace.

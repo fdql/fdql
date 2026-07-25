@@ -23,7 +23,7 @@ Firestore is the deepest Firebase Desk surface.
 
 Use [Firestore SQL beta](../firestore-sql/) when a read-only question is easier to express with select fields, joins, map/array expansion, or generated JavaScript Query snippets.
 
-![Firestore query results in table view with an orders collection selected.](/firebase-desk/screenshots/workspace.png)
+![Firestore query results in table view with an orders collection selected.](/fdql/screenshots/workspace.png)
 
 ## Write
 
@@ -34,7 +34,7 @@ Use [Firestore SQL beta](../firestore-sql/) when a read-only question is easier 
 - Delete documents with optional subcollection handling.
 - Resolve save conflicts and stale field edits.
 
-![Document JSON editor opened for a Firestore order document.](/firebase-desk/screenshots/document-edit.png)
+![Document JSON editor opened for a Firestore order document.](/fdql/screenshots/document-edit.png)
 
 ## Jobs
 

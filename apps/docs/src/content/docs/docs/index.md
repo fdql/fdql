@@ -5,7 +5,7 @@ description: Start here for Firebase Desk setup, workflows, and feature referenc
 
 Firebase Desk is an Electron desktop app for Firebase admin/data workflows. It gives developers a dense local workspace for Firestore, Authentication, JavaScript Query, collection jobs, Activity, and multi-environment project management.
 
-Use the [browser demo](/firebase-desk/demo/) first if you want to try the product with sample data and no Firebase credentials.
+Use the [browser demo](/fdql/demo/) first if you want to try the product with sample data and no Firebase credentials.
 
 ## What it is for
 

@@ -17,7 +17,7 @@ JavaScript Query is for developer/admin scripts that need quick inspection outpu
 
 The UI handles plain objects, arrays, document-like values, query snapshots, log entries, errors, and empty results.
 
-![JavaScript Query editor with streamed output and log entries.](/firebase-desk/screenshots/js-query.png)
+![JavaScript Query editor with streamed output and log entries.](/fdql/screenshots/js-query.png)
 
 ## Safety
 
