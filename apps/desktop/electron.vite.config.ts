@@ -50,9 +50,9 @@ export default defineConfig({
         publicPath: 'monacoeditorwork',
         customDistPath: (_root, buildOutDir) => resolve(buildOutDir, 'monacoeditorwork'),
         customWorkers: [
-          { label: 'editorWorkerService', entry: 'monaco-editor/esm/vs/editor/editor.worker.js' },
-          { label: 'json', entry: 'monaco-editor/esm/vs/language/json/json.worker.js' },
-          { label: 'typescript', entry: 'monaco-editor/esm/vs/language/typescript/ts.worker.js' },
+          { label: 'editorWorkerService', entry: 'monaco-editor/editor/editor.worker.js' },
+          { label: 'json', entry: 'monaco-editor/language/json/json.worker.js' },
+          { label: 'typescript', entry: 'monaco-editor/language/typescript/ts.worker.js' },
         ],
       }),
     ],

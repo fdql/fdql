@@ -40,7 +40,7 @@ export default defineConfig({
         },
         {
           label: 'Workflows',
-          autogenerate: { directory: 'docs/workflows' },
+          items: [{ autogenerate: { directory: 'docs/workflows' } }],
         },
         {
           label: 'Reference',
