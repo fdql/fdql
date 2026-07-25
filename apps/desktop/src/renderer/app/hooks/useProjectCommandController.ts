@@ -17,6 +17,7 @@ interface UseProjectCommandControllerInput {
   readonly recordActivity: (input: ActivityLogAppendInput) => Promise<void> | void;
   readonly reloadProjects: () => Promise<ReadonlyArray<ProjectSummary>>;
   readonly setLastAction: (action: string) => void;
+  readonly upsertProject: (project: ProjectSummary) => void;
 }
 
 export function useProjectCommandController(
@@ -25,6 +26,7 @@ export function useProjectCommandController(
     recordActivity,
     reloadProjects,
     setLastAction,
+    upsertProject,
   }: UseProjectCommandControllerInput,
 ) {
   const env = useMemo(() => ({
@@ -39,6 +41,7 @@ export function useProjectCommandController(
   return {
     addProject: async (input: ProjectAddInput): Promise<ProjectSummary> => {
       const result = await addProjectCommand(env, input);
+      upsertProject(result.result);
       setLastAction(result.lastAction);
       return result.result;
     },
@@ -55,6 +58,7 @@ export function useProjectCommandController(
       patch: ProjectUpdatePatch,
     ): Promise<ProjectSummary> => {
       const result = await updateProjectCommand(env, { id, patch });
+      upsertProject(result.result);
       setLastAction(result.lastAction);
       return result.result;
     },

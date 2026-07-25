@@ -742,6 +742,7 @@ function createProjectsQuery(project: ReturnType<typeof createProjectFixture>) {
   return {
     data: [project],
     reload: vi.fn(),
+    upsert: vi.fn(),
   };
 }
 

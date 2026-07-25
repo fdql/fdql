@@ -249,6 +249,7 @@ export function useAppShellController(
     recordActivity,
     reloadProjects: projectsQuery.reload,
     setLastAction,
+    upsertProject: projectsQuery.upsert,
   });
   const editingProject = editingProjectId
     ? projects.find((project) => project.id === editingProjectId) ?? null
