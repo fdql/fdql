@@ -220,6 +220,14 @@ describe('useAppShellController', () => {
 
     input.layout.onSidebarResize(10);
 
+    expect(lastControllerInput().layout.sidebarCollapsed).toBe(false);
+
+    input.layout.onSidebarResize(10, 10);
+
+    expect(lastControllerInput().layout.sidebarCollapsed).toBe(false);
+
+    input.layout.onSidebarResize(10, 220);
+
     await waitFor(() => expect(lastControllerInput().layout.sidebarCollapsed).toBe(true));
     expect(save).not.toHaveBeenCalled();
 

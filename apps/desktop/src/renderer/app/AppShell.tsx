@@ -73,7 +73,8 @@ export function AppShell(
           groupResizeBehavior='preserve-pixel-size'
           maxSize={controller.layout.sidebarMaxSize}
           minSize={controller.layout.sidebarMinSize}
-          onResize={(size) => controller.layout.onSidebarResize(size.inPixels)}
+          onResize={(size, _id, previousSize) =>
+            controller.layout.onSidebarResize(size.inPixels, previousSize?.inPixels)}
           panelRef={(panel) => {
             sidebarPanelRef.current = panel;
           }}

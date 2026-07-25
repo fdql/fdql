@@ -144,7 +144,7 @@ export interface AppShellController {
     readonly sidebarDefaultWidth: number;
     readonly sidebarMaxSize?: string | undefined;
     readonly sidebarMinSize: string;
-    readonly onSidebarResize: (size: number) => void;
+    readonly onSidebarResize: (size: number, previousSize?: number) => void;
   };
   readonly sidebar: {
     readonly collapsed: boolean;
@@ -283,7 +283,7 @@ export interface AppShellOrchestratorInput {
   readonly layout: {
     readonly sidebarCollapsed: boolean;
     readonly sidebarDefaultWidth: number;
-    readonly onSidebarResize: (size: number) => void;
+    readonly onSidebarResize: (size: number, previousSize?: number) => void;
   };
   readonly nextCreateDocumentRequestId: () => number;
   readonly nextCollectionJobRequestId: () => number;

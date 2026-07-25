@@ -349,9 +349,14 @@ export function useAppShellController(
     layout: {
       sidebarCollapsed,
       sidebarDefaultWidth,
-      onSidebarResize: (size) => {
+      onSidebarResize: (size, previousSize) => {
         if (size <= COLLAPSED_SIDEBAR_WIDTH + 1) {
-          setSidebarCollapsed(true);
+          if (
+            previousSize !== undefined
+            && previousSize > COLLAPSED_SIDEBAR_WIDTH + 1
+          ) {
+            setSidebarCollapsed(true);
+          }
           return;
         }
         if (size < MIN_SIDEBAR_WIDTH) return;
