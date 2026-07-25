@@ -5,9 +5,9 @@ description: Install Firebase Desk, try the demo, and connect Firebase projects 
 
 ## 1. Try the browser demo
 
-Open the [browser demo](/firebase-desk/demo/) to explore the app with sample data. The demo uses mock repositories only, so it cannot read credentials or call real Firebase projects.
+Open the [browser demo](/fdql/demo/) to explore the app with sample data. The demo uses mock repositories only, so it cannot read credentials or call real Firebase projects.
 
-![Firebase Desk running in mock mode with a Firestore orders query.](/firebase-desk/screenshots/workspace.png)
+![Firebase Desk running in mock mode with a Firestore orders query.](/fdql/screenshots/workspace.png)
 
 ## 2. Install the desktop app
 

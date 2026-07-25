@@ -24,22 +24,22 @@ Firebase Desk is for developers who need a direct workbench for Firebase project
 - Jobs drawer, activity log, status bar, loading, empty, and error states.
 - Local settings for theme, density, mock/live mode, activity retention, stale-write behavior, saved table layouts, field catalogs, and credential storage.
 
-See the full feature inventory in the docs: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/features/>
+See the full feature inventory in the docs: <https://fdql.github.io/fdql/docs/features/>
 
 ## Docs
 
-- Website: <https://viniciusrmcarneiro.github.io/firebase-desk/>
-- Browser demo: <https://viniciusrmcarneiro.github.io/firebase-desk/demo/>
-- Docs: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/>
-- Getting started: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/getting-started/>
-- Features: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/features/>
-- Safety: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/safety/>
-- Troubleshooting: <https://viniciusrmcarneiro.github.io/firebase-desk/docs/troubleshooting/>
+- Website: <https://fdql.github.io/fdql/>
+- Browser demo: <https://fdql.github.io/fdql/demo/>
+- Docs: <https://fdql.github.io/fdql/docs/>
+- Getting started: <https://fdql.github.io/fdql/docs/getting-started/>
+- Features: <https://fdql.github.io/fdql/docs/features/>
+- Safety: <https://fdql.github.io/fdql/docs/safety/>
+- Troubleshooting: <https://fdql.github.io/fdql/docs/troubleshooting/>
 
 ## Downloads
 
-- Latest release: <https://github.com/viniciusrmcarneiro/firebase-desk/releases/tag/latest>
-- Versioned releases: <https://github.com/viniciusrmcarneiro/firebase-desk/releases>
+- Latest release: <https://github.com/fdql/fdql/releases/tag/latest>
+- Versioned releases: <https://github.com/fdql/fdql/releases>
 
 Release binaries are unsigned development builds. Verify checksums before opening downloaded packages:
 

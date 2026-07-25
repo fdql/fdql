@@ -17,7 +17,7 @@ Collection jobs are long-running Firestore workflows surfaced in a dedicated dra
 
 The jobs drawer shows status, progress, summaries, issue states, cancellation, completed-job cleanup, and recent job history.
 
-![Jobs drawer showing a collection copy job with progress and status.](/firebase-desk/screenshots/jobs.png)
+![Jobs drawer showing a collection copy job with progress and status.](/fdql/screenshots/jobs.png)
 
 ## Activity
 

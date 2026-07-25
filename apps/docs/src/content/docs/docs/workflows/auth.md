@@ -17,7 +17,7 @@ The Authentication surface is designed for account inspection while Firestore an
 
 Custom claims can be edited from the selected user detail panel. Use this for admin/debug workflows where you need to verify authorization state across emulator, staging, or production.
 
-![Authentication user table with a selected user detail panel.](/firebase-desk/screenshots/auth.png)
+![Authentication user table with a selected user detail panel.](/fdql/screenshots/auth.png)
 
 ## Environment context
 

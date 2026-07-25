@@ -5,7 +5,7 @@ description: Common Firebase Desk setup and workflow checks.
 
 ## Demo does not load
 
-The browser demo is a static build inside the docs site. Rebuild docs with `pnpm docs:build`, then serve `apps/docs/.build/site` and open `/firebase-desk/demo/`.
+The browser demo is a static build inside the docs site. Rebuild docs with `pnpm docs:build`, then serve `apps/docs/.build/site` and open `/fdql/demo/`.
 
 ## Firestore tree is empty
 
