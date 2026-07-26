@@ -24,7 +24,7 @@
     "@storybook/react-vite": "10.5.4",
     "@tailwindcss/postcss": "4.3.3",
     "@vitejs/plugin-react": "6.0.1",
-    "lucide-react": "1.26.0",
+    "lucide-react": "1.27.0",
     "postcss": "8.5.23",
     "storybook": "10.5.4",
     "tailwindcss": "4.3.3",

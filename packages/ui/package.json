@@ -32,7 +32,7 @@
     "@tanstack/react-virtual": "3.14.8",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
-    "lucide-react": "1.26.0",
+    "lucide-react": "1.27.0",
     "react-resizable-panels": "4.12.2",
     "tailwind-merge": "3.6.0"
   },
