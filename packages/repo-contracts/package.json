@@ -24,7 +24,7 @@
     "@firebase-desk/config-oxlint": "workspace:*",
     "@firebase-desk/config-tsconfig": "workspace:*",
     "@firebase-desk/config-vitest": "workspace:*",
-    "oxlint": "1.75.0",
+    "oxlint": "1.76.0",
     "typescript": "6.0.3",
     "vitest": "4.1.10"
   }

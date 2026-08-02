@@ -47,9 +47,9 @@
     "@types/node": "24.13.3",
     "@vitest/coverage-v8": "4.1.10",
     "dprint": "0.55.2",
-    "oxlint": "1.75.0",
+    "oxlint": "1.76.0",
     "tsx": "4.23.1",
-    "turbo": "2.10.6",
+    "turbo": "2.10.7",
     "typescript": "6.0.3"
   },
   "pnpm": {
