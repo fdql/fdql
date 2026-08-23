@@ -18,27 +18,27 @@
     "@firebase-desk/product-ui": "workspace:*",
     "@firebase-desk/repo-mocks": "workspace:*",
     "@firebase-desk/ui": "workspace:*",
-    "@storybook/addon-docs": "10.5.4",
-    "@storybook/addon-themes": "10.5.4",
-    "@storybook/react": "10.5.4",
-    "@storybook/react-vite": "10.5.4",
+    "@storybook/addon-docs": "10.5.10",
+    "@storybook/addon-themes": "10.5.10",
+    "@storybook/react": "10.5.10",
+    "@storybook/react-vite": "10.5.10",
     "@tailwindcss/postcss": "4.3.3",
     "@vitejs/plugin-react": "6.0.1",
-    "lucide-react": "1.26.0",
-    "postcss": "8.5.23",
-    "storybook": "10.5.4",
+    "lucide-react": "1.33.0",
+    "postcss": "8.5.26",
+    "storybook": "10.5.10",
     "tailwindcss": "4.3.3",
     "vite": "8.0.16"
   },
   "devDependencies": {
     "@firebase-desk/config-oxlint": "workspace:*",
     "@firebase-desk/config-tsconfig": "workspace:*",
-    "@types/react": "19.2.17",
-    "@types/react-dom": "19.2.3",
-    "oxlint": "1.75.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "oxlint": "1.79.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "typescript": "6.0.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }
