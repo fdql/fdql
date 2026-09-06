@@ -27,14 +27,14 @@
     "@firebase-desk/config-vitest": "workspace:*",
     "@firebase-desk/repo-contracts": "workspace:*",
     "@testing-library/dom": "10.4.1",
-    "@testing-library/react": "16.3.2",
-    "@types/react-dom": "19.2.3",
-    "@types/react": "19.2.17",
+    "@testing-library/react": "16.3.3",
+    "@types/react-dom": "19.2.7",
+    "@types/react": "19.2.18",
     "jsdom": "29.1.1",
-    "oxlint": "1.75.0",
+    "oxlint": "1.81.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "typescript": "6.0.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }

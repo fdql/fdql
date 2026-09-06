@@ -19,14 +19,14 @@
   "dependencies": {
     "@firebase-desk/design-tokens": "workspace:*",
     "@firebase-desk/repo-contracts": "workspace:*",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@firebase-desk/config-oxlint": "workspace:*",
     "@firebase-desk/config-tsconfig": "workspace:*",
     "@firebase-desk/config-vitest": "workspace:*",
-    "oxlint": "1.75.0",
+    "oxlint": "1.81.0",
     "typescript": "6.0.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }
