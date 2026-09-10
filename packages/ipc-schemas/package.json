@@ -27,6 +27,6 @@
     "@firebase-desk/config-vitest": "workspace:*",
     "oxlint": "1.75.0",
     "typescript": "6.0.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }
