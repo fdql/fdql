@@ -17,7 +17,7 @@
     "@firebase-desk/config-tsconfig": "workspace:*",
     "@playwright/test": "1.62.0",
     "@types/node": "24.13.3",
-    "electron": "41.10.3",
+    "electron": "41.10.6",
     "oxlint": "1.75.0",
     "typescript": "6.0.3"
   }
